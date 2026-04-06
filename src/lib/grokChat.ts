@@ -18,25 +18,16 @@ export enum Modality {
 }
 
 /**
- * Simple Grok client
+ * Simple Grok client (using backend proxy)
  */
 export async function sendToGrok(message: string): Promise<string> {
-  const apiKey = (typeof process !== 'undefined' && process.env.GROK_API_KEY) || '';
-  
-  if (!apiKey) {
-    console.error('GROK_API_KEY is not set');
-    return 'Error: GROK_API_KEY is not set';
-  }
-
   try {
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    const response = await fetch('/api/grok/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'grok-4.1',
         messages: [{ role: 'user', content: message }],
       }),
     });
@@ -84,8 +75,37 @@ export class GoogleGenAI {
               text: response,
               candidates: [{ content: { parts: [{ text: response }] } }]
             };
+          },
+          sendMessageStream: async (params: { message: string }) => {
+            const response = await sendToGrok(params.message);
+            return (async function* () {
+              yield {
+                text: response,
+                candidates: [{ content: { parts: [{ text: response }] } }]
+              };
+            })();
           }
         };
+      }
+    };
+  }
+
+  get live() {
+    return {
+      connect: (params: any) => {
+        console.log("Mocking Live API connection...");
+        if (params.callbacks?.onopen) {
+          setTimeout(() => params.callbacks.onopen(), 100);
+        }
+        return Promise.resolve({
+          sendRealtimeInput: (input: any) => {
+            console.log("Mock Live Input:", input);
+          },
+          close: () => {
+            console.log("Mock Live Closed");
+            if (params.callbacks?.onclose) params.callbacks.onclose();
+          }
+        });
       }
     };
   }

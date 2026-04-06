@@ -153,6 +153,40 @@ async function startServer() {
     });
   });
 
+  app.post("/api/grok/chat", async (req, res) => {
+    const { messages } = req.body;
+    const apiKey = process.env.GROK_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(500).json({ error: "GROK_API_KEY is not set" });
+    }
+
+    try {
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'grok-4.1',
+          messages: messages,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return res.status(response.status).json(errorData);
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error("Error calling Grok API:", error);
+      res.status(500).json({ error: "Failed to call Grok API" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -219,13 +219,13 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                 
                 {/* Nodes & Edges */}
                 <div className="flex-1 relative min-h-0">
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" viewBox="0 0 100 100" preserveAspectRatio="none">
                     {/* Main to Auth */}
-                    <path d="M 30% 50% Q 45% 30% 60% 30%" fill="none" stroke="#06b6d4" strokeWidth="2" className="opacity-60" />
+                    <path d="M 30 50 Q 45 30 60 30" fill="none" stroke="#06b6d4" strokeWidth="2" className="opacity-60" />
                     {/* Main to Dashboard */}
-                    <path d="M 30% 50% L 60% 50%" fill="none" stroke="#06b6d4" strokeWidth="2" className="opacity-60" />
+                    <path d="M 30 50 L 60 50" fill="none" stroke="#06b6d4" strokeWidth="2" className="opacity-60" />
                     {/* Main to Settings */}
-                    <path d="M 30% 50% Q 45% 70% 60% 70%" fill="none" stroke="#06b6d4" strokeWidth="2" className="opacity-60" />
+                    <path d="M 30 50 Q 45 70 60 70" fill="none" stroke="#06b6d4" strokeWidth="2" className="opacity-60" />
                   </svg>
                   
                   {/* Root Node */}
