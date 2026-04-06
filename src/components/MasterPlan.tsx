@@ -2,56 +2,56 @@ import React, { useState } from 'react';
 
 const STATIC_SECTIONS = [
   { 
-    id: 'objective', 
-    title: '1. Objective & Goal & Scope', 
-    content: `OBJECTIVE & GOAL & SCOPE\n\nConstruct 'Nebula,' a voice-first Integrated Development Environment (IDE) prototype engineered to circumvent common development pitfalls.\n\nGOAL:\nEnable hands-free, rapid UI prototyping and logic modification without manual typing. Eliminate boilerplate infrastructure setup and environment variable management.\n\nSCOPE:\n- Voice-to-Code Generation\n- Zero-Config Auto-Provisioning (Vercel/Firebase)\n- Live Preview & Terminal Sync` 
+    id: 'problem', 
+    title: '1. The Problem We’re Solving', 
+    content: `THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by Grok B)` 
   },
   { 
-    id: 'roles', 
-    title: '2. User Roles', 
-    content: `USER ROLES\n\n- Owner/Administrator: Full access to project settings, infrastructure provisioning controls, and environment variable management.\n- Collaborator/Editor: Read/write access to the codebase, voice-command execution, and terminal access.\n- Viewer: Read-only access to code, architecture mind maps, and preview environments.` 
+    id: 'target', 
+    title: '2. Target User & Context', 
+    content: `TARGET USER & CONTEXT\n\n(Content to be updated by Grok B)` 
+  },
+  { 
+    id: 'must-have', 
+    title: '3. Must-Have Features', 
+    content: `MUST-HAVE FEATURES\n\n(Content to be updated by Grok B)` 
+  },
+  { 
+    id: 'nice-to-have', 
+    title: '4. Nice-to-Have Features', 
+    content: `NICE-TO-HAVE FEATURES\n\n(Content to be updated by Grok B)` 
+  },
+  { 
+    id: 'scale', 
+    title: '5. User Scale & Load', 
+    content: `USER SCALE & LOAD\n\n(Content to be updated by Grok B)` 
   },
   { 
     id: 'data', 
-    title: '3. Data & Models', 
-    content: `DATA & MODELS\n\nENTITIES:\n- User\n- Project\n- Environment\n- Deployment\n- VoiceCommandLog (ephemeral)\n\nRELATIONAL STRUCTURE:\n- One-to-many (User -> Project)\n- One-to-one (Project -> Environment)\n\nANTICIPATED VOLUME:\nSmall to medium scale initially, leveraging local storage for state synchronization and document storage.` 
+    title: '6. Data Requirements', 
+    content: `DATA REQUIREMENTS\n\n(Content to be updated by Grok B)` 
   },
   { 
-    id: 'constraints', 
-    title: '4. Constraints & Edges', 
-    content: `CONSTRAINTS & EDGES\n\n- Hard dependencies on third-party API rate limits (LLM providers, Vercel API, database quotas).\n- Voice-to-text and LLM API rate limits require robust queueing and exponential backoff.\n- Ephemeral voice processing with a strict zero-logging policy for raw audio streams.\n- Cross-origin iframe restrictions for the live preview environment.` 
+    id: 'accessibility', 
+    title: '7. Accessibility & Inclusivity', 
+    content: `ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by Grok B)` 
   },
   { 
-    id: 'branding', 
-    title: '5. Branding System', 
-    content: `BRANDING SYSTEM\n\n- Layout: Fluid responsive design with a glassmorphic aesthetic.\n- Theme: Deep space dark mode (Midnight blues, cyan accents, neon purple highlights).\n- Interaction: Voice-primary navigation. High-contrast visual feedback for voice recognition states (pulsing waves).\n- Typography: Space Grotesk for headlines/labels, Inter for body/UI text, JetBrains Mono for code.` 
-  },
-  { 
-    id: 'competition', 
-    title: '7. Competition Analysis', 
-    content: `COMPETITION ANALYSIS\n\nCOMPETITORS:\n- Cursor IDE\n- GitHub Copilot Workspace\n- Vercel v0\n\nDIFFERENTIATORS:\n- Voice-First Native: Built from the ground up for spoken natural language, not just text prompts.\n- Zero-Config Infrastructure: Automatically provisions frontend environments upon project creation, removing the "blank canvas" setup friction.` 
-  },
-  { 
-    id: 'pricing', 
-    title: '8. Pricing', 
-    content: `PRICING STRATEGY\n\n(Draft / TBD)\n\n- Free Tier: Limited voice commands per day, shared preview infrastructure, community support.\n- Pro Tier: Unlimited voice commands, dedicated auto-provisioned environments, private GitHub repo sync.\n- Enterprise: Custom LLM routing, SSO, advanced RBAC, VPC deployments.` 
-  },
-  { 
-    id: 'kpis', 
-    title: '9. KPIs', 
-    content: `KEY PERFORMANCE INDICATORS (KPIs)\n\n1. Voice-to-Code Generation:\n   - >90% intent recognition accuracy.\n   - Code injects and renders within 3 seconds of releasing the mic.\n   - 0 syntax errors in the generated output.\n\n2. Zero-Config Auto-Provisioning:\n   - 100% automated setup with zero manual API key copying.\n   - Completes in under 15 seconds.\n   - Results in a live "Hello World" deployment URL.\n\n3. Live Preview & Terminal Sync:\n   - Preview updates in <1 second after a code change.\n   - Terminal accurately catches and displays 100% of build/syntax errors without crashing.` 
+    id: 'research', 
+    title: '9. Market & Tech Research', 
+    content: `MARKET & TECH RESEARCH\n\n(Content to be updated by Grok B)` 
   },
 ];
 
 export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesText: string }) {
   const PLAN_SECTIONS = [
-    ...STATIC_SECTIONS.slice(0, 5),
+    ...STATIC_SECTIONS.slice(0, 7),
     {
       id: 'pages',
-      title: '6. Pages & Navigation',
+      title: '8. Pages & Navigation',
       content: pagesText
     },
-    ...STATIC_SECTIONS.slice(5)
+    ...STATIC_SECTIONS.slice(7)
   ];
 
   const [activeTab, setActiveTab] = useState(PLAN_SECTIONS[0].id);

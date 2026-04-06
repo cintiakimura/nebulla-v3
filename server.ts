@@ -33,9 +33,26 @@ async function startServer() {
   });
 
   app.post("/api/master-plan/update", (req, res) => {
-    const { tabName, content } = req.body;
-    if (!tabName || content === undefined) {
-      return res.status(400).json({ error: "tabName and content are required" });
+    const { tabIndex, content } = req.body;
+    if (tabIndex === undefined || content === undefined) {
+      return res.status(400).json({ error: "tabIndex and content are required" });
+    }
+
+    const tabNames: Record<number, string> = {
+      1: "1. The Problem We’re Solving",
+      2: "2. Target User & Context",
+      3: "3. Must-Have Features",
+      4: "4. Nice-to-Have Features",
+      5: "5. User Scale & Load",
+      6: "6. Data Requirements",
+      7: "7. Accessibility & Inclusivity",
+      8: "8. Pages & Navigation",
+      9: "9. Market & Tech Research"
+    };
+
+    const tabName = tabNames[tabIndex as number];
+    if (!tabName) {
+      return res.status(400).json({ error: "Invalid tabIndex. Must be 1-9." });
     }
 
     try {
@@ -44,11 +61,11 @@ async function startServer() {
         plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
       }
       
-      // Update the specific tab content using tabName as key
+      // Update the specific tab content using mapped tabName as key
       (plan as any)[tabName] = content;
 
       fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
-      res.json({ success: true });
+      res.json({ success: true, tabName });
     } catch (error) {
       console.error("Error updating master plan:", error);
       res.status(500).json({ error: "Failed to update master plan" });
