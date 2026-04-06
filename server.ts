@@ -158,10 +158,14 @@ async function startServer() {
     const apiKey = process.env.GROK_API_KEY;
     
     if (!apiKey) {
+      console.error("GROK_API_KEY is not set in environment");
       return res.status(500).json({ error: "GROK_API_KEY is not set" });
     }
 
     try {
+      // Using the specific model name provided by the user
+      const model = process.env.GROK_MODEL || 'grok-4-1-fast-reasoning';
+      
       const response = await fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -169,21 +173,28 @@ async function startServer() {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'grok-4.1',
+          model: model,
           messages: messages,
+          stream: false
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        return res.status(response.status).json(errorData);
+        const errorText = await response.text();
+        console.error(`Grok API error (${response.status}):`, errorText);
+        try {
+          const errorData = JSON.parse(errorText);
+          return res.status(response.status).json(errorData);
+        } catch (e) {
+          return res.status(response.status).json({ error: errorText });
+        }
       }
 
       const data = await response.json();
       res.json(data);
     } catch (error) {
       console.error("Error calling Grok API:", error);
-      res.status(500).json({ error: "Failed to call Grok API" });
+      res.status(500).json({ error: "Failed to call Grok API", details: error instanceof Error ? error.message : String(error) });
     }
   });
 

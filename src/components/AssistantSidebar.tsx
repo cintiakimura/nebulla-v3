@@ -168,12 +168,12 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
 
   const connectLive = async () => {
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        setMessages(prev => [...prev, { role: 'system', text: 'Error: GEMINI_API_KEY is not set. Please check your environment variables.' }]);
+      if (!process.env.GROK_API_KEY) {
+        setMessages(prev => [...prev, { role: 'system', text: 'Error: GROK_API_KEY is not set. Please check your environment variables.' }]);
         return;
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GROK_API_KEY });
       audioCtxRef.current = new AudioContext({ sampleRate: 24000 });
       nextPlayTime = audioCtxRef.current.currentTime;
 
@@ -262,12 +262,12 @@ Debug Rules (VETR loop):
       sessionRef.current.sendRealtimeInput({ text: textToSend });
     } else {
       try {
-        if (!process.env.GEMINI_API_KEY) {
-          setMessages(prev => [...prev, { role: 'system', text: 'Error: GEMINI_API_KEY is not set. Please check your environment variables.' }]);
+        if (!process.env.GROK_API_KEY) {
+          setMessages(prev => [...prev, { role: 'system', text: 'Error: GROK_API_KEY is not set. Please check your environment variables.' }]);
           return;
         }
 
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const ai = new GoogleGenAI({ apiKey: process.env.GROK_API_KEY });
         if (!chatSessionRef.current) {
           chatSessionRef.current = ai.chats.create({
             model: "gemini-3.1-pro-preview",
@@ -293,14 +293,14 @@ Debug Rules (VETR loop):
           }
         }
       } catch (error: any) {
-        console.error("Gemini API Error:", error);
-        let errorMsg = 'Error connecting to Gemini API.';
+        console.error("Grok API Error:", error);
+        let errorMsg = 'Error connecting to Grok API.';
         if (error?.status === 403) {
           errorMsg = 'Error: API Key is invalid or missing required scopes.';
         } else if (error instanceof TypeError && error.message === 'Failed to fetch') {
-          errorMsg = 'Error: Failed to fetch. This usually means your GEMINI_API_KEY is invalid, missing, or blocked by CORS due to an invalid key.';
+          errorMsg = 'Error: Failed to fetch. This usually means your GROK_API_KEY is invalid, missing, or blocked by CORS due to an invalid key.';
         } else if (error?.message?.includes('Failed to fetch')) {
-          errorMsg = 'Error: Failed to fetch. Please verify your GEMINI_API_KEY is correct and has the necessary permissions.';
+          errorMsg = 'Error: Failed to fetch. Please verify your GROK_API_KEY is correct and has the necessary permissions.';
         }
         setMessages(prev => [...prev, { role: 'system', text: errorMsg }]);
       }

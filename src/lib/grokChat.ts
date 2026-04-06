@@ -55,7 +55,25 @@ export class GoogleGenAI {
   get models() {
     return {
       generateContent: async (params: any) => {
-        const prompt = typeof params.contents === 'string' ? params.contents : JSON.stringify(params.contents);
+        let prompt = '';
+        if (typeof params.contents === 'string') {
+          prompt = params.contents;
+        } else if (Array.isArray(params.contents)) {
+          // Extract text from the last user message
+          const lastContent = params.contents[params.contents.length - 1];
+          if (lastContent.parts && Array.isArray(lastContent.parts)) {
+            prompt = lastContent.parts.map((p: any) => p.text || '').join(' ');
+          }
+        } else if (params.contents && typeof params.contents === 'object') {
+          if (params.contents.parts && Array.isArray(params.contents.parts)) {
+            prompt = params.contents.parts.map((p: any) => p.text || '').join(' ');
+          }
+        }
+
+        if (!prompt) {
+          prompt = JSON.stringify(params.contents);
+        }
+
         const response = await sendToGrok(prompt);
         return {
           text: response,

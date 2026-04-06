@@ -13,11 +13,11 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
     setError('');
     
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("GEMINI_API_KEY is not set.");
+      if (!process.env.GROK_API_KEY) {
+        throw new Error("GROK_API_KEY is not set.");
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GROK_API_KEY });
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Generate a single SVG mockup based ONLY on this Master Plan data:
