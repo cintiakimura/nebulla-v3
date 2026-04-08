@@ -18,23 +18,30 @@ export enum Modality {
 }
 
 /**
- * Simple Grok client (using backend proxy)
+ * Simple Grok client
  */
 export async function sendToGrok(message: string): Promise<string> {
   try {
-    const response = await fetch('/api/grok/chat', {
+    const apiKey = process.env.GROK_API_KEY;
+    if (!apiKey) {
+      throw new Error('GROK_API_KEY is not set in environment variables.');
+    }
+
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
+        model: 'grok-4-1-fast-reasoning',
         messages: [{ role: 'user', content: message }],
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'Failed to call Grok API');
+      const errorText = await response.text();
+      throw new Error(`Grok API Error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();

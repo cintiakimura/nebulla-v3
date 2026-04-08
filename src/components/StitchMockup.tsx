@@ -17,19 +17,34 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
         throw new Error("GROK_API_KEY is not set.");
       }
 
-      // TODO: connect to Grok
-      /*
-      const ai = new GoogleGenAI({ apiKey: process.env.GROK_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Generate a single SVG mockup based ONLY on this Master Plan data:
+      // Connect to Grok 4.1
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'grok-4-1-fast-reasoning',
+          messages: [{ 
+            role: 'user', 
+            content: `Generate a single SVG mockup based ONLY on this Master Plan data:
         
 ${pagesText}
 
-Return ONLY valid SVG code. No markdown formatting, no explanation.`,
+Return ONLY valid SVG code. No markdown formatting, no explanation.` 
+          }],
+        }),
       });
 
-      let svgCode = response.text || '';
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Grok API Error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      let svgCode = data.choices?.[0]?.message?.content || '';
+      
       // Clean up markdown if present
       svgCode = svgCode.replace(/```xml/g, '').replace(/```svg/g, '').replace(/```/g, '').trim();
 
@@ -40,7 +55,6 @@ Return ONLY valid SVG code. No markdown formatting, no explanation.`,
         setCurrentIndex(newGens.length - 1);
         return newGens;
       });
-      */
       setStep('review');
     } catch (err: any) {
       console.error("Failed to generate mockup:", err);
