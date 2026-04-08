@@ -23,7 +23,10 @@ export default defineConfig(({mode}) => {
             msg.includes('hmr') ||
             msg.includes('ScriptProcessorNode') ||
             msg.includes('service-worker') ||
-            msg.includes('Failed to fetch')
+            msg.includes('Service Worker') ||
+            msg.includes('Failed to fetch') ||
+            msg.includes('WebSocketInterceptor') ||
+            msg.includes('message channel closed')
           );
 
         // 1. Monkey-patch WebSocket to block Vite HMR attempts
