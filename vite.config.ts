@@ -28,7 +28,10 @@ export default defineConfig(({mode}) => {
             msg.includes('WebSocketInterceptor') ||
             msg.includes('message channel closed') ||
             msg.includes('Global WebSocket constructor') ||
-            msg.includes('ScriptProcessorNode is deprecated')
+            msg.includes('ScriptProcessorNode is deprecated') ||
+            msg.includes('listener indicated an asynchronous response') ||
+            msg.includes('message channel closed before a response was received') ||
+            msg.includes('token=')
           );
 
         // 1. Monkey-patch WebSocket to block Vite HMR attempts

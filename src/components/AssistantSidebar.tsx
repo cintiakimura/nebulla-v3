@@ -96,10 +96,10 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const autoSendTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const startAudioCapture = async () => {
     try {
-      // Grok 4.1 does not support real-time audio streaming (Live API).
-      // Instead, we use the browser's Speech Recognition to provide a hands-free experience.
       if (!('webkitSpeechRecognition' in window)) {
         throw new Error('Speech recognition not supported in this browser.');
       }
@@ -118,17 +118,24 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
         }
         
         if (finalTranscript) {
-          setInputText(prev => prev + (prev ? ' ' : '') + finalTranscript);
-          // Auto-send if it's a significant chunk of text
-          if (finalTranscript.length > 10) {
-            // We'll let the user review it for now, or we could auto-send.
-            // For a better "conversation" feel, let's auto-send after a short pause.
-          }
+          setInputText(prev => {
+            const newText = prev + (prev ? ' ' : '') + finalTranscript;
+            
+            // Clear existing timer
+            if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
+            
+            // Set a new timer to auto-send after 2 seconds of silence
+            autoSendTimerRef.current = setTimeout(() => {
+              handleSendText(newText);
+            }, 2000);
+            
+            return newText;
+          });
         }
       };
 
       recognition.onend = () => {
-        if (isLive) recognition.start(); // Keep it going if we're in "Live" mode
+        if (isLive) recognition.start();
       };
 
       recognition.start();
@@ -149,6 +156,10 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const stopAudioCapture = () => {
     setIsMicOpen(false);
     setIsLive(false);
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
@@ -157,12 +168,7 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
 
   const connectLive = async () => {
     try {
-      if (!process.env.GROK_API_KEY) {
-        setMessages(prev => [...prev, { role: 'system', text: 'Error: GROK_API_KEY is not set.' }]);
-        return;
-      }
-
-      setMessages(prev => [...prev, { role: 'system', text: 'Hands-free conversation mode active with Grok 4.1. Speak to dictate, then click send.' }]);
+      setMessages(prev => [...prev, { role: 'system', text: 'Hands-free mode active. Speak naturally; I will auto-send after a short pause.' }]);
       startAudioCapture();
     } catch (err: any) {
       console.error("Failed to connect", err);
@@ -178,60 +184,48 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
 
   const toggleLive = () => isLive ? disconnectLive() : connectLive();
 
-  const handleSendText = async () => {
-    if (!inputText.trim()) return;
-    const textToSend = inputText;
+  const handleSendText = async (overrideText?: string) => {
+    const textToSend = overrideText || inputText;
+    if (!textToSend.trim()) return;
+    
     setMessages(prev => [...prev, { role: 'user', text: textToSend }]);
     setInputText('');
+    
+    // Clear auto-send timer if it was active
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
 
-    if (isLive && sessionRef.current) {
-      sessionRef.current.sendRealtimeInput({ text: textToSend });
-    } else {
-      try {
-        if (!process.env.GROK_API_KEY) {
-          setMessages(prev => [...prev, { role: 'system', text: 'Error: GROK_API_KEY is not set. Please check your environment variables.' }]);
-          return;
-        }
+    try {
+      // Connect to Grok 4.1 via Backend Proxy to keep API Key secure
+      const response = await fetch('/api/grok/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{ 
+            role: 'system', 
+            content: "You are Nebula, an expert AI dev partner. Help the user build their application, write code, and design systems. Be concise and helpful." 
+          }, { 
+            role: 'user', 
+            content: textToSend 
+          }],
+        }),
+      });
 
-        // Connect to Grok 4.1
-        const response = await fetch('https://api.x.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: 'grok-4-1-fast-reasoning',
-            messages: [{ 
-              role: 'system', 
-              content: "You are Nebula, an expert AI dev partner. Help the user build their application, write code, and design systems. Be concise and helpful." 
-            }, { 
-              role: 'user', 
-              content: textToSend 
-            }],
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Grok API Error: ${response.status} - ${errorText}`);
-        }
-
-        const data = await response.json();
-        const responseText = data.choices?.[0]?.message?.content || '';
-        setMessages(prev => [...prev, { role: 'model', text: responseText }]);
-      } catch (error: any) {
-        console.error("Grok API Error:", error);
-        let errorMsg = 'Error connecting to Grok API.';
-        if (error?.status === 403) {
-          errorMsg = 'Error: API Key is invalid or missing required scopes.';
-        } else if (error instanceof TypeError && error.message === 'Failed to fetch') {
-          errorMsg = 'Error: Failed to fetch. This usually means your GROK_API_KEY is invalid, missing, or blocked by CORS due to an invalid key.';
-        } else if (error?.message?.includes('Failed to fetch')) {
-          errorMsg = 'Error: Failed to fetch. Please verify your GROK_API_KEY is correct and has the necessary permissions.';
-        }
-        setMessages(prev => [...prev, { role: 'system', text: errorMsg }]);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Grok API Error: ${response.status}`);
       }
+
+      const data = await response.json();
+      const responseText = data.choices?.[0]?.message?.content || '';
+      setMessages(prev => [...prev, { role: 'model', text: responseText }]);
+    } catch (error: any) {
+      console.error("Grok API Error:", error);
+      setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to Grok.'}` }]);
     }
   };
 
@@ -284,7 +278,7 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
             placeholder={isLive ? "Listening or type here..." : "Start a call or type here..."}
           />
           <div className="absolute bottom-2 right-2 flex gap-2">
-            <button onClick={handleSendText} className="w-7 h-7 flex items-center justify-center rounded-full bg-primary-container/20 text-primary hover:shadow-[0_0_15px_rgba(0,255,255,0.2)] transition-all">
+            <button onClick={() => handleSendText()} className="w-7 h-7 flex items-center justify-center rounded-full bg-primary-container/20 text-primary hover:shadow-[0_0_15px_rgba(0,255,255,0.2)] transition-all">
               <span className="material-symbols-outlined text-18">send</span>
             </button>
           </div>

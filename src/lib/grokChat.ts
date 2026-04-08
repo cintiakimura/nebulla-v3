@@ -27,14 +27,13 @@ export async function sendToGrok(message: string): Promise<string> {
       throw new Error('GROK_API_KEY is not set in environment variables.');
     }
 
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    // Connect to Grok 4.1 via Backend Proxy
+    const response = await fetch('/api/grok/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'grok-4-1-fast-reasoning',
         messages: [{ role: 'user', content: message }],
       }),
     });

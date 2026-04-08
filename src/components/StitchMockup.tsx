@@ -17,15 +17,13 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
         throw new Error("GROK_API_KEY is not set.");
       }
 
-      // Connect to Grok 4.1
-      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      // Connect to Grok 4.1 via Backend Proxy
+      const response = await fetch('/api/grok/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'grok-4-1-fast-reasoning',
           messages: [{ 
             role: 'user', 
             content: `Generate a single SVG mockup based ONLY on this Master Plan data:
