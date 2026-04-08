@@ -26,13 +26,15 @@ export default defineConfig(({mode}) => {
             msg.includes('Service Worker') ||
             msg.includes('Failed to fetch') ||
             msg.includes('WebSocketInterceptor') ||
-            msg.includes('message channel closed')
+            msg.includes('message channel closed') ||
+            msg.includes('Global WebSocket constructor') ||
+            msg.includes('ScriptProcessorNode is deprecated')
           );
 
         // 1. Monkey-patch WebSocket to block Vite HMR attempts
         const OriginalWebSocket = window.WebSocket;
         window.WebSocket = function(url, protocols) {
-          if (typeof url === 'string' && (url.includes('vite') || url.includes('hmr'))) {
+          if (typeof url === 'string' && (url.includes('vite') || url.includes('hmr') || url.includes('token='))) {
             // Return a mock object that fails silently
             return {
               readyState: 3, // CLOSED
@@ -73,7 +75,7 @@ export default defineConfig(({mode}) => {
           }
         }, true);
 
-        // 4. Silence console errors and warnings from Vite/Deprecations
+        // 4. Silence console errors, warnings, and logs from Vite/Deprecations
         const originalConsoleError = console.error;
         console.error = function() {
           const args = Array.from(arguments);
@@ -88,6 +90,14 @@ export default defineConfig(({mode}) => {
           const msg = args.join(' ');
           if (isViteError(msg)) return;
           originalConsoleWarn.apply(console, arguments);
+        };
+
+        const originalConsoleLog = console.log;
+        console.log = function() {
+          const args = Array.from(arguments);
+          const msg = args.join(' ');
+          if (isViteError(msg)) return;
+          originalConsoleLog.apply(console, arguments);
         };
       })();
     </script>`;

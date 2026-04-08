@@ -48,8 +48,6 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const chatSessionRef = useRef<any>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const captureStreamRef = useRef<MediaStream | null>(null);
-  const captureProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const captureAudioCtxRef = useRef<AudioContext | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isMicOpenRef = useRef(isMicOpen);
@@ -100,88 +98,75 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
 
   const startAudioCapture = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: {
-        sampleRate: 16000, channelCount: 1, echoCancellation: true, autoGainControl: true, noiseSuppression: true
-      } });
-      const audioCtx = new AudioContext({ sampleRate: 16000 });
-      const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      // Grok 4.1 does not support real-time audio streaming (Live API).
+      // Instead, we use the browser's Speech Recognition to provide a hands-free experience.
+      if (!('webkitSpeechRecognition' in window)) {
+        throw new Error('Speech recognition not supported in this browser.');
+      }
+
+      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
       
-      processor.onaudioprocess = (e) => {
-        if (!isMicOpenRef.current) return;
-        const inputData = e.inputBuffer.getChannelData(0);
-        const pcm16 = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          let s = Math.max(-1, Math.min(1, inputData[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-        const bytes = new Uint8Array(pcm16.buffer);
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
+      recognition.onresult = (event: any) => {
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          }
         }
         
-        if (sessionPromiseRef.current) {
-          sessionPromiseRef.current.then(session => {
-            session.sendRealtimeInput({ audio: { mimeType: 'audio/pcm;rate=16000', data: btoa(binary) } });
-          }).catch(err => console.error("Error sending audio:", err));
+        if (finalTranscript) {
+          setInputText(prev => prev + (prev ? ' ' : '') + finalTranscript);
+          // Auto-send if it's a significant chunk of text
+          if (finalTranscript.length > 10) {
+            // We'll let the user review it for now, or we could auto-send.
+            // For a better "conversation" feel, let's auto-send after a short pause.
+          }
         }
       };
-      
-      const gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0;
-      source.connect(processor);
-      processor.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      
-      captureStreamRef.current = stream;
-      captureAudioCtxRef.current = audioCtx;
-      captureProcessorRef.current = processor;
+
+      recognition.onend = () => {
+        if (isLive) recognition.start(); // Keep it going if we're in "Live" mode
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
       setIsMicOpen(true);
+      setIsLive(true);
     } catch (err: any) {
-      console.error("Failed to start audio capture", err);
-      let errorMsg = 'Failed to start audio capture.';
+      console.error("Failed to start hands-free mode", err);
+      let errorMsg = 'Failed to start hands-free mode.';
       if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-        errorMsg = 'Microphone permission denied. Please allow microphone access in your browser settings.';
+        errorMsg = 'Microphone permission denied. Please allow microphone access.';
       }
       setMessages(prev => [...prev, { role: 'system', text: errorMsg }]);
       setIsLive(false);
-      disconnectLive();
     }
   };
 
   const stopAudioCapture = () => {
     setIsMicOpen(false);
-    if (captureProcessorRef.current) {
-      captureProcessorRef.current.disconnect();
-      captureProcessorRef.current = null;
-    }
-    if (captureStreamRef.current) {
-      captureStreamRef.current.getTracks().forEach(t => t.stop());
-      captureStreamRef.current = null;
-    }
-    if (captureAudioCtxRef.current) {
-      captureAudioCtxRef.current.close();
-      captureAudioCtxRef.current = null;
+    setIsLive(false);
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
     }
   };
 
   const connectLive = async () => {
     try {
       if (!process.env.GROK_API_KEY) {
-        setMessages(prev => [...prev, { role: 'system', text: 'Error: GROK_API_KEY is not set. Please check your environment variables.' }]);
+        setMessages(prev => [...prev, { role: 'system', text: 'Error: GROK_API_KEY is not set.' }]);
         return;
       }
 
-      // Connect to Grok 4.1 (Live API Mock)
-      setMessages(prev => [...prev, { role: 'system', text: 'Live API is currently simulated with Grok 4.1.' }]);
-      setIsLive(true);
+      setMessages(prev => [...prev, { role: 'system', text: 'Hands-free conversation mode active with Grok 4.1. Speak to dictate, then click send.' }]);
       startAudioCapture();
     } catch (err: any) {
-      console.error("Failed to connect to Live API", err);
-      let errorMsg = 'Failed to connect to Live API.';
-      if (err?.status === 403) errorMsg = 'Error: API Key is invalid or missing required scopes.';
-      setMessages(prev => [...prev, { role: 'system', text: errorMsg }]);
+      console.error("Failed to connect", err);
+      setMessages(prev => [...prev, { role: 'system', text: 'Failed to start conversation mode.' }]);
     }
   };
 
@@ -189,7 +174,6 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
     if (sessionRef.current) { sessionRef.current.close(); sessionRef.current = null; }
     setIsLive(false);
     stopAudioCapture();
-    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
   };
 
   const toggleLive = () => isLive ? disconnectLive() : connectLive();

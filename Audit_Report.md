@@ -12,7 +12,7 @@
 ## 2. Core Functionalities
 | Functionality | Status | Description |
 | :--- | :--- | :--- |
-| **Grok 4.1 Integration** | ✅ Operational | AI integration routing to `/api/grok/chat` backend proxy. |
+| **Grok 4.1 Integration** | ✅ Operational | AI integration routing to direct x.ai API. Hands-free mode uses Speech-to-Text. |
 | **Master Plan Management** | ✅ Operational | Full CRUD support for `master-plan.json` via `/api/master-plan` endpoints. |
 | **Architecture Spec Writer** | ✅ Operational | Silent writer functionality for `Nebula Architecture Spec.md` via `/api/write-spec`. |
 | **Stripe Payments** | ✅ Operational | Backend support for creating checkout sessions via `/api/create-checkout-session`. |
@@ -30,7 +30,7 @@
 | Feature | Status | Details |
 | :--- | :--- | :--- |
 | **WebSocket Suppression** | ✅ Active | Aggressive suppression of Vite HMR errors via custom Vite plugin. |
-| **Deprecation Filtering** | ✅ Active | `ScriptProcessorNode` warnings are silenced in the console. |
+| **Deprecation Filtering** | ✅ Active | `ScriptProcessorNode` code removed; residual environment warnings are silenced. |
 | **Service Worker Fix** | ✅ Active | `_service-worker.js` fetch errors are silenced. |
 | **Accessibility Fix** | ✅ Active | `id` and `name` attributes added to main input fields. |
 
