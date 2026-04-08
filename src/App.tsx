@@ -49,7 +49,10 @@ interface MockUser {
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
+  role?: 'user' | 'admin' | 'super-admin';
 }
+
+const SUPER_ADMIN_EMAIL = 'cintiakimura20@gmail.com';
 
 const getFileIconInfo = (filename: string, isDirectory: boolean) => {
   if (isDirectory) return { Icon: Folder, color: 'text-cyan-400' };
@@ -144,8 +147,16 @@ export default function App() {
     // Mock authentication check
     const savedUser = localStorage.getItem('nebula_user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
-      setIsPaid(localStorage.getItem('nebula_is_paid') === 'true');
+      const parsedUser = JSON.parse(savedUser) as MockUser;
+      setUser(parsedUser);
+      
+      // Super admin bypass
+      if (parsedUser.email === SUPER_ADMIN_EMAIL) {
+        setIsPaid(true);
+        localStorage.setItem('nebula_is_paid', 'true');
+      } else {
+        setIsPaid(localStorage.getItem('nebula_is_paid') === 'true');
+      }
     }
 
     // Mock project data loading
@@ -202,7 +213,8 @@ export default function App() {
   };
 
   const handleActionRequiresPayment = (actionName: string) => {
-    if (!user || !isPaid) {
+    const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+    if (!user || (!isPaid && !isSuperAdmin)) {
       triggerCheckout();
     } else {
       alert(`${actionName} initiated successfully.`);
@@ -211,7 +223,8 @@ export default function App() {
 
   useEffect(() => {
     const handleCopyPaste = (e: ClipboardEvent) => {
-      if (!user || !isPaid) {
+      const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+      if (!user || (!isPaid && !isSuperAdmin)) {
         e.preventDefault();
         alert('Please log in and subscribe to copy or paste.');
       }
@@ -233,20 +246,28 @@ export default function App() {
 
   const handleGithubLogin = async () => {
     // Mock Github Login
+    // For testing purposes, we'll allow a prompt to simulate different users
+    const email = prompt('Enter email to login (e.g. cintiakimura20@gmail.com):', 'dev@nebula.io') || 'dev@nebula.io';
+    
+    const isSuperAdmin = email === SUPER_ADMIN_EMAIL;
+    
     const mockUser: MockUser = {
-      uid: 'github-mock-uid',
-      displayName: 'Nebula Dev',
-      email: 'dev@nebula.io',
-      photoURL: 'https://picsum.photos/seed/nebula-dev/200'
+      uid: isSuperAdmin ? 'super-admin-uid' : 'github-mock-uid',
+      displayName: isSuperAdmin ? 'Cintia Kimura' : 'Nebula Dev',
+      email: email,
+      photoURL: isSuperAdmin ? 'https://picsum.photos/seed/cintia/200' : 'https://picsum.photos/seed/nebula-dev/200',
+      role: isSuperAdmin ? 'super-admin' : 'user'
     };
+    
     setUser(mockUser);
     localStorage.setItem('nebula_user', JSON.stringify(mockUser));
 
-    // Check if already paid in local storage
-    if (localStorage.getItem('nebula_is_paid') !== 'true') {
-      triggerCheckout();
-    } else {
+    // Check if already paid in local storage or if super admin
+    if (isSuperAdmin || localStorage.getItem('nebula_is_paid') === 'true') {
       setIsPaid(true);
+      if (isSuperAdmin) localStorage.setItem('nebula_is_paid', 'true');
+    } else {
+      triggerCheckout();
     }
   };
   
@@ -313,6 +334,11 @@ export default function App() {
           </button>
           {user ? (
             <div className="flex items-center gap-3">
+              {user.email === SUPER_ADMIN_EMAIL && (
+                <span className="text-[10px] px-2 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-full font-headline uppercase tracking-widest animate-pulse shadow-[0_0_10px_rgba(0,255,255,0.3)]">
+                  Super Admin
+                </span>
+              )}
               <img src={user.photoURL || ''} alt="User" className="w-6 h-6 rounded-full border border-white/10" referrerPolicy="no-referrer" />
               <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-cyan-300 transition-colors font-headline">Logout</button>
             </div>
