@@ -44,11 +44,10 @@ export function LandingPage({ onEnter }: LandingPageProps) {
           <span className="font-headline text-lg font-normal">nebulla</span>
         </div>
         <button 
-          onClick={handleCheckout}
-          disabled={loading}
-          className="px-4 py-2 bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 rounded-md hover:bg-cyan-500/20 transition-all font-headline text-sm font-normal disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={onEnter}
+          className="px-4 py-2 bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 rounded-md hover:bg-cyan-500/20 transition-all font-headline text-sm font-normal"
         >
-          {loading ? 'Processing...' : 'Enter app (free)'}
+          Try the App
         </button>
       </header>
 
@@ -69,12 +68,11 @@ export function LandingPage({ onEnter }: LandingPageProps) {
             </p>
             <div className="flex items-center gap-4 mt-4">
               <button 
-                onClick={handleCheckout}
-                disabled={loading}
-                className="px-6 py-3 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 rounded-lg hover:bg-cyan-500/30 transition-all font-headline text-base font-normal flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={onEnter}
+                className="px-6 py-3 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 rounded-lg hover:bg-cyan-500/30 transition-all font-headline text-base font-normal flex items-center gap-2"
               >
-                {loading ? 'Processing...' : 'Start Building Now'}
-                {!loading && <ArrowRight className="w-4.5 h-4.5" />}
+                Try the App
+                <ArrowRight className="w-4.5 h-4.5" />
               </button>
             </div>
           </div>

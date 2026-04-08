@@ -31,7 +31,7 @@ function playPcmChunk(base64Data: string, audioCtx: AudioContext, isSoundOn: boo
   nextPlayTime += buffer.duration;
 }
 
-export function AssistantSidebar({ width = 320 }: { width?: number }) {
+export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { width?: number, onActionRequiresPayment?: (action: string) => void }) {
   const [isLive, setIsLive] = useState(false);
   const [isMicOpen, setIsMicOpen] = useState(false);
   const [isSoundOn, setIsSoundOn] = useState(true);
@@ -308,7 +308,11 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
               <span className="material-symbols-outlined text-18">{isSoundOn ? 'volume_up' : 'volume_off'}</span>
             </button>
           </div>
-          <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/5 text-slate-500 hover:text-cyan-300 transition-all" title="Upload File">
+          <button 
+            onClick={() => onActionRequiresPayment?.('Upload')}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/5 text-slate-500 hover:text-cyan-300 transition-all" 
+            title="Upload File"
+          >
             <span className="material-symbols-outlined text-18">attach_file</span>
           </button>
         </div>

@@ -153,6 +153,15 @@ async function startServer() {
     });
   });
 
+  app.post("/api/leads", (req, res) => {
+    const { email, action } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+    
+    console.log(`[LEAD CAPTURED] Email: ${email}, Action: ${action}, Time: ${new Date().toISOString()}`);
+    // In a real app, we would save this to a database
+    res.json({ success: true });
+  });
+
   app.post("/api/grok/chat", async (req, res) => {
     const { messages } = req.body;
     const apiKey = process.env.GROK_API_KEY;
@@ -164,7 +173,13 @@ async function startServer() {
 
     try {
       // Using the specific model name provided by the user
-      const model = process.env.GROK_MODEL || 'grok-4-1-fast-reasoning';
+      let model = process.env.GROK_MODEL || 'grok-4-1-fast-reasoning';
+      
+      // Safety check: if the model name looks like a project ID or UUID, fallback to default
+      if (!model.startsWith('grok') && model.length > 30) {
+        console.warn(`Invalid GROK_MODEL detected: "${model}". Falling back to "grok-4-1-fast-reasoning".`);
+        model = 'grok-4-1-fast-reasoning';
+      }
       
       const response = await fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
