@@ -46,9 +46,10 @@ export async function sendToGrok(message: string): Promise<string> {
 }
 
 /**
- * Mocking the GoogleGenAI interface to redirect calls to Grok 4.1
- * This is required because the frontend imports GoogleGenAI from @google/genai
+ * Mocking the AI interface to redirect calls to Grok 4.1
+ * This is required because the frontend imports from the AI SDK
  */
+/*
 export class GoogleGenAI {
   constructor(config: { apiKey: string }) {}
 
@@ -128,3 +129,4 @@ export class GoogleGenAI {
     };
   }
 }
+*/

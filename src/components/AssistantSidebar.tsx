@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, Modality, LiveServerMessage, Type } from '@google/genai';
+// import { GoogleGenAI, Modality, LiveServerMessage, Type } from '@google/genai';
 import ReactMarkdown from 'react-markdown';
 import { VoiceLinesIcon } from './VoiceLinesIcon';
 
@@ -173,6 +173,8 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
         return;
       }
 
+      // TODO: connect to Grok
+      /*
       const ai = new GoogleGenAI({ apiKey: process.env.GROK_API_KEY });
       audioCtxRef.current = new AudioContext({ sampleRate: 24000 });
       nextPlayTime = audioCtxRef.current.currentTime;
@@ -235,6 +237,7 @@ Debug Rules (VETR loop):
       
       sessionPromiseRef.current = sessionPromise;
       sessionRef.current = await sessionPromise;
+      */
     } catch (err: any) {
       console.error("Failed to connect to Live API", err);
       let errorMsg = 'Failed to connect to Live API.';
@@ -267,6 +270,8 @@ Debug Rules (VETR loop):
           return;
         }
 
+        // TODO: connect to Grok
+        /*
         const ai = new GoogleGenAI({ apiKey: process.env.GROK_API_KEY });
         if (!chatSessionRef.current) {
           chatSessionRef.current = ai.chats.create({
@@ -292,6 +297,7 @@ Debug Rules (VETR loop):
             });
           }
         }
+        */
       } catch (error: any) {
         console.error("Grok API Error:", error);
         let errorMsg = 'Error connecting to Grok API.';

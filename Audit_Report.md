@@ -12,7 +12,7 @@
 ## 2. Core Functionalities
 | Functionality | Status | Description |
 | :--- | :--- | :--- |
-| **Grok 4.1 Integration** | ✅ Operational | Mocked `GoogleGenAI` frontend library routing to `/api/grok/chat` backend proxy. |
+| **Grok 4.1 Integration** | ✅ Operational | AI integration routing to `/api/grok/chat` backend proxy. |
 | **Master Plan Management** | ✅ Operational | Full CRUD support for `master-plan.json` via `/api/master-plan` endpoints. |
 | **Architecture Spec Writer** | ✅ Operational | Silent writer functionality for `Nebula Architecture Spec.md` via `/api/write-spec`. |
 | **Stripe Payments** | ✅ Operational | Backend support for creating checkout sessions via `/api/create-checkout-session`. |

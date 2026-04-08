@@ -17,6 +17,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { v4 as uuidv4 } from 'uuid';
+import { Link, Trash2, Plus, AlertTriangle } from 'lucide-react';
 
 // Custom Node Component
 const PageNode = ({ data, id }: any) => {
@@ -28,7 +29,7 @@ const PageNode = ({ data, id }: any) => {
           <span className="text-sm font-headline text-cyan-300">{data.label}</span>
           {data.isCreated ? (
             <a href={`#${data.label.toLowerCase().replace(/\s+/g, '-')}`} className="text-[10px] text-emerald-400 hover:underline flex items-center gap-1">
-              <span className="material-symbols-outlined text-[12px]">link</span>
+              <Link className="w-3 h-3" />
               Live Link
             </a>
           ) : (
@@ -39,7 +40,7 @@ const PageNode = ({ data, id }: any) => {
           onClick={(e) => { e.stopPropagation(); data.onDelete(id); }}
           className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-opacity"
         >
-          <span className="material-symbols-outlined text-14">delete</span>
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
       <Handle type="source" position={Position.Right} className="w-2 h-2 bg-cyan-400" />
@@ -206,7 +207,7 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded-md text-13 font-headline hover:bg-cyan-500/20 transition-all shadow-[0_0_10px_rgba(0,255,255,0.1)]"
           >
-            <span className="material-symbols-outlined text-14">add</span>
+            <Plus className="w-3.5 h-3.5" />
             Add Page
           </button>
         </Panel>
@@ -231,7 +232,7 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#040f1a] border border-red-500/30 p-6 rounded-lg shadow-2xl max-w-sm w-full">
             <div className="flex items-center gap-3 mb-2">
-              <span className="material-symbols-outlined text-red-400 text-24">warning</span>
+              <AlertTriangle className="w-6 h-6 text-red-400" />
               <h3 className="text-lg font-headline text-red-400">Delete Connection?</h3>
             </div>
             <p className="text-13 text-slate-300 mb-6">Are you sure you want to remove this connection? This will impact the application's routing and architecture.</p>
@@ -248,7 +249,7 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#040f1a] border border-red-500/30 p-6 rounded-lg shadow-2xl max-w-sm w-full">
             <div className="flex items-center gap-3 mb-2">
-              <span className="material-symbols-outlined text-red-400 text-24">warning</span>
+              <AlertTriangle className="w-6 h-6 text-red-400" />
               <h3 className="text-lg font-headline text-red-400">Delete Page?</h3>
             </div>
             <p className="text-13 text-slate-300 mb-4">

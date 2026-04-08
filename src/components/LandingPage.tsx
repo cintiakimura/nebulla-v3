@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-// import { auth } from '../firebase';
-// import { onAuthStateChanged } from 'firebase/auth';
 import { Logo } from './Logo';
+import { Rocket, ArrowRight, CheckCircle, Terminal, LayoutGrid, Handshake, Network, Palette, Bug, Cpu, Globe, MoreHorizontal, PlusCircle, Trash2, CreditCard, Camera, List, Code, User } from 'lucide-react';
 
 interface LandingPageProps {
   onEnter: () => void;
@@ -49,7 +48,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
           disabled={loading}
           className="px-4 py-2 bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 rounded-md hover:bg-cyan-500/20 transition-all font-headline text-sm font-normal disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'Processing...' : 'Enter App'}
+          {loading ? 'Processing...' : 'Enter app (free)'}
         </button>
       </header>
 
@@ -59,7 +58,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-8 items-center">
           <div className="flex flex-col gap-6 text-left max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs font-headline font-normal w-fit">
-              <span className="material-symbols-outlined text-[14px]">rocket_launch</span>
+              <Rocket className="w-3.5 h-3.5" />
               The future of software architecture
             </div>
             <h1 className="text-4xl md:text-6xl font-headline text-slate-200 font-normal leading-tight">
@@ -75,7 +74,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                 className="px-6 py-3 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 rounded-lg hover:bg-cyan-500/30 transition-all font-headline text-base font-normal flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Processing...' : 'Start Building Now'}
-                {!loading && <span className="material-symbols-outlined text-[18px]">arrow_forward</span>}
+                {!loading && <ArrowRight className="w-4.5 h-4.5" />}
               </button>
             </div>
           </div>
@@ -100,32 +99,32 @@ export function LandingPage({ onEnter }: LandingPageProps) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
             <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
               <FeatureCard 
-                icon="all_inclusive" 
+                icon={<Globe className="w-6 h-6" />} 
                 title="No credit limits" 
                 description="Build without boundaries. We don't cap your creativity or charge per generation."
               />
               <FeatureCard 
-                icon="dashboard_customize" 
+                icon={<LayoutGrid className="w-6 h-6" />} 
                 title="All in one solution" 
                 description="From architecture to deployment, everything happens in one unified workspace."
               />
               <FeatureCard 
-                icon="handshake" 
+                icon={<Handshake className="w-6 h-6" />} 
                 title="Dev partner" 
                 description="More than a code generator. An AI that understands your architecture and context."
               />
               <FeatureCard 
-                icon="account_tree" 
+                icon={<Network className="w-6 h-6" />} 
                 title="Mind map" 
                 description="Visualize your entire application structure, user flows, and database schemas instantly."
               />
               <FeatureCard 
-                icon="design_services" 
+                icon={<Palette className="w-6 h-6" />} 
                 title="AI gen. UI Mockup with 3 options" 
                 description="Generate multiple UI variations for any component and choose the perfect fit."
               />
               <FeatureCard 
-                icon="bug_report" 
+                icon={<Bug className="w-6 h-6" />} 
                 title="Self debugging method" 
                 description="Automated error detection and resolution that learns from your codebase."
               />
@@ -147,7 +146,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                   "Self debugging method"
                 ].map((feature, i) => (
                   <li key={i} className="flex items-start gap-3 text-slate-300 text-sm">
-                    <span className="material-symbols-outlined text-cyan-500 text-[18px] shrink-0 mt-0.5">check_circle</span>
+                    <CheckCircle className="w-4.5 h-4.5 text-cyan-500 shrink-0 mt-0.5" />
                     <span className="leading-tight">{feature}</span>
                   </li>
                 ))}
@@ -175,7 +174,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               <div className="w-2.5 h-2.5 md:w-3 md:h-3 rounded-full bg-yellow-500/80"></div>
               <div className="w-2.5 h-2.5 md:w-3 md:h-3 rounded-full bg-green-500/80"></div>
               <div className="ml-2 md:ml-4 text-[10px] md:text-xs text-slate-400 font-mono flex items-center gap-2">
-                <span className="material-symbols-outlined text-[12px] md:text-[14px]">terminal</span>
+                <Terminal className="w-3 h-3 md:w-3.5 md:h-3.5" />
                 nebulla workspace
               </div>
             </div>
@@ -185,7 +184,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               {/* Left Sidebar (Assistant) */}
               <div className="hidden md:flex w-1/4 max-w-[240px] border-r border-white/5 bg-surface/50 flex-col">
                 <div className="p-2 md:p-3 border-b border-white/5 text-[10px] md:text-xs font-headline text-cyan-300 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[14px]">smart_toy</span>
+                  <Cpu className="w-3.5 h-3.5" />
                   AI Assistant
                 </div>
                 <div className="flex-1 p-3 flex flex-col gap-3 overflow-hidden">
@@ -208,11 +207,11 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                 {/* Tabs */}
                 <div className="h-8 border-b border-white/5 flex items-center px-2 z-10 bg-background/50 backdrop-blur-sm shrink-0">
                   <div className="px-3 py-1 text-[10px] text-cyan-300 border-b-2 border-cyan-400 bg-cyan-500/10 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[12px]">account_tree</span>
+                    <Network className="w-3 h-3" />
                     Mind Map
                   </div>
                   <div className="px-3 py-1 text-[10px] text-slate-500 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[12px]">list_alt</span>
+                    <List className="w-3 h-3" />
                     Master Plan
                   </div>
                 </div>
@@ -255,7 +254,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               {/* Right Sidebar (Code) */}
               <div className="hidden lg:flex w-1/3 max-w-[320px] border-l border-white/5 bg-[#0d1117] flex-col">
                 <div className="h-8 border-b border-white/5 flex items-center px-3 text-[10px] text-slate-400 font-mono bg-[#161b22] shrink-0 gap-2">
-                  <span className="material-symbols-outlined text-[12px] text-blue-400">code</span>
+                  <Code className="w-3 h-3 text-blue-400" />
                   App.tsx
                 </div>
                 <div className="p-4 font-mono text-[10px] text-slate-300 flex flex-col gap-1.5 overflow-hidden">
@@ -277,7 +276,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
             {/* Bottom Terminal */}
             <div className="h-20 md:h-24 border-t border-white/5 bg-[#0d1117] flex flex-col shrink-0">
               <div className="h-6 border-b border-white/5 flex items-center px-3 text-[10px] text-slate-500 font-mono bg-[#161b22] gap-2">
-                <span className="material-symbols-outlined text-[12px]">terminal</span>
+                <Terminal className="w-3 h-3" />
                 Terminal
               </div>
               <div className="p-2 font-mono text-[10px] text-slate-400 flex flex-col gap-1 overflow-hidden">
@@ -312,11 +311,11 @@ export function LandingPage({ onEnter }: LandingPageProps) {
   );
 }
 
-function FeatureCard({ icon, title, description }: { icon: string, title: string, description: string }) {
+function FeatureCard({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
   return (
     <div className="glass-panel border border-white/5 rounded-xl p-6 flex flex-col gap-4 hover:border-cyan-500/30 transition-colors text-left">
       <div className="w-12 h-12 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
-        <span className="material-symbols-outlined text-2xl">{icon}</span>
+        {icon}
       </div>
       <h3 className="text-xl font-headline text-slate-200 font-normal">{title}</h3>
       <p className="text-slate-400 text-sm font-normal leading-relaxed">{description}</p>

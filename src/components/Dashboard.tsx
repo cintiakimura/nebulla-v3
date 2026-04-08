@@ -196,7 +196,7 @@ function SecretsTab() {
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
-              <span className="text-sm text-slate-300 font-mono">GEMINI_API_KEY</span>
+              <span className="text-sm text-slate-300 font-mono">GROK_API_KEY</span>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-xs text-slate-500">Added 2 days ago</span>

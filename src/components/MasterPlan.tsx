@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { BookOpen, Lock, Save, X } from 'lucide-react';
 
 const STATIC_SECTIONS = [
   { 
@@ -70,10 +71,10 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
       {/* Header */}
       <div className="h-12 px-4 flex items-center justify-between border-b border-white/5 bg-white/5">
         <div className="flex items-center gap-3 text-cyan-300">
-          <span className="material-symbols-outlined text-18">menu_book</span>
+          <BookOpen className="w-4.5 h-4.5" />
           <span className="font-headline text-sm tracking-wide">Master Plan</span>
           <span className="px-2 py-0.5 rounded text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 flex items-center gap-1">
-            <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>lock</span>
+            <Lock className="w-3 h-3" />
             SOURCE OF TRUTH
           </span>
         </div>
@@ -82,12 +83,12 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
             onClick={handleSave}
             className="flex items-center gap-1 px-4 py-1.5 bg-primary-container/10 hover:bg-primary-container/20 text-primary rounded text-xs transition-colors border border-primary/20 font-headline"
           >
-            <span className="material-symbols-outlined text-14">save</span>
+            <Save className="w-3.5 h-3.5" />
             {isSaved ? 'Saved' : 'Save'}
           </button>
           <div className="w-px h-4 bg-white/10"></div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors">
-            <span className="material-symbols-outlined text-18">close</span>
+            <X className="w-4.5 h-4.5" />
           </button>
         </div>
       </div>
