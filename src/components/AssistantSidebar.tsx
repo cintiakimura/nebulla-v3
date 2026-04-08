@@ -347,6 +347,8 @@ Debug Rules (VETR loop):
       <div className="p-4 border-t border-white/5 flex flex-col gap-3">
         <div className="relative flex flex-col gap-2">
           <textarea 
+            id="assistant-input"
+            name="assistant-input"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendText(); } }}
