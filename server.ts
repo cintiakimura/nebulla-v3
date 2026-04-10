@@ -169,12 +169,36 @@ async function startServer() {
   // Example backend function: read file system
   app.get("/api/fs/list", (req, res) => {
     try {
-      const dirPath = req.query.path as string || process.cwd();
-      const files = fs.readdirSync(dirPath, { withFileTypes: true }).map(dirent => ({
-        name: dirent.name,
-        isDirectory: dirent.isDirectory()
-      }));
-      res.json({ files });
+      const pathParam = req.query.path as string || "";
+      
+      // Mock a clean project structure
+      if (pathParam === "" || pathParam === process.cwd()) {
+        return res.json({
+          files: [
+            { name: "src", isDirectory: true },
+            { name: "public", isDirectory: true },
+            { name: "package.json", isDirectory: false },
+            { name: "vite.config.ts", isDirectory: false },
+            { name: "tsconfig.json", isDirectory: false },
+            { name: "index.html", isDirectory: false },
+            { name: "README.md", isDirectory: false },
+          ]
+        });
+      }
+      
+      if (pathParam.endsWith("src")) {
+        return res.json({
+          files: [
+            { name: "components", isDirectory: true },
+            { name: "App.tsx", isDirectory: false },
+            { name: "main.tsx", isDirectory: false },
+            { name: "index.css", isDirectory: false },
+          ]
+        });
+      }
+
+      // Fallback for other paths (though in mockup we mostly care about root/src)
+      res.json({ files: [] });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

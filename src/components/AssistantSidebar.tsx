@@ -11,33 +11,46 @@ class StreamingTTSPlayer {
   private sourceBuffer: SourceBuffer | null = null;
   private audio: HTMLAudioElement | null = null;
   private queue: Uint8Array[] = [];
-  private isPlaying = false;
   private dormantTimer: NodeJS.Timeout | null = null;
+  private isInitialized = false;
 
-  constructor() {
-    this.initAudio();
-  }
+  constructor() {}
 
   private initAudio() {
+    if (this.isInitialized) return;
+    
+    console.log("[TTS] Initializing audio elements...");
     this.audio = new Audio();
     this.mediaSource = new MediaSource();
-    this.audio.src = URL.createObjectURL(this.mediaSource);
     
     this.mediaSource.addEventListener('sourceopen', () => {
+      console.log("[TTS] MediaSource opened");
       if (this.mediaSource && !this.sourceBuffer) {
-        this.sourceBuffer = this.mediaSource.addSourceBuffer('audio/mpeg');
-        this.sourceBuffer.addEventListener('updateend', () => {
-          this.processQueue();
-        });
+        try {
+          this.sourceBuffer = this.mediaSource.addSourceBuffer('audio/mpeg');
+          this.sourceBuffer.addEventListener('updateend', () => {
+            this.processQueue();
+          });
+          console.log("[TTS] SourceBuffer added successfully");
+        } catch (e) {
+          console.error("[TTS] Failed to add SourceBuffer:", e);
+        }
       }
     });
+    
+    this.audio.src = URL.createObjectURL(this.mediaSource);
+    this.isInitialized = true;
   }
 
   private processQueue() {
     if (!this.sourceBuffer || this.sourceBuffer.updating || this.queue.length === 0) return;
     const chunk = this.queue.shift();
     if (chunk) {
-      this.sourceBuffer.appendBuffer(chunk);
+      try {
+        this.sourceBuffer.appendBuffer(chunk);
+      } catch (e) {
+        console.error("[TTS] Error appending buffer:", e);
+      }
     }
   }
 
@@ -56,28 +69,36 @@ class StreamingTTSPlayer {
 
     this.socket.onmessage = async (event) => {
       try {
-        const data = JSON.parse(event.data);
+        // Handle both string and blob data
+        const text = typeof event.data === 'string' ? event.data : await event.data.text();
+        const data = JSON.parse(text);
+        
         if (data.type === 'audio.delta' && data.audio) {
           const binary = atob(data.audio);
           const bytes = new Uint8Array(binary.length);
           for (let i = 0; i < binary.length; i++) {
             bytes[i] = binary.charCodeAt(i);
           }
+          
           this.queue.push(bytes);
           this.processQueue();
+          
           if (this.audio && this.audio.paused) {
-            this.audio.play().catch(console.error);
+            this.audio.play().catch(err => {
+              // Only log if it's not a common "user must interact" error
+              if (err.name !== 'NotAllowedError') {
+                console.error("[TTS] Playback error:", err);
+              }
+            });
           }
         } else if (data.type === 'audio.done') {
           console.log("[TTS] Audio stream finished");
-          // Start dormant timer
           this.dormantTimer = setTimeout(() => {
             console.log("[TTS] Connection is now dormant");
           }, 3000);
         }
       } catch (e) {
-        // If not JSON, it might be raw binary if we changed the protocol, 
-        // but the user specified JSON format for audio.delta.
+        console.error("[TTS] Error processing WebSocket message:", e);
       }
     };
 
@@ -87,15 +108,17 @@ class StreamingTTSPlayer {
 
     return new Promise((resolve) => {
       if (this.socket) {
-        this.socket.onopen = () => {
-          console.log("[TTS] WebSocket connected");
+        const onOpen = () => {
+          this.socket?.removeEventListener('open', onOpen);
           resolve(true);
         };
+        this.socket.addEventListener('open', onOpen);
       }
     });
   }
 
   speak(text: string) {
+    this.initAudio();
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       this.connect().then(() => this.sendText(text));
     } else {
@@ -109,13 +132,7 @@ class StreamingTTSPlayer {
       this.dormantTimer = null;
     }
     
-    // Split text into small chunks to simulate streaming if needed, 
-    // but here we send the whole text as deltas as per instructions.
-    // The instructions say: "When Grok finishes generating text, open the WebSocket"
-    // and "Send text using this format: text.delta, text.delta, text.done"
-    
-    // For simplicity, we'll send it in one delta then done, 
-    // or split by sentences if we wanted more "streaming" feel.
+    console.log("[TTS] Sending text to stream:", text.substring(0, 30) + "...");
     this.socket?.send(JSON.stringify({ type: 'text.delta', text }));
     this.socket?.send(JSON.stringify({ type: 'text.done' }));
   }
