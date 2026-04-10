@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-// import { GoogleGenAI } from '@google/genai';
 
 export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesText: string }) {
   const [step, setStep] = useState<'generating' | 'review'>('generating');

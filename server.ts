@@ -249,12 +249,8 @@ async function startServer() {
     }
 
     // Basic validation of key format
-    if (apiKey.startsWith('ai') || apiKey.length < 20) {
-      const isGemini = apiKey.toLowerCase().startsWith('ai');
-      const helpMsg = isGemini 
-        ? "Your GROK_API_NEBULLA appears to be a Gemini API key (starts with 'ai'). Grok keys usually start with 'xai-'."
-        : "Your GROK_API_NEBULLA appears to be invalid. Please check it in the Settings menu.";
-      
+    if (apiKey.length < 20) {
+      const helpMsg = "Your GROK_API_NEBULLA appears to be invalid. Please check it in the Settings menu.";
       console.error(`Invalid GROK_API_NEBULLA format detected: ${helpMsg}`);
       return res.status(400).json({ error: helpMsg });
     }
