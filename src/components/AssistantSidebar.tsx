@@ -138,7 +138,7 @@ class StreamingTTSPlayer {
 
 const ttsPlayer = new StreamingTTSPlayer();
 
-export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { width?: number, onActionRequiresPayment?: (action: string) => void }) {
+export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const [isLive, setIsLive] = useState(false);
   const [isMicOpen, setIsMicOpen] = useState(false);
   const [isSoundOn, setIsSoundOn] = useState(true);
@@ -319,6 +319,15 @@ export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { wid
       
       const systemPrompt = `You are Nebula, an expert AI dev partner. You operate under strict rules:
 
+SEPARATE PROJECT MODE:
+- Treat every new user input or description as a COMPLETELY SEPARATE new product for a different user.
+- When a new idea comes in, always treat it as a brand-new project.
+- Never show or use Nebula's own internal files or code.
+
+CRITICAL DISTINCTION:
+1. Nebula IDE (This Tool): The environment you are currently in. NEVER modify its internal files or code.
+2. Nebula Product (The Goal): The voice-first AI companion app we are building for users. All new features, pages, and logic must be built for this product.
+
 MODEL RULES:
 - Normal conversation and reasoning: grok-4-1-fast-reasoning
 - Coding tasks: grok-code-fast-1
@@ -485,7 +494,7 @@ ${JSON.stringify(latestMP, null, 2)}`;
             </button>
           </div>
           <button 
-            onClick={() => onActionRequiresPayment?.('Upload')}
+            onClick={() => alert('File upload initiated.')}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/5 text-slate-500 hover:text-cyan-300 transition-all" 
             title="Upload File"
           >

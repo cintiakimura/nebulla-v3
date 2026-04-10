@@ -3,7 +3,6 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
-import Stripe from 'stripe';
 import { WebSocketServer, WebSocket } from 'ws';
 
 async function startServer() {
@@ -19,7 +18,6 @@ async function startServer() {
 
   app.get("/api/config", (req, res) => {
     res.json({
-      stripePublicKey: process.env.STRIPE_PUBLIC_KEY,
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
       googleClientId: process.env.GOOGLE_CLIENT_ID,
@@ -96,74 +94,6 @@ async function startServer() {
       console.error("Error writing spec:", error);
       res.status(500).json({ error: "Failed to write spec" });
     }
-  });
-
-  let stripeClient: Stripe | null = null;
-  function getStripe(): Stripe {
-    if (!stripeClient) {
-      const key = process.env.STRIPE_SECRET_KEY;
-      if (!key) {
-        throw new Error('STRIPE_SECRET_KEY environment variable is required');
-      }
-      stripeClient = new Stripe(key);
-    }
-    return stripeClient;
-  }
-
-  app.post("/api/create-checkout-session", async (req, res) => {
-    const { priceId, email } = req.body;
-    
-    if (email === SUPER_ADMIN_EMAIL) {
-      return res.json({ success: true, message: "Super Admin bypass active." });
-    }
-
-    try {
-      const stripe = getStripe();
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        customer_email: email,
-        line_items: [
-          {
-            price: priceId || process.env.STRIPE_PROTOTYPE_PRICE_ID || 'price_1T7pYzPNRjrb3o88hdD9Altb',
-            quantity: 1,
-          },
-        ],
-        mode: 'payment',
-        success_url: `${req.headers.origin}/?success=true`,
-        cancel_url: `${req.headers.origin}/?canceled=true`,
-      });
-      res.json({ id: session.id, url: session.url });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Stripe Webhook
-  app.post("/api/webhooks/stripe", express.raw({ type: 'application/json' }), async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    if (!sig || !webhookSecret) {
-      return res.status(400).send('Webhook Error: Missing signature or secret');
-    }
-
-    let event;
-
-    try {
-      const stripe = getStripe();
-      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-    } catch (err: any) {
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    // Handle the event
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
-      console.log(`[STRIPE] Payment successful for ${session.customer_email}`);
-      // Here you would update your database (e.g. Supabase) to mark the user as paid
-    }
-
-    res.json({ received: true });
   });
 
   // Example backend function: read file system

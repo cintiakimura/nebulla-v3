@@ -39,7 +39,6 @@ import {
   History, 
   Bug,
   ChevronDown,
-  CreditCard,
   User
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -120,12 +119,6 @@ export default function App() {
   const [isTerminalOpen, setIsTerminalOpen] = useState(true);
 
   const [user, setUser] = useState<MockUser | null>(null);
-  const [isPaid, setIsPaid] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentModalMessage, setPaymentModalMessage] = useState('');
-  const [paymentAction, setPaymentAction] = useState('');
-  const [paymentStep, setPaymentStep] = useState<'email' | 'payment'>('email');
-  const [leadEmail, setLeadEmail] = useState('');
   const [files, setFiles] = useState<{name: string, isDirectory: boolean}[]>([]);
   const [terminalHistory, setTerminalHistory] = useState<{command: string, output: string}[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
@@ -140,72 +133,16 @@ export default function App() {
       .catch(console.error);
   }, []);
 
-  const triggerCheckout = async (message?: string) => {
-    if (message) {
-      setPaymentModalMessage(message);
-      setShowPaymentModal(true);
-      return;
-    }
-    
-    try {
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: user?.email || leadEmail })
-      });
-      const session = await response.json();
-      
-      if (session.success && session.message) {
-        // Super admin bypass
-        setIsPaid(true);
-        localStorage.setItem('nebula_is_paid', 'true');
-        setShowPaymentModal(false);
-        alert(session.message);
-        return;
-      }
-
-      if (session.error) throw new Error(session.error);
-      if (session.url) window.location.href = session.url;
-    } catch (error) {
-      console.error('Checkout error:', error);
-      alert('Payment failed. Please try again.');
-    }
-  };
-
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [terminalHistory]);
 
   useEffect(() => {
-    // Check for payment success in URL
-    const query = new URLSearchParams(window.location.search);
-    if (query.get('success')) {
-      setIsPaid(true);
-      localStorage.setItem('nebula_is_paid', 'true');
-      
-      // Auto-login if we have a lead email
-      const savedLeadEmail = localStorage.getItem('nebula_lead_email');
-      if (savedLeadEmail && !user) {
-        handleGithubLogin(savedLeadEmail);
-      }
-      
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
     // Mock authentication check
     const savedUser = localStorage.getItem('nebula_user');
     if (savedUser) {
       const parsedUser = JSON.parse(savedUser) as MockUser;
       setUser(parsedUser);
-      
-      // Super admin bypass
-      if (parsedUser.email === SUPER_ADMIN_EMAIL) {
-        setIsPaid(true);
-        localStorage.setItem('nebula_is_paid', 'true');
-      } else {
-        setIsPaid(localStorage.getItem('nebula_is_paid') === 'true');
-      }
     }
 
     // Mock project data loading
@@ -262,50 +199,18 @@ export default function App() {
   };
 
   const handleActionRequiresPayment = (actionName: string) => {
-    const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
-    if (isSuperAdmin || isPaid) {
-      if (actionName === 'Login' || actionName === 'Connect') {
-        handleGithubLogin();
-      } else {
-        alert(`${actionName} initiated successfully.`);
-      }
-      return;
+    if (actionName === 'Login' || actionName === 'Connect') {
+      handleGithubLogin();
+    } else {
+      alert(`${actionName} initiated successfully.`);
     }
-
-    setPaymentAction(actionName);
-    setPaymentStep('email');
-    
-    let message = '';
-    switch (actionName) {
-      case 'Download':
-        message = 'Take your project with you. Unlock full source code downloads for 19.99€.';
-        break;
-      case 'Upload':
-        message = 'Ready to bring your own assets? Unlock file uploads and full project integration for 19.99€.';
-        break;
-      case 'Deploy':
-        message = 'Launch your vision to the world. Unlock one-click deployments for 19.99€.';
-        break;
-      case 'View Code':
-        message = 'Unlock the full power of Nebula. View, copy, and edit your generated code for a one-time payment of 19.99€.';
-        break;
-      case 'Connect':
-      case 'Login':
-        message = 'Save your progress and sync with GitHub. Unlock full account features for a one-time payment of 19.99€.';
-        break;
-      default:
-        message = 'Unlock all premium features of Nebula for a one-time payment of 19.99€.';
-    }
-
-    triggerCheckout(message);
   };
 
   useEffect(() => {
     const handleCopyPaste = (e: ClipboardEvent) => {
-      const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
-      if (!user || (!isPaid && !isSuperAdmin)) {
+      if (!user) {
         e.preventDefault();
-        alert('Please log in and subscribe to copy or paste.');
+        alert('Please log in to copy or paste.');
       }
     };
 
@@ -316,41 +221,14 @@ export default function App() {
       document.removeEventListener('copy', handleCopyPaste);
       document.removeEventListener('paste', handleCopyPaste);
     };
-  }, [user, isPaid]);
+  }, [user]);
 
   const handleLockDesign = () => {
     setShowStitchMockup(false);
     // Return to default view or mind map
   };
 
-  const handleLeadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!leadEmail.trim() || !leadEmail.includes('@')) {
-      alert('Please enter a valid email address.');
-      return;
-    }
-
-    try {
-      await fetch('/api/leads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: leadEmail, action: paymentAction })
-      });
-      localStorage.setItem('nebula_lead_email', leadEmail);
-      setPaymentStep('payment');
-    } catch (err) {
-      console.error('Failed to capture lead:', err);
-      // Proceed anyway to not block user
-      setPaymentStep('payment');
-    }
-  };
-
   const handleGithubLogin = async (overrideEmail?: string) => {
-    if (!isPaid && user?.email !== SUPER_ADMIN_EMAIL && !overrideEmail) {
-      handleActionRequiresPayment('Connect');
-      return;
-    }
-
     // Mock Github Login
     const email = overrideEmail || prompt('Enter email to login (e.g. cintiakimura20@gmail.com):', 'dev@nebula.io') || 'dev@nebula.io';
     
@@ -366,21 +244,9 @@ export default function App() {
     
     setUser(mockUser);
     localStorage.setItem('nebula_user', JSON.stringify(mockUser));
-
-    if (isSuperAdmin || localStorage.getItem('nebula_is_paid') === 'true') {
-      setIsPaid(true);
-      if (isSuperAdmin) localStorage.setItem('nebula_is_paid', 'true');
-    } else {
-      triggerCheckout();
-    }
   };
 
   const handleGoogleLogin = async () => {
-    if (!isPaid && user?.email !== SUPER_ADMIN_EMAIL) {
-      handleActionRequiresPayment('Connect');
-      return;
-    }
-
     // Mock Google Login
     const email = prompt('Enter email to login (e.g. cintiakimura20@gmail.com):', 'user@gmail.com') || 'user@gmail.com';
     
@@ -396,18 +262,10 @@ export default function App() {
     
     setUser(mockUser);
     localStorage.setItem('nebula_user', JSON.stringify(mockUser));
-
-    if (isSuperAdmin || localStorage.getItem('nebula_is_paid') === 'true') {
-      setIsPaid(true);
-      if (isSuperAdmin) localStorage.setItem('nebula_is_paid', 'true');
-    } else {
-      triggerCheckout();
-    }
   };
   
   const handleLogout = () => {
     setUser(null);
-    setIsPaid(false);
     localStorage.removeItem('nebula_user');
   };
 
@@ -711,11 +569,7 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             <button 
                               onClick={() => {
-                                if (isPaid || user?.email === SUPER_ADMIN_EMAIL) {
-                                  setShowCodePreview(!showCodePreview);
-                                } else {
-                                  handleActionRequiresPayment('View Code');
-                                }
+                                setShowCodePreview(!showCodePreview);
                               }}
                               className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-headline no-bold transition-all ${showCodePreview ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10 hover:text-slate-300'}`}
                             >
@@ -841,7 +695,7 @@ export function NebulaInterface() {
         />
 
         {/* 4. Right Sidebar (Kyn Assistant) */}
-        <AssistantSidebar width={rightWidth} onActionRequiresPayment={handleActionRequiresPayment} />
+        <AssistantSidebar width={rightWidth} />
       </main>
 
       {/* BottomNavBar */}
@@ -863,95 +717,6 @@ export function NebulaInterface() {
           <Bug className="w-5 h-5" />
         </button>
       </footer>
-
-      {/* Payment Modal */}
-      {showPaymentModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#0b1622] border border-cyan-500/30 rounded-2xl p-8 max-w-md w-full flex flex-col items-center text-center gap-6 shadow-[0_0_50px_rgba(6,182,212,0.15)] animate-in zoom-in-95 duration-300">
-            <div className="w-16 h-16 rounded-full bg-cyan-500/10 flex items-center justify-center text-cyan-400 mb-2">
-              {paymentStep === 'email' ? <User className="w-8 h-8" /> : <CreditCard className="w-8 h-8" />}
-            </div>
-            
-            <h3 className="text-2xl font-headline text-slate-200 no-bold">
-              {paymentStep === 'email' ? 'Unlock Nebula' : 'Full Access Unlocked'}
-            </h3>
-            
-            <p className="text-slate-400 text-sm leading-relaxed no-bold">
-              {paymentModalMessage}
-            </p>
-
-            {paymentStep === 'email' ? (
-              <form onSubmit={handleLeadSubmit} className="w-full space-y-4">
-                <div className="flex flex-col gap-1.5 text-left">
-                  <label className="text-[10px] text-slate-500 uppercase tracking-widest font-headline ml-1">Your Email</label>
-                  <input 
-                    type="email" 
-                    required
-                    value={leadEmail}
-                    onChange={(e) => setLeadEmail(e.target.value)}
-                    placeholder="name@company.com"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-cyan-500/50 transition-all font-body"
-                  />
-                </div>
-                <button 
-                  type="submit"
-                  className="w-full py-3 bg-cyan-500 text-black font-headline no-bold rounded-xl hover:bg-cyan-400 transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)]"
-                >
-                  Continue to Payment
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setShowPaymentModal(false)}
-                  className="w-full py-2 text-slate-500 hover:text-slate-300 transition-colors text-xs font-headline"
-                >
-                  Maybe Later
-                </button>
-              </form>
-            ) : (
-              <div className="w-full space-y-3">
-                <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4 mb-4 text-left">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs text-slate-400 font-headline uppercase">Plan</span>
-                    <span className="text-xs text-cyan-300 font-headline">Lifetime Access</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-400 font-headline uppercase">Price</span>
-                    <span className="text-lg text-slate-100 font-headline">19.99€</span>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => {
-                    // Real checkout trigger
-                    fetch('/api/create-checkout-session', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ email: leadEmail }) // Pass email to Stripe if possible
-                    })
-                    .then(res => res.json())
-                    .then(session => {
-                      if (session.url) window.location.href = session.url;
-                    })
-                    .catch(console.error);
-                  }}
-                  className="w-full py-3 bg-cyan-500 text-black font-headline no-bold rounded-xl hover:bg-cyan-400 transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)]"
-                >
-                  Pay 19.99€ Once
-                </button>
-                <button 
-                  onClick={() => setPaymentStep('email')}
-                  className="w-full py-3 bg-white/5 text-slate-400 font-headline no-bold rounded-xl hover:bg-white/10 transition-all"
-                >
-                  Back
-                </button>
-              </div>
-            )}
-            
-            <p className="text-[10px] text-slate-600 uppercase tracking-widest no-bold">
-              Everything included • No limits • Lifetime access
-            </p>
-          </div>
-        </div>
-      )}
     </>
   );
 }
