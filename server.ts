@@ -29,6 +29,7 @@ async function startServer() {
 
   // Master Plan Update Logic (Clean JSON-based storage)
   const masterPlanPath = path.join(process.cwd(), "master-plan.json");
+  const SUPER_ADMIN_EMAIL = 'cintiakimura20@gmail.com';
 
   app.get("/api/master-plan/read", (req, res) => {
     try {
@@ -110,6 +111,11 @@ async function startServer() {
 
   app.post("/api/create-checkout-session", async (req, res) => {
     const { priceId, email } = req.body;
+    
+    if (email === SUPER_ADMIN_EMAIL) {
+      return res.json({ success: true, message: "Super Admin bypass active." });
+    }
+
     try {
       const stripe = getStripe();
       const session = await stripe.checkout.sessions.create({

@@ -151,8 +151,19 @@ export default function App() {
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user?.email || leadEmail })
       });
       const session = await response.json();
+      
+      if (session.success && session.message) {
+        // Super admin bypass
+        setIsPaid(true);
+        localStorage.setItem('nebula_is_paid', 'true');
+        setShowPaymentModal(false);
+        alert(session.message);
+        return;
+      }
+
       if (session.error) throw new Error(session.error);
       if (session.url) window.location.href = session.url;
     } catch (error) {

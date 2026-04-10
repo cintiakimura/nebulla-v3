@@ -4,15 +4,29 @@ import { VoiceLinesIcon } from './VoiceLinesIcon';
 
 let nextPlayTime = 0;
 
+// Helper to play audio with better browser compatibility
+const audioQueue: HTMLAudioElement[] = [];
+
 async function playAudio(blob: Blob) {
   try {
     const url = URL.createObjectURL(blob);
     const audio = new Audio();
     audio.src = url;
     
-    // Some browsers require a user interaction to play audio. 
-    // Since this is called after a fetch, we try to play it immediately.
-    await audio.play();
+    console.log("[TTS] Attempting playback...");
+    
+    // Attempt to play
+    const playPromise = audio.play();
+    
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        console.log("[TTS] Playback started successfully.");
+      }).catch(error => {
+        console.error("[TTS] Playback blocked or failed:", error);
+        // If blocked, we might need a user gesture. 
+        // But since this is usually triggered by a 'Send' click, it should work.
+      });
+    }
     
     audio.onended = () => {
       URL.revokeObjectURL(url);
@@ -23,7 +37,7 @@ async function playAudio(blob: Blob) {
       URL.revokeObjectURL(url);
     };
   } catch (err) {
-    console.error("[TTS] Playback failed:", err);
+    console.error("[TTS] Playback setup failed:", err);
   }
 }
 
@@ -276,7 +290,7 @@ ${JSON.stringify(latestMP, null, 2)}`;
           const ttsResponse = await fetch('/api/grok/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: cleanText, voice: 'eve' }),
+            body: JSON.stringify({ text: cleanText, voice: 'Eve' }),
           });
           if (ttsResponse.ok) {
             const blob = await ttsResponse.blob();
