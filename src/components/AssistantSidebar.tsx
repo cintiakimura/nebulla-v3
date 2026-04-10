@@ -4,30 +4,11 @@ import { VoiceLinesIcon } from './VoiceLinesIcon';
 
 let nextPlayTime = 0;
 
-function playPcmChunk(base64Data: string, audioCtx: AudioContext, isSoundOn: boolean) {
-  if (!isSoundOn) return;
-  const binaryString = atob(base64Data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  const int16Array = new Int16Array(bytes.buffer);
-  const float32Array = new Float32Array(int16Array.length);
-  for (let i = 0; i < int16Array.length; i++) {
-    float32Array[i] = int16Array[i] / 32768.0;
-  }
-  const buffer = audioCtx.createBuffer(1, float32Array.length, 24000);
-  buffer.getChannelData(0).set(float32Array);
-  const source = audioCtx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(audioCtx.destination);
-  
-  const currentTime = audioCtx.currentTime;
-  if (nextPlayTime < currentTime) {
-    nextPlayTime = currentTime + 0.05;
-  }
-  source.start(nextPlayTime);
-  nextPlayTime += buffer.duration;
+async function playAudio(blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  await audio.play();
+  audio.onended = () => URL.revokeObjectURL(url);
 }
 
 export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { width?: number, onActionRequiresPayment?: (action: string) => void }) {
@@ -36,9 +17,17 @@ export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { wid
   const [isSoundOn, setIsSoundOn] = useState(true);
   const isSoundOnRef = useRef(isSoundOn);
   useEffect(() => { isSoundOnRef.current = isSoundOn; }, [isSoundOn]);
-  const [messages, setMessages] = useState<{role: string, text: string}[]>([
+  const [messages, setMessages] = useState<{role: string, text: string, reasoning?: string}[]>([
     { role: 'model', text: 'System initialized. Ready to collaborate.' }
   ]);
+  const [masterPlan, setMasterPlan] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/master-plan/read')
+      .then(res => res.json())
+      .then(data => setMasterPlan(data))
+      .catch(console.error);
+  }, []);
   const [inputText, setInputText] = useState('');
   const [buildQueue, setBuildQueue] = useState<string[]>([]);
   
@@ -197,7 +186,36 @@ export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { wid
     }
 
     try {
-      // Connect to Grok 4.1 via Backend Proxy to keep API Key secure
+      // Fetch latest master plan before sending
+      const mpRes = await fetch('/api/master-plan/read');
+      const latestMP = await mpRes.json();
+      
+      const systemPrompt = `You are Nebula, an expert AI dev partner. You operate under strict rules:
+
+MODEL RULES:
+- Normal conversation and reasoning: grok-4-1-fast-reasoning
+- Coding tasks: grok-code-fast-1
+
+GROK A BEHAVIOR (Conversation):
+1. Always listen to the user and summarize what you understood.
+2. Scan the current Master Plan (provided below) to check for conflicts or inconsistencies.
+3. If there is any potential problem (security, architecture, breaking changes, etc.), clearly warn the user.
+4. Ask: "If I understood correctly, you want to [summary]. Are you sure you want to lock this in?"
+5. Only when the user says "yes" or "yes, lock it in", output the correct invisible tag at the very end of your response: <START_MASTERPLAN> or <START_CODING>.
+
+GROK B BEHAVIOR (Silent):
+- When updating the Master Plan, wrap the new content in <START_MASTERPLAN> and <END_MASTERPLAN>.
+- Grok B must never speak to the user directly.
+
+CODING MODE:
+- When <START_CODING> is triggered, provide reasoning wrapped in <REASONING> tags.
+- Reasoning should show: what files are being edited, what was fixed, and why it wasn't working.
+- When coding is finished, clearly summarize what was changed.
+
+CURRENT MASTER PLAN:
+${JSON.stringify(latestMP, null, 2)}`;
+
+      // Connect to Grok via Backend Proxy
       const response = await fetch('/api/grok/chat', {
         method: 'POST',
         headers: {
@@ -206,8 +224,8 @@ export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { wid
         body: JSON.stringify({
           messages: [{ 
             role: 'system', 
-            content: "You are Nebula, an expert AI dev partner. Help the user build their application, write code, and design systems. Be concise and helpful." 
-          }, { 
+            content: systemPrompt
+          }, ...messages.map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.text })), { 
             role: 'user', 
             content: textToSend 
           }],
@@ -220,8 +238,31 @@ export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { wid
       }
 
       const data = await response.json();
-      const responseText = data.choices?.[0]?.message?.content || '';
-      setMessages(prev => [...prev, { role: 'model', text: responseText }]);
+      const fullResponse = data.choices?.[0]?.message?.content || '';
+      
+      // Extract reasoning if present
+      const reasoningMatch = fullResponse.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
+      const reasoning = reasoningMatch ? reasoningMatch[1].trim() : undefined;
+      const cleanText = fullResponse.replace(/<REASONING>[\s\S]*?<\/REASONING>/g, '').trim();
+
+      setMessages(prev => [...prev, { role: 'model', text: cleanText, reasoning }]);
+
+      // Call TTS API to speak the response
+      if (isSoundOnRef.current && cleanText) {
+        try {
+          const ttsResponse = await fetch('/api/grok/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: cleanText, voice: 'eve' }),
+          });
+          if (ttsResponse.ok) {
+            const blob = await ttsResponse.blob();
+            await playAudio(blob);
+          }
+        } catch (ttsError) {
+          console.error("TTS Playback Error:", ttsError);
+        }
+      }
     } catch (error: any) {
       console.error("Grok API Error:", error);
       setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to Grok.'}` }]);
@@ -254,8 +295,21 @@ export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { wid
               : 'bg-secondary-container/10 rounded-tl-none self-start border-secondary-dim/10 text-secondary'
           }`}>
             {msg.role === 'model' ? (
-              <div className="text-13 no-bold prose prose-invert prose-sm max-w-none prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 prose-pre:p-2 prose-pre:rounded-md">
-                <ReactMarkdown>{msg.text}</ReactMarkdown>
+              <div className="flex flex-col gap-2">
+                <div className="text-13 no-bold prose prose-invert prose-sm max-w-none prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 prose-pre:p-2 prose-pre:rounded-md">
+                  <ReactMarkdown>{msg.text}</ReactMarkdown>
+                </div>
+                {msg.reasoning && (
+                  <details className="mt-2 border-t border-white/5 pt-2 group">
+                    <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-400 uppercase tracking-widest font-headline list-none flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[12px] transition-transform group-open:rotate-180">expand_more</span>
+                      Reasoning
+                    </summary>
+                    <div className="mt-2 text-[11px] text-slate-500 font-mono bg-white/5 p-2 rounded border border-white/5 whitespace-pre-wrap">
+                      {msg.reasoning}
+                    </div>
+                  </details>
+                )}
               </div>
             ) : (
               <p className="text-13 no-bold whitespace-pre-wrap">{msg.text}</p>

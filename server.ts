@@ -239,6 +239,44 @@ async function startServer() {
     }
   });
 
+  app.post("/api/grok/tts", async (req, res) => {
+    const { text, voice = 'eve' } = req.body;
+    const apiKey = process.env.GROK_API_NEBULLA;
+    
+    if (!apiKey) {
+      return res.status(500).json({ error: "GROK_API_NEBULLA is not set." });
+    }
+
+    try {
+      const response = await fetch('https://api.x.ai/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'tts-1', // Assuming standard OpenAI-compatible model name
+          input: text,
+          voice: voice,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Grok TTS error (${response.status}):`, errorText);
+        return res.status(response.status).json({ error: errorText });
+      }
+
+      // Stream the audio back to the client
+      res.setHeader('Content-Type', 'audio/mpeg');
+      const arrayBuffer = await response.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (error) {
+      console.error("Error calling Grok TTS:", error);
+      res.status(500).json({ error: "Failed to call Grok TTS" });
+    }
+  });
+
   app.post("/api/grok/chat", async (req, res) => {
     const { messages } = req.body;
     const apiKey = process.env.GROK_API_NEBULLA;
@@ -256,13 +294,16 @@ async function startServer() {
     }
 
     try {
-      // Using the specific model name provided by the user
-      let model = process.env.GROK_MODEL || 'grok-4-1-fast-reasoning';
+      // Determine model based on conversation history or tags
+      let model = 'grok-4-1-fast-reasoning';
       
-      // Safety check: if the model name looks like a project ID or UUID, fallback to default
-      if (!model.startsWith('grok') && model.length > 30) {
-        console.warn(`Invalid GROK_MODEL detected: "${model}". Falling back to "grok-4-1-fast-reasoning".`);
-        model = 'grok-4-1-fast-reasoning';
+      // Check if the last assistant message or current user message triggers coding mode
+      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant' || m.role === 'model');
+      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+      
+      if ((lastAssistantMessage && lastAssistantMessage.content.includes('<START_CODING>')) || 
+          (lastUserMessage && lastUserMessage.content.includes('<START_CODING>'))) {
+        model = 'grok-code-fast-1';
       }
       
       const response = await fetch('https://api.x.ai/v1/chat/completions', {
@@ -290,6 +331,35 @@ async function startServer() {
       }
 
       const data = await response.json();
+      let responseText = data.choices?.[0]?.message?.content || '';
+
+      // Grok B Behavior: Silent Master Plan Update
+      const masterPlanMatch = responseText.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
+      if (masterPlanMatch) {
+        const newPlanContent = masterPlanMatch[1].trim();
+        try {
+          // For simplicity, we'll assume the content is a full JSON or we update a specific part
+          // The user's request says "Grok B must never speak to the user" and "updates the Master Plan"
+          // We'll save it to a dedicated file or update the existing one
+          fs.writeFileSync(masterPlanPath, newPlanContent, "utf8");
+          console.log("[GROK B] Master Plan updated silently.");
+        } catch (err) {
+          console.error("[GROK B] Failed to update Master Plan:", err);
+        }
+      }
+
+      // Strip invisible tags from the response sent to the user
+      const cleanResponseText = responseText
+        .replace(/<START_MASTERPLAN>[\s\S]*?<END_MASTERPLAN>/g, '')
+        .replace(/<START_CODING>/g, '')
+        .trim();
+
+      // Update the response object with clean text
+      data.choices[0].message.content = cleanResponseText;
+      
+      // If it was a coding task, we might want to pass the original text or a flag
+      // so the frontend can show the reasoning if it's there.
+      // We'll assume Grok wraps reasoning in <REASONING> tags.
       res.json(data);
     } catch (error) {
       console.error("Error calling Grok API:", error);
