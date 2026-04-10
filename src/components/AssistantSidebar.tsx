@@ -4,42 +4,124 @@ import { VoiceLinesIcon } from './VoiceLinesIcon';
 
 let nextPlayTime = 0;
 
-// Helper to play audio with better browser compatibility
-const audioQueue: HTMLAudioElement[] = [];
+// Streaming TTS Player using WebSocket and MediaSource
+class StreamingTTSPlayer {
+  private socket: WebSocket | null = null;
+  private mediaSource: MediaSource | null = null;
+  private sourceBuffer: SourceBuffer | null = null;
+  private audio: HTMLAudioElement | null = null;
+  private queue: Uint8Array[] = [];
+  private isPlaying = false;
+  private dormantTimer: NodeJS.Timeout | null = null;
 
-async function playAudio(blob: Blob) {
-  try {
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio();
-    audio.src = url;
+  constructor() {
+    this.initAudio();
+  }
+
+  private initAudio() {
+    this.audio = new Audio();
+    this.mediaSource = new MediaSource();
+    this.audio.src = URL.createObjectURL(this.mediaSource);
     
-    console.log("[TTS] Attempting playback...");
-    
-    // Attempt to play
-    const playPromise = audio.play();
-    
-    if (playPromise !== undefined) {
-      playPromise.then(() => {
-        console.log("[TTS] Playback started successfully.");
-      }).catch(error => {
-        console.error("[TTS] Playback blocked or failed:", error);
-        // If blocked, we might need a user gesture. 
-        // But since this is usually triggered by a 'Send' click, it should work.
-      });
+    this.mediaSource.addEventListener('sourceopen', () => {
+      if (this.mediaSource && !this.sourceBuffer) {
+        this.sourceBuffer = this.mediaSource.addSourceBuffer('audio/mpeg');
+        this.sourceBuffer.addEventListener('updateend', () => {
+          this.processQueue();
+        });
+      }
+    });
+  }
+
+  private processQueue() {
+    if (!this.sourceBuffer || this.sourceBuffer.updating || this.queue.length === 0) return;
+    const chunk = this.queue.shift();
+    if (chunk) {
+      this.sourceBuffer.appendBuffer(chunk);
+    }
+  }
+
+  async connect() {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      if (this.dormantTimer) {
+        clearTimeout(this.dormantTimer);
+        this.dormantTimer = null;
+      }
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    this.socket = new WebSocket(`${protocol}//${host}/ws/tts`);
+
+    this.socket.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'audio.delta' && data.audio) {
+          const binary = atob(data.audio);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          this.queue.push(bytes);
+          this.processQueue();
+          if (this.audio && this.audio.paused) {
+            this.audio.play().catch(console.error);
+          }
+        } else if (data.type === 'audio.done') {
+          console.log("[TTS] Audio stream finished");
+          // Start dormant timer
+          this.dormantTimer = setTimeout(() => {
+            console.log("[TTS] Connection is now dormant");
+          }, 3000);
+        }
+      } catch (e) {
+        // If not JSON, it might be raw binary if we changed the protocol, 
+        // but the user specified JSON format for audio.delta.
+      }
+    };
+
+    this.socket.onopen = () => console.log("[TTS] WebSocket connected");
+    this.socket.onclose = () => console.log("[TTS] WebSocket closed");
+    this.socket.onerror = (err) => console.error("[TTS] WebSocket error", err);
+
+    return new Promise((resolve) => {
+      if (this.socket) {
+        this.socket.onopen = () => {
+          console.log("[TTS] WebSocket connected");
+          resolve(true);
+        };
+      }
+    });
+  }
+
+  speak(text: string) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      this.connect().then(() => this.sendText(text));
+    } else {
+      this.sendText(text);
+    }
+  }
+
+  private sendText(text: string) {
+    if (this.dormantTimer) {
+      clearTimeout(this.dormantTimer);
+      this.dormantTimer = null;
     }
     
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-    };
+    // Split text into small chunks to simulate streaming if needed, 
+    // but here we send the whole text as deltas as per instructions.
+    // The instructions say: "When Grok finishes generating text, open the WebSocket"
+    // and "Send text using this format: text.delta, text.delta, text.done"
     
-    audio.onerror = (e) => {
-      console.error("[TTS] Audio element error:", e);
-      URL.revokeObjectURL(url);
-    };
-  } catch (err) {
-    console.error("[TTS] Playback setup failed:", err);
+    // For simplicity, we'll send it in one delta then done, 
+    // or split by sentences if we wanted more "streaming" feel.
+    this.socket?.send(JSON.stringify({ type: 'text.delta', text }));
+    this.socket?.send(JSON.stringify({ type: 'text.done' }));
   }
 }
+
+const ttsPlayer = new StreamingTTSPlayer();
 
 export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { width?: number, onActionRequiresPayment?: (action: string) => void }) {
   const [isLive, setIsLive] = useState(false);
@@ -283,30 +365,9 @@ ${JSON.stringify(latestMP, null, 2)}`;
 
       setMessages(prev => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
 
-      // Call TTS API to speak the response
+      // Call Streaming TTS
       if (isSoundOnRef.current && cleanText) {
-        console.log("[TTS] Requesting speech for:", cleanText.substring(0, 50) + "...");
-        try {
-          const ttsResponse = await fetch('/api/grok/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: cleanText, voice: 'Eve' }),
-          });
-          if (ttsResponse.ok) {
-            const blob = await ttsResponse.blob();
-            console.log("[TTS] Received audio blob, size:", blob.size);
-            if (blob.size > 0) {
-              await playAudio(blob);
-            } else {
-              console.warn("[TTS] Received empty audio blob.");
-            }
-          } else {
-            const errData = await ttsResponse.json();
-            console.error("[TTS] Backend Error:", errData);
-          }
-        } catch (ttsError) {
-          console.error("[TTS] Playback Error:", ttsError);
-        }
+        ttsPlayer.speak(cleanText);
       }
     } catch (error: any) {
       console.error("Grok API Error:", error);

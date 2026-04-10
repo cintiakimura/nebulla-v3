@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
 import Stripe from 'stripe';
+import { WebSocketServer, WebSocket } from 'ws';
 
 async function startServer() {
   const app = express();
@@ -245,45 +246,6 @@ async function startServer() {
     }
   });
 
-  app.post("/api/grok/tts", async (req, res) => {
-    const { text, voice = 'eve' } = req.body;
-    const apiKey = process.env.GROK_API_NEBULLA;
-    
-    if (!apiKey) {
-      return res.status(500).json({ error: "GROK_API_NEBULLA is not set." });
-    }
-
-    try {
-      console.log(`[TTS] Calling xAI API with voice: ${voice}, text length: ${text.length}`);
-      const response = await fetch('https://api.x.ai/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'tts-1',
-          input: text,
-          voice: voice,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[TTS] xAI API error (${response.status}):`, errorText);
-        return res.status(response.status).json({ error: errorText });
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      console.log(`[TTS] Success. Received ${arrayBuffer.byteLength} bytes.`);
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.send(Buffer.from(arrayBuffer));
-    } catch (error) {
-      console.error("Error calling Grok TTS:", error);
-      res.status(500).json({ error: "Failed to call Grok TTS" });
-    }
-  });
-
   app.post("/api/grok/chat", async (req, res) => {
     const { messages } = req.body;
     const apiKey = process.env.GROK_API_NEBULLA;
@@ -381,8 +343,75 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+  });
+
+  // WebSocket Server for Streaming TTS Proxy
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (request, socket, head) => {
+    const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
+
+    if (pathname === '/ws/tts') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  wss.on('connection', (ws, request) => {
+    console.log('[WS] Client connected for streaming TTS');
+    const apiKey = process.env.GROK_API_NEBULLA;
+    
+    if (!apiKey) {
+      ws.send(JSON.stringify({ type: 'error', message: 'GROK_API_NEBULLA is not set.' }));
+      ws.close();
+      return;
+    }
+
+    // Connect to xAI TTS WebSocket
+    const xaiUrl = `wss://api.x.ai/v1/tts?language=en&voice=eve&codec=mp3&sample_rate=24000`;
+    const xaiWs = new WebSocket(xaiUrl, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+
+    xaiWs.on('open', () => {
+      console.log('[WS] Connected to xAI TTS');
+    });
+
+    xaiWs.on('message', (data) => {
+      // Forward audio chunks from xAI to client
+      ws.send(data);
+    });
+
+    xaiWs.on('error', (err) => {
+      console.error('[WS] xAI TTS Error:', err);
+      ws.send(JSON.stringify({ type: 'error', message: 'xAI TTS connection error' }));
+    });
+
+    xaiWs.on('close', () => {
+      console.log('[WS] xAI TTS connection closed');
+      ws.close();
+    });
+
+    ws.on('message', (message) => {
+      // Forward text deltas from client to xAI
+      if (xaiWs.readyState === WebSocket.OPEN) {
+        xaiWs.send(message);
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('[WS] Client disconnected');
+      if (xaiWs.readyState === WebSocket.OPEN || xaiWs.readyState === WebSocket.CONNECTING) {
+        xaiWs.close();
+      }
+    });
   });
 }
 
