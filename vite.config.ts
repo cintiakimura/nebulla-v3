@@ -111,9 +111,6 @@ export default defineConfig(({mode}) => {
         }
       }
     ],
-    define: {
-      'process.env.GROK_API_KEY': JSON.stringify(env.GROK_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

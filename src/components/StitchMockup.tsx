@@ -13,25 +13,14 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
     setError('');
     
     try {
-      if (!process.env.GROK_API_KEY) {
-        throw new Error("GROK_API_KEY is not set.");
-      }
-
-      // Connect to Grok 4.1 via Backend Proxy
-      const response = await fetch('/api/grok/chat', {
+      // Connect to Stitch API via Backend Proxy
+      const response = await fetch('/api/stitch/mockup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages: [{ 
-            role: 'user', 
-            content: `Generate a single SVG mockup based ONLY on this Master Plan data:
-        
-${pagesText}
-
-Return ONLY valid SVG code. No markdown formatting, no explanation.` 
-          }],
+          pagesText: pagesText,
         }),
       });
 

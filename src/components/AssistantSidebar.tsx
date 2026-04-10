@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-// import { GoogleGenAI, Modality, LiveServerMessage, Type } from '@google/genai';
 import ReactMarkdown from 'react-markdown';
 import { VoiceLinesIcon } from './VoiceLinesIcon';
 

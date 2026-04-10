@@ -131,6 +131,15 @@ export default function App() {
   const [terminalInput, setTerminalInput] = useState('');
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
+  const [config, setConfig] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(data => setConfig(data))
+      .catch(console.error);
+  }, []);
+
   const triggerCheckout = async (message?: string) => {
     if (message) {
       setPaymentModalMessage(message);

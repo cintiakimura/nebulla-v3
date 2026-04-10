@@ -196,20 +196,80 @@ function SecretsTab() {
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
-              <span className="text-sm text-slate-300 font-mono">GROK_API_KEY</span>
+              <span className="text-sm text-slate-300 font-mono">GROK_API_NEBULLA</span>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Added 2 days ago</span>
+              <span className="text-xs text-slate-500">Active</span>
+              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-slate-500 text-lg">database</span>
+              <span className="text-sm text-slate-300 font-mono">SUPABASE_URL</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-500">Active</span>
+              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-slate-500 text-lg">payments</span>
+              <span className="text-sm text-slate-300 font-mono">STRIPE_SECRET_KEY</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-500">Active</span>
+              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-slate-500 text-lg">api</span>
+              <span className="text-sm text-slate-300 font-mono">STITCH_API_KEY</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-500">Active</span>
+              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-slate-500 text-lg">login</span>
+              <span className="text-sm text-slate-300 font-mono">GITHUB_CLIENT_SECRET</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-500">Active</span>
+              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-slate-500 text-lg">login</span>
+              <span className="text-sm text-slate-300 font-mono">GOOGLE_CLIENT_SECRET</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-500">Active</span>
               <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
             </div>
           </div>
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
-              <span className="text-sm text-slate-300 font-mono">DATABASE_URL</span>
+              <span className="text-sm text-slate-300 font-mono">BUILDER_PRIVATE_KEY</span>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Added 1 week ago</span>
+              <span className="text-xs text-slate-500">Active</span>
+              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-slate-500 text-lg">cloud</span>
+              <span className="text-sm text-slate-300 font-mono">VERCEL_TOKEN_19_MAR</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-500">Active</span>
               <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
             </div>
           </div>

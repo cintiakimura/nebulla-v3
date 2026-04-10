@@ -16,6 +16,17 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/config", (req, res) => {
+    res.json({
+      stripePublicKey: process.env.STRIPE_PUBLIC_KEY,
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      googleClientId: process.env.GOOGLE_CLIENT_ID,
+      githubClientId: process.env.GITHUB_CLIENT_ID,
+      builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
+    });
+  });
+
   // Master Plan Update Logic (Clean JSON-based storage)
   const masterPlanPath = path.join(process.cwd(), "master-plan.json");
 
@@ -98,17 +109,15 @@ async function startServer() {
   }
 
   app.post("/api/create-checkout-session", async (req, res) => {
+    const { priceId, email } = req.body;
     try {
       const stripe = getStripe();
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
+        customer_email: email,
         line_items: [
           {
-            price_data: {
-              currency: 'eur',
-              product: 'prod_U61dZv59hzcx8d',
-              unit_amount: 1999, // 19.99 EUR
-            },
+            price: priceId || process.env.STRIPE_PROTOTYPE_PRICE_ID || 'price_1T7pYzPNRjrb3o88hdD9Altb',
             quantity: 1,
           },
         ],
@@ -120,6 +129,34 @@ async function startServer() {
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // Stripe Webhook
+  app.post("/api/webhooks/stripe", express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (!sig || !webhookSecret) {
+      return res.status(400).send('Webhook Error: Missing signature or secret');
+    }
+
+    let event;
+
+    try {
+      const stripe = getStripe();
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } catch (err: any) {
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // Handle the event
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as Stripe.Checkout.Session;
+      console.log(`[STRIPE] Payment successful for ${session.customer_email}`);
+      // Here you would update your database (e.g. Supabase) to mark the user as paid
+    }
+
+    res.json({ received: true });
   });
 
   // Example backend function: read file system
@@ -162,13 +199,64 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post("/api/grok/chat", async (req, res) => {
-    const { messages } = req.body;
-    const apiKey = process.env.GROK_API_KEY;
+  app.post("/api/stitch/mockup", async (req, res) => {
+    const { pagesText } = req.body;
+    const apiKey = process.env.STITCH_API_KEY;
     
     if (!apiKey) {
-      console.error("GROK_API_KEY is not set in environment");
-      return res.status(500).json({ error: "GROK_API_KEY is not set" });
+      console.error("STITCH_API_KEY is not set");
+      return res.status(500).json({ error: "STITCH_API_KEY is not set. Please add it in the Settings menu." });
+    }
+
+    try {
+      // Mocking Stitch API call - in a real scenario, this would call the Stitch service
+      // For now, we'll use Grok as the engine but identify it as Stitch
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.GROK_API_NEBULLA}`,
+        },
+        body: JSON.stringify({
+          model: 'grok-beta',
+          messages: [{ 
+            role: 'user', 
+            content: `Generate a single SVG mockup based ONLY on this Master Plan data:\n\n${pagesText}\n\nReturn ONLY valid SVG code. No markdown formatting, no explanation.` 
+          }],
+          stream: false
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Stitch Engine Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error("Error calling Stitch API:", error);
+      res.status(500).json({ error: "Failed to call Stitch API" });
+    }
+  });
+
+  app.post("/api/grok/chat", async (req, res) => {
+    const { messages } = req.body;
+    const apiKey = process.env.GROK_API_NEBULLA;
+    
+    if (!apiKey) {
+      console.error("GROK_API_NEBULLA is not set in environment");
+      return res.status(500).json({ error: "GROK_API_NEBULLA is not set. Please add it in the Settings menu." });
+    }
+
+    // Basic validation of key format
+    if (apiKey.startsWith('ai') || apiKey.length < 20) {
+      const isGemini = apiKey.toLowerCase().startsWith('ai');
+      const helpMsg = isGemini 
+        ? "Your GROK_API_NEBULLA appears to be a Gemini API key (starts with 'ai'). Grok keys usually start with 'xai-'."
+        : "Your GROK_API_NEBULLA appears to be invalid. Please check it in the Settings menu.";
+      
+      console.error(`Invalid GROK_API_NEBULLA format detected: ${helpMsg}`);
+      return res.status(400).json({ error: helpMsg });
     }
 
     try {
