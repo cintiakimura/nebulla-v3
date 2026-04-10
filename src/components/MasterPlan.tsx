@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { BookOpen, Lock, Save, X } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 const STATIC_SECTIONS = [
   { 
@@ -13,46 +14,41 @@ const STATIC_SECTIONS = [
     content: `TARGET USER & CONTEXT\n\n(Content to be updated by Grok B)` 
   },
   { 
-    id: 'must-have', 
-    title: '3. Must-Have Features', 
-    content: `MUST-HAVE FEATURES\n\n(Content to be updated by Grok B)` 
-  },
-  { 
-    id: 'nice-to-have', 
-    title: '4. Nice-to-Have Features', 
-    content: `NICE-TO-HAVE FEATURES\n\n(Content to be updated by Grok B)` 
+    id: 'core-features', 
+    title: '3. Core Features', 
+    content: `CORE FEATURES\n\n| Feature Name | Description | Success Criteria | Priority |\n|--------------|-------------|------------------|----------|\n| (Example) | (Description) | (KPIs) | Must Have |\n\nDEVELOPMENT PLAN\n\n(Phases to be defined by Grok B)` 
   },
   { 
     id: 'scale', 
-    title: '5. User Scale & Load', 
+    title: '4. User Scale & Load', 
     content: `USER SCALE & LOAD\n\n(Content to be updated by Grok B)` 
   },
   { 
     id: 'data', 
-    title: '6. Data Requirements', 
+    title: '5. Data Requirements', 
     content: `DATA REQUIREMENTS\n\n(Content to be updated by Grok B)` 
   },
   { 
     id: 'accessibility', 
-    title: '7. Accessibility & Inclusivity', 
+    title: '6. Accessibility & Inclusivity', 
     content: `ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by Grok B)` 
   },
   { 
     id: 'research', 
-    title: '9. Market & Tech Research', 
+    title: '8. Market & Tech Research', 
     content: `MARKET & TECH RESEARCH\n\n(Content to be updated by Grok B)` 
   },
 ];
 
 export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesText: string }) {
   const PLAN_SECTIONS = [
-    ...STATIC_SECTIONS.slice(0, 7),
+    ...STATIC_SECTIONS.slice(0, 6),
     {
       id: 'pages',
-      title: '8. Pages & Navigation',
+      title: '7. Pages & Navigation',
       content: pagesText
     },
-    ...STATIC_SECTIONS.slice(7)
+    ...STATIC_SECTIONS.slice(6)
   ];
 
   const [activeTab, setActiveTab] = useState(PLAN_SECTIONS[0].id);
@@ -114,10 +110,10 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
 
         {/* Content Area (Read-only Doc) */}
         <div className="flex-1 bg-[#020810] p-8 overflow-y-auto">
-          <div className="max-w-3xl mx-auto bg-white/[0.02] border border-white/5 rounded-xl p-8 min-h-full shadow-lg">
-            <pre className="font-mono text-13 text-slate-300 leading-relaxed whitespace-pre-wrap outline-none">
-              {activeContent}
-            </pre>
+          <div className="max-w-3xl mx-auto bg-white/[0.02] border border-white/5 rounded-xl p-8 min-h-full shadow-lg prose prose-invert prose-sm max-w-none prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 prose-pre:p-2 prose-pre:rounded-md prose-table:border prose-table:border-white/10 prose-th:bg-white/5 prose-th:p-2 prose-td:p-2 prose-td:border-t prose-td:border-white/10">
+            <ReactMarkdown>
+              {activeContent || ''}
+            </ReactMarkdown>
           </div>
         </div>
       </div>

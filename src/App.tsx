@@ -252,7 +252,7 @@ export default function App() {
   const pagesText = useMemo(() => {
     // Sort pages by X position to represent visual flow left-to-right
     const sortedPages = [...pages].sort((a, b) => a.position.x - b.position.x);
-    return `PAGES & NAVIGATION\n\n` + sortedPages.map((p, i) => `${i + 1}. ${p.data.label}: ${p.data.description}`).join('\n');
+    return `PAGES & NAVIGATION\n\nRULE: Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.\n\n` + sortedPages.map((p, i) => `${i + 1}. ${p.data.label}: ${p.data.description}`).join('\n');
   }, [pages]);
 
   const handleSaveToMasterPlan = () => {

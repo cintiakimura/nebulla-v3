@@ -1,11 +1,10 @@
 {
   "1. The Problem We’re Solving": "THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by Grok B)",
   "2. Target User & Context": "TARGET USER & CONTEXT\n\n(Content to be updated by Grok B)",
-  "3. Must-Have Features": "MUST-HAVE FEATURES\n\n(Content to be updated by Grok B)",
-  "4. Nice-to-Have Features": "NICE-TO-HAVE FEATURES\n\n(Content to be updated by Grok B)",
-  "5. User Scale & Load": "USER SCALE & LOAD\n\n(Content to be updated by Grok B)",
-  "6. Data Requirements": "DATA REQUIREMENTS\n\n(Content to be updated by Grok B)",
-  "7. Accessibility & Inclusivity": "ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by Grok B)",
-  "8. Pages & Navigation": "PAGES & NAVIGATION\n\n(Content to be updated by Grok B)",
-  "9. Market & Tech Research": "MARKET & TECH RESEARCH\n\n(Content to be updated by Grok B)"
+  "3. Core Features": "CORE FEATURES TABLE\n\n| Feature Name | Description | Success Criteria | Priority |\n|--------------|-------------|------------------|----------|\n| (Example) | (Description) | (KPIs) | Must Have |\n\nDEVELOPMENT PLAN\n\n(Phases to be defined by Grok B)",
+  "4. User Scale & Load": "USER SCALE & LOAD\n\n(Content to be updated by Grok B)",
+  "5. Data Requirements": "DATA REQUIREMENTS\n\n(Content to be updated by Grok B)",
+  "6. Accessibility & Inclusivity": "ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by Grok B)",
+  "7. Pages & Navigation": "PAGES & NAVIGATION\n\nRULE: Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.\n\n(Content to be updated by Grok B)",
+  "8. Market & Tech Research": "MARKET & TECH RESEARCH\n\n(Content to be updated by Grok B)"
 }
