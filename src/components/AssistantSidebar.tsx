@@ -5,10 +5,26 @@ import { VoiceLinesIcon } from './VoiceLinesIcon';
 let nextPlayTime = 0;
 
 async function playAudio(blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  await audio.play();
-  audio.onended = () => URL.revokeObjectURL(url);
+  try {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio();
+    audio.src = url;
+    
+    // Some browsers require a user interaction to play audio. 
+    // Since this is called after a fetch, we try to play it immediately.
+    await audio.play();
+    
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+    };
+    
+    audio.onerror = (e) => {
+      console.error("[TTS] Audio element error:", e);
+      URL.revokeObjectURL(url);
+    };
+  } catch (err) {
+    console.error("[TTS] Playback failed:", err);
+  }
 }
 
 export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { width?: number, onActionRequiresPayment?: (action: string) => void }) {
@@ -255,6 +271,7 @@ ${JSON.stringify(latestMP, null, 2)}`;
 
       // Call TTS API to speak the response
       if (isSoundOnRef.current && cleanText) {
+        console.log("[TTS] Requesting speech for:", cleanText.substring(0, 50) + "...");
         try {
           const ttsResponse = await fetch('/api/grok/tts', {
             method: 'POST',
@@ -263,10 +280,18 @@ ${JSON.stringify(latestMP, null, 2)}`;
           });
           if (ttsResponse.ok) {
             const blob = await ttsResponse.blob();
-            await playAudio(blob);
+            console.log("[TTS] Received audio blob, size:", blob.size);
+            if (blob.size > 0) {
+              await playAudio(blob);
+            } else {
+              console.warn("[TTS] Received empty audio blob.");
+            }
+          } else {
+            const errData = await ttsResponse.json();
+            console.error("[TTS] Backend Error:", errData);
           }
         } catch (ttsError) {
-          console.error("TTS Playback Error:", ttsError);
+          console.error("[TTS] Playback Error:", ttsError);
         }
       }
     } catch (error: any) {

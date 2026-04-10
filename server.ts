@@ -248,6 +248,7 @@ async function startServer() {
     }
 
     try {
+      console.log(`[TTS] Calling xAI API with voice: ${voice}, text length: ${text.length}`);
       const response = await fetch('https://api.x.ai/v1/audio/speech', {
         method: 'POST',
         headers: {
@@ -255,7 +256,7 @@ async function startServer() {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'tts-1', // Assuming standard OpenAI-compatible model name
+          model: 'tts-1',
           input: text,
           voice: voice,
         }),
@@ -263,13 +264,13 @@ async function startServer() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`Grok TTS error (${response.status}):`, errorText);
+        console.error(`[TTS] xAI API error (${response.status}):`, errorText);
         return res.status(response.status).json({ error: errorText });
       }
 
-      // Stream the audio back to the client
-      res.setHeader('Content-Type', 'audio/mpeg');
       const arrayBuffer = await response.arrayBuffer();
+      console.log(`[TTS] Success. Received ${arrayBuffer.byteLength} bytes.`);
+      res.setHeader('Content-Type', 'audio/mpeg');
       res.send(Buffer.from(arrayBuffer));
     } catch (error) {
       console.error("Error calling Grok TTS:", error);
