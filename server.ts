@@ -338,9 +338,6 @@ async function startServer() {
       if (masterPlanMatch) {
         const newPlanContent = masterPlanMatch[1].trim();
         try {
-          // For simplicity, we'll assume the content is a full JSON or we update a specific part
-          // The user's request says "Grok B must never speak to the user" and "updates the Master Plan"
-          // We'll save it to a dedicated file or update the existing one
           fs.writeFileSync(masterPlanPath, newPlanContent, "utf8");
           console.log("[GROK B] Master Plan updated silently.");
         } catch (err) {
@@ -348,18 +345,8 @@ async function startServer() {
         }
       }
 
-      // Strip invisible tags from the response sent to the user
-      const cleanResponseText = responseText
-        .replace(/<START_MASTERPLAN>[\s\S]*?<END_MASTERPLAN>/g, '')
-        .replace(/<START_CODING>/g, '')
-        .trim();
-
-      // Update the response object with clean text
-      data.choices[0].message.content = cleanResponseText;
-      
-      // If it was a coding task, we might want to pass the original text or a flag
-      // so the frontend can show the reasoning if it's there.
-      // We'll assume Grok wraps reasoning in <REASONING> tags.
+      // We return the full responseText to the frontend so it can maintain state.
+      // The frontend will be responsible for stripping tags for display.
       res.json(data);
     } catch (error) {
       console.error("Error calling Grok API:", error);

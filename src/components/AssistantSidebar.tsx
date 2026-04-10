@@ -17,8 +17,8 @@ export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { wid
   const [isSoundOn, setIsSoundOn] = useState(true);
   const isSoundOnRef = useRef(isSoundOn);
   useEffect(() => { isSoundOnRef.current = isSoundOn; }, [isSoundOn]);
-  const [messages, setMessages] = useState<{role: string, text: string, reasoning?: string}[]>([
-    { role: 'model', text: 'System initialized. Ready to collaborate.' }
+  const [messages, setMessages] = useState<{role: string, text: string, fullText?: string, reasoning?: string}[]>([
+    { role: 'model', text: 'System initialized. Ready to collaborate.', fullText: 'System initialized. Ready to collaborate.' }
   ]);
   const [masterPlan, setMasterPlan] = useState<any>(null);
 
@@ -225,7 +225,7 @@ ${JSON.stringify(latestMP, null, 2)}`;
           messages: [{ 
             role: 'system', 
             content: systemPrompt
-          }, ...messages.map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.text })), { 
+          }, ...messages.map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.fullText || m.text })), { 
             role: 'user', 
             content: textToSend 
           }],
@@ -243,9 +243,15 @@ ${JSON.stringify(latestMP, null, 2)}`;
       // Extract reasoning if present
       const reasoningMatch = fullResponse.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
       const reasoning = reasoningMatch ? reasoningMatch[1].trim() : undefined;
-      const cleanText = fullResponse.replace(/<REASONING>[\s\S]*?<\/REASONING>/g, '').trim();
+      
+      // Strip ALL tags for display and TTS
+      const cleanText = fullResponse
+        .replace(/<REASONING>[\s\S]*?<\/REASONING>/g, '')
+        .replace(/<START_MASTERPLAN>[\s\S]*?<END_MASTERPLAN>/g, '')
+        .replace(/<START_CODING>/g, '')
+        .trim();
 
-      setMessages(prev => [...prev, { role: 'model', text: cleanText, reasoning }]);
+      setMessages(prev => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
 
       // Call TTS API to speak the response
       if (isSoundOnRef.current && cleanText) {
