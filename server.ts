@@ -388,10 +388,10 @@ async function startServer() {
 
   wss.on('connection', (ws, request) => {
     console.log('[WS] Client connected for streaming TTS');
-    const apiKey = process.env.GROK_API_NEBULLA;
+    const apiKey = process.env.AGENT_GROK_VOICE || process.env.GROK_API_NEBULLA;
     
     if (!apiKey) {
-      ws.send(JSON.stringify({ type: 'error', message: 'GROK_API_NEBULLA is not set.' }));
+      ws.send(JSON.stringify({ type: 'error', message: 'AGENT_GROK_VOICE or GROK_API_NEBULLA is not set.' }));
       ws.close();
       return;
     }

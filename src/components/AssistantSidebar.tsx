@@ -4,6 +4,140 @@ import { VoiceLinesIcon } from './VoiceLinesIcon';
 
 let nextPlayTime = 0;
 
+// Streaming TTS Player using WebSocket and MediaSource
+class StreamingTTSPlayer {
+  private socket: WebSocket | null = null;
+  private mediaSource: MediaSource | null = null;
+  private sourceBuffer: SourceBuffer | null = null;
+  private audio: HTMLAudioElement | null = null;
+  private queue: Uint8Array[] = [];
+  private dormantTimer: NodeJS.Timeout | null = null;
+  private isInitialized = false;
+
+  constructor() {}
+
+  private initAudio() {
+    if (this.isInitialized) return;
+    
+    console.log("[TTS] Initializing audio elements...");
+    this.audio = new Audio();
+    this.mediaSource = new MediaSource();
+    
+    this.mediaSource.addEventListener('sourceopen', () => {
+      console.log("[TTS] MediaSource opened");
+      if (this.mediaSource && !this.sourceBuffer) {
+        try {
+          this.sourceBuffer = this.mediaSource.addSourceBuffer('audio/mpeg');
+          this.sourceBuffer.addEventListener('updateend', () => {
+            this.processQueue();
+          });
+          console.log("[TTS] SourceBuffer added successfully");
+        } catch (e) {
+          console.error("[TTS] Failed to add SourceBuffer:", e);
+        }
+      }
+    });
+    
+    this.audio.src = URL.createObjectURL(this.mediaSource);
+    this.isInitialized = true;
+  }
+
+  private processQueue() {
+    if (!this.sourceBuffer || this.sourceBuffer.updating || this.queue.length === 0) return;
+    const chunk = this.queue.shift();
+    if (chunk) {
+      try {
+        this.sourceBuffer.appendBuffer(chunk);
+      } catch (e) {
+        console.error("[TTS] Error appending buffer:", e);
+      }
+    }
+  }
+
+  async connect() {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      if (this.dormantTimer) {
+        clearTimeout(this.dormantTimer);
+        this.dormantTimer = null;
+      }
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    this.socket = new WebSocket(`${protocol}//${host}/ws/tts`);
+
+    this.socket.onmessage = async (event) => {
+      try {
+        const text = typeof event.data === 'string' ? event.data : await event.data.text();
+        const data = JSON.parse(text);
+        
+        if (data.type === 'audio.delta' && data.audio) {
+          const binary = atob(data.audio);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          
+          this.queue.push(bytes);
+          this.processQueue();
+          
+          if (this.audio && this.audio.paused) {
+            this.audio.play().catch(err => {
+              if (err.name !== 'NotAllowedError') {
+                console.error("[TTS] Playback error:", err);
+              }
+            });
+          }
+        } else if (data.type === 'audio.done') {
+          console.log("[TTS] Audio stream finished");
+          this.dormantTimer = setTimeout(() => {
+            console.log("[TTS] Connection is now dormant");
+          }, 3000);
+        }
+      } catch (e) {
+        console.error("[TTS] Error processing WebSocket message:", e);
+      }
+    };
+
+    this.socket.onopen = () => console.log("[TTS] WebSocket connected");
+    this.socket.onclose = () => console.log("[TTS] WebSocket closed");
+    this.socket.onerror = (err) => console.error("[TTS] WebSocket error", err);
+
+    return new Promise((resolve) => {
+      if (this.socket) {
+        const onOpen = () => {
+          this.socket?.removeEventListener('open', onOpen);
+          resolve(true);
+        };
+        this.socket.addEventListener('open', onOpen);
+      }
+    });
+  }
+
+  speak(text: string) {
+    this.initAudio();
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      this.connect().then(() => this.sendText(text));
+    } else {
+      this.sendText(text);
+    }
+  }
+
+  private sendText(text: string) {
+    if (this.dormantTimer) {
+      clearTimeout(this.dormantTimer);
+      this.dormantTimer = null;
+    }
+    
+    console.log("[TTS] Sending text to stream:", text.substring(0, 30) + "...");
+    this.socket?.send(JSON.stringify({ type: 'text.delta', text }));
+    this.socket?.send(JSON.stringify({ type: 'text.done' }));
+  }
+}
+
+const ttsPlayer = new StreamingTTSPlayer();
+
 export function AssistantSidebar({ width = 320, onActionRequiresPayment }: { width?: number, onActionRequiresPayment?: (action: string) => void }) {
   const [isLive, setIsLive] = useState(false);
   const [isMicOpen, setIsMicOpen] = useState(false);
@@ -246,13 +380,9 @@ ${JSON.stringify(latestMP, null, 2)}`;
 
       setMessages(prev => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
 
-      // Browser TTS with Eve voice
+      // Streaming TTS with AGENT_GROK_VOICE
       if (isSoundOnRef.current && cleanText) {
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.voice = window.speechSynthesis.getVoices().find(v => 
-          v.name.includes('Eve') || v.name.includes('female')
-        ) || null;
-        window.speechSynthesis.speak(utterance);
+        ttsPlayer.speak(cleanText);
       }
     } catch (error: any) {
       console.error("Grok API Error:", error);
