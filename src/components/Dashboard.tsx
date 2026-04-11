@@ -49,96 +49,60 @@ function ProjectsTab({ projectName, onProjectNameChange }: { projectName: string
   return (
     <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
       <div>
-        <h3 className="text-xl font-headline text-cyan-300 mb-1">User Projects</h3>
-        <p className="text-sm text-slate-500 mb-6">Manage your active workspaces and deployments.</p>
+        <h3 className="text-xl font-headline text-cyan-300 mb-1">Create New Project</h3>
+        <p className="text-sm text-slate-500 mb-6">Choose a starting point for your next architecture.</p>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* Project Card */}
-        <div className="p-5 border border-cyan-500/30 rounded-xl bg-cyan-500/5 hover:bg-cyan-500/10 transition-all cursor-pointer group">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center text-cyan-400">
-              <span className="material-symbols-outlined">rocket_launch</span>
-            </div>
-            <span className="px-2 py-1 bg-green-500/10 text-green-400 text-[10px] uppercase tracking-wider rounded font-headline border border-green-500/20">Active</span>
-          </div>
-          <div className="flex items-center justify-between mb-1">
-            <h4 className="text-slate-200 font-headline group-hover:text-cyan-300 transition-colors">{projectName}</h4>
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                const newName = window.prompt('Enter new project name:', projectName);
-                if (newName) onProjectNameChange(newName);
-              }}
-              className="text-slate-500 hover:text-cyan-300 transition-colors"
-            >
-              <span className="material-symbols-outlined text-[18px]">edit</span>
-            </button>
-          </div>
-          <p className="text-xs text-slate-500 mb-4">React + Vite + Local State</p>
-          <div className="flex items-center justify-between text-[11px] text-slate-600 border-t border-white/5 pt-3">
-            <span>Updated Just Now</span>
-            <span className="material-symbols-outlined text-[14px]">more_horiz</span>
-          </div>
-        </div>
-
-        {/* Project Card */}
-        <div className="p-5 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all cursor-pointer group">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
-              <span className="material-symbols-outlined">language</span>
-            </div>
-            <span className="px-2 py-1 bg-slate-500/10 text-slate-400 text-[10px] uppercase tracking-wider rounded font-headline border border-slate-500/20">Draft</span>
-          </div>
-          <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Marketing Site</h4>
-          <p className="text-xs text-slate-500 mb-4">Next.js + Tailwind</p>
-          <div className="flex items-center justify-between text-[11px] text-slate-600 border-t border-white/5 pt-3">
-            <span>Updated 5 days ago</span>
-            <span className="material-symbols-outlined text-[14px]">more_horiz</span>
-          </div>
-        </div>
-
         {/* New Project Starters */}
-        <div className="p-5 border border-dashed border-white/20 rounded-xl flex flex-col gap-3 min-h-[180px] bg-white/[0.02]">
-          <span className="text-xs font-headline text-slate-500 uppercase tracking-widest mb-1">Create New Project</span>
-          
-          <button 
-            onClick={() => {
-              const prompt = window.prompt('Paste your written prompt:');
-              if (prompt && (window as any).nebula_handleSendText) {
-                (window as any).nebula_handleSendText(prompt);
-              }
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-cyan-500/30 transition-all text-sm text-slate-300 group"
-          >
-            <PlusCircle className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
-            Create with written prompt
-          </button>
-          
-          <button 
-            onClick={() => {
-              const repo = window.prompt('Paste GitHub repository link:');
-              if (repo && (window as any).nebula_handleSendText) {
-                (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
-              }
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-cyan-500/30 transition-all text-sm text-slate-300 group"
-          >
-            <Github className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />
-            Clone from GitHub
-          </button>
+        <div className="p-6 border border-cyan-500/30 rounded-xl bg-cyan-500/5 hover:bg-cyan-500/10 transition-all cursor-pointer group flex flex-col items-center text-center gap-4"
+          onClick={() => {
+            const prompt = window.prompt('Paste your written prompt:');
+            if (prompt && (window as any).nebula_handleSendText) {
+              (window as any).nebula_handleSendText(prompt);
+            }
+          }}
+        >
+          <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
+            <PlusCircle className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Written Prompt</h4>
+            <p className="text-xs text-slate-500">Generate from a description</p>
+          </div>
+        </div>
 
-          <button 
-            onClick={() => {
-              if ((window as any).nebula_toggleLive) {
-                (window as any).nebula_toggleLive();
-              }
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-cyan-500/30 transition-all text-sm text-slate-300 group"
-          >
-            <Handshake className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
-            Brainstorm with dev partner
-          </button>
+        <div className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all cursor-pointer group flex flex-col items-center text-center gap-4"
+          onClick={() => {
+            const repo = window.prompt('Paste GitHub repository link:');
+            if (repo && (window as any).nebula_handleSendText) {
+              (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
+            }
+          }}
+        >
+          <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-slate-400 group-hover:text-white transition-colors">
+            <Github className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Clone GitHub</h4>
+            <p className="text-xs text-slate-500">Import existing repository</p>
+          </div>
+        </div>
+
+        <div className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all cursor-pointer group flex flex-col items-center text-center gap-4"
+          onClick={() => {
+            if ((window as any).nebula_toggleLive) {
+              (window as any).nebula_toggleLive();
+            }
+          }}
+        >
+          <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-400 group-hover:scale-110 transition-transform">
+            <Handshake className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Brainstorm</h4>
+            <p className="text-xs text-slate-500">Collaborate with AI partner</p>
+          </div>
         </div>
       </div>
     </div>

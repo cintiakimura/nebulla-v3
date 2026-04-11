@@ -41,6 +41,7 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
     const initialPrompt = localStorage.getItem('nebula_initial_prompt');
     if (initialPrompt) {
       localStorage.removeItem('nebula_initial_prompt');
+      if ((window as any).openMasterPlan) (window as any).openMasterPlan();
       handleSendText(initialPrompt);
     }
 
@@ -183,12 +184,15 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
     stopAudioCapture();
   };
 
-  const toggleLive = () => isLive ? disconnectLive() : connectLive();
-
   const handleSendText = async (overrideText?: string) => {
     const textToSend = overrideText || inputText;
     if (!textToSend.trim()) return;
     
+    // If it's the first message, ensure Master Plan is open
+    if (messages.length <= 1 && (window as any).openMasterPlan) {
+      (window as any).openMasterPlan();
+    }
+
     setMessages(prev => [...prev, { role: 'user', text: textToSend }]);
     setInputText('');
     setIsLoading(true);
@@ -220,6 +224,13 @@ ROLES:
    - Uses the model grok-code-fast-1 for actual code generation.
    - Uses the locked Master Plan, approved Mind Map, and final UI design as the source of truth.
    - Works safely: never deletes files, never rewrites large parts of the codebase unless necessary.
+
+AUTOMATED WORKFLOW:
+1. When you start the project, immediately suggest the first prompt based on the Master Plan.
+2. When the user approves the Master Plan, output <APPROVE_MASTERPLAN> to automatically open the Mind Map.
+3. When the user approves the Mind Map, output <APPROVE_MINDMAP> to automatically open the UI/UX section.
+4. When the user approves the UI, output <APPROVE_UI> to automatically show the mockup on preview.
+5. When user confirms the final action, confirm and trigger START_CODING.
 
 UI/UX WORKFLOW:
 1. Trigger UI/UX section with <START_UIUX> after architecture approval.
@@ -298,6 +309,18 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         await Promise.all(updatePromises);
       }
 
+      // GROK 4.1 Behavior: Automated Workflow Transitions
+      if (fullResponse.includes('<APPROVE_MASTERPLAN>')) {
+        if ((window as any).syncMindMapFromMasterPlan) await (window as any).syncMindMapFromMasterPlan();
+        if ((window as any).openMindMap) (window as any).openMindMap();
+      }
+      if (fullResponse.includes('<APPROVE_MINDMAP>')) {
+        if ((window as any).openUIUX) (window as any).openUIUX();
+      }
+      if (fullResponse.includes('<APPROVE_UI>')) {
+        if ((window as any).openPreview) (window as any).openPreview();
+      }
+
       // GROK 4.1 Behavior: Sync Mind Map from Master Plan when finished
       if (fullResponse.includes('<FINISH_MASTERPLAN>') && (window as any).syncMindMapFromMasterPlan) {
         await (window as any).syncMindMapFromMasterPlan();
@@ -322,6 +345,9 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         .replace(/START_CODING/g, '')
         .replace(/<START_UIUX>/g, '')
         .replace(/<FINISH_MASTERPLAN>/g, '')
+        .replace(/<APPROVE_MASTERPLAN>/g, '')
+        .replace(/<APPROVE_MINDMAP>/g, '')
+        .replace(/<APPROVE_UI>/g, '')
         .trim();
 
       setMessages(prev => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
@@ -330,6 +356,20 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
       setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to GROK.'}` }]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const toggleLive = () => {
+    if (isLive) {
+      disconnectLive();
+    } else {
+      if ((window as any).openMasterPlan) (window as any).openMasterPlan();
+      connectLive();
+      
+      // If it's the start of a conversation, trigger an initial suggestion
+      if (messages.length <= 1) {
+        handleSendText("I'm ready to start. Please suggest the first step based on the Master Plan.");
+      }
     }
   };
 
