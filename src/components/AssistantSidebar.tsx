@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { VoiceLinesIcon } from './VoiceLinesIcon';
+import { Logo } from './Logo';
 
 export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const [isLive, setIsLive] = useState(false);
@@ -52,6 +53,7 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
   }, []);
 
   const [isRecordingText, setIsRecordingText] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
@@ -189,6 +191,7 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
     
     setMessages(prev => [...prev, { role: 'user', text: textToSend }]);
     setInputText('');
+    setIsLoading(true);
     
     // Clear auto-send timer if it was active
     if (autoSendTimerRef.current) {
@@ -201,62 +204,16 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
       const mpRes = await fetch('/api/master-plan/read');
       const latestMP = await mpRes.json();
       
-      const systemPrompt = `You are Nebula, an expert AI dev partner powered exclusively by GROK 4.1. You operate with two distinct internal agents:
-
-AGENT ROLES:
-1. Grok A (Conversational Agent):
-   - Your primary persona for interacting with the user.
-   - Summarize the user's idea clearly.
-   - When the user confirms the idea (e.g., by saying "start master plan" or "lock in"), Grok A silently outputs the label <START_MASTERPLAN> (start master plan) to trigger Grok B.
-   - Continue speaking with the client while Grok B writes.
-   - Once Grok B finishes the 8 sections, and the user confirms they are correct, say: "Okay, master plan locked in."
-   - After locking in, silently output the label <FINISH_MASTERPLAN> (finish master plan) to signal completion.
-
-2. Grok B (Master Plan Agent):
-   - Never talks to the client directly.
-   - Listens to the conversation.
-   - Immediately starts writing the full 8-section Master Plan when it sees the <START_MASTERPLAN> label.
-   - Writes tab by tab, providing a summary of what was understood and confirmed for each section.
-   - The Master Plan must have exactly 8 sections:
-     1. The problem we are solving
-     2. Target user and context
-     3. Core features: A table with three KPIs per feature.
-     4. User scale and load
-     5. Data requirements
-     6. Accessibility and inclusivity
-     7. Pages and navigation: Must link the mind map to pages and navigation.
-     8. Market and tech research
-   - Grok B's output must be wrapped in <START_MASTERPLAN> and <END_MASTERPLAN> tags.
-   - Grok B stops writing immediately if Grok A says "stop".
-
-SEPARATE PROJECT MODE:
-- Treat every new user input or description as a COMPLETELY SEPARATE new product for a different user.
-- When a new idea comes in, always treat it as a brand-new project.
-- Never show or use Nebula's own internal files or code.
-
-CRITICAL DISTINCTION:
-1. Nebula IDE (This Tool): The environment you are currently in. NEVER modify its internal files or code.
-2. Nebula Product (The Goal): The AI companion app we are building for users. All new features, pages, and logic must be built for this product.
-
-MODEL RULES:
-- Everything (Conversation, Reasoning, Coding): GROK 4.1 (grok-4-1-fast-reasoning) using the GROK API Nebula key.
-
-GROK 4.1 BEHAVIOR:
-1. Always listen to the user and summarize what you understood (Grok A).
-2. When the user says "start master plan", Grok A silently triggers Grok B.
-3. Grok B immediately starts writing the 8 sections inside <START_MASTERPLAN> and <END_MASTERPLAN> tags.
-4. Grok B writes in plain English, tab by tab, with summaries of understanding.
-5. If Grok A says "stop", Grok B must stop writing immediately.
-6. After Grok B finishes and the user reviews/approves, Grok A says "Okay, master plan locked in" and silently outputs <FINISH_MASTERPLAN>.
-7. Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.
-
-CODING MODE:
-- When <START_CODING> is triggered, provide reasoning wrapped in <REASONING> tags.
-- Reasoning should show: what files are being edited, what was fixed, and why it wasn't working.
-- When coding is finished, clearly summarize what was changed.
-
-CURRENT MASTER PLAN:
-${JSON.stringify(latestMP, null, 2)}`;
+      const systemPrompt = `You are Nebula, an expert AI dev partner powered by GROK 4.1.
+ROLES:
+- Grok A: Conversational. Summarizes ideas. Triggers Grok B with <START_MASTERPLAN>. Signals completion with <FINISH_MASTERPLAN>.
+- Grok B: Master Plan Agent. Writes 8 sections inside <START_MASTERPLAN> and <END_MASTERPLAN> tags.
+SECTIONS: 1. Problem, 2. User, 3. Features (table with 3 KPIs), 4. Scale, 5. Data, 6. Accessibility, 7. Pages/Nav (sync with mind map), 8. Research.
+RULES:
+- Treat every new input as a new project.
+- Never modify Nebula IDE internal files.
+- Use <START_CODING> and <REASONING> for code changes.
+CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
 
       // Connect to GROK via Backend Proxy
       const response = await fetch('/api/grok/chat', {
@@ -268,7 +225,7 @@ ${JSON.stringify(latestMP, null, 2)}`;
           messages: [{ 
             role: 'system', 
             content: systemPrompt
-          }, ...messages.map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.fullText || m.text })), { 
+          }, ...messages.slice(-10).map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.text })), { 
             role: 'user', 
             content: textToSend 
           }],
@@ -298,7 +255,8 @@ ${JSON.stringify(latestMP, null, 2)}`;
           "8. Market and tech research"
         ];
 
-        sections.forEach((title, i) => {
+        // Use a for...of loop to handle async updates sequentially or Promise.all for parallel
+        const updatePromises = sections.map(async (title, i) => {
           const nextTitle = sections[i + 1];
           const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
@@ -310,16 +268,18 @@ ${JSON.stringify(latestMP, null, 2)}`;
             let content = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, 'i'), '').trim();
             content = content.replace(/^[:\-\s]+/, '');
             if (content) {
-              // Call the frontend update function for immediate re-render
-              (window as any).updateMasterPlanSection(i + 1, content);
+              // Call the frontend update function for immediate re-render and backend persistence
+              await (window as any).updateMasterPlanSection(i + 1, content);
             }
           }
         });
+
+        await Promise.all(updatePromises);
       }
 
       // GROK 4.1 Behavior: Sync Mind Map from Master Plan when finished
       if (fullResponse.includes('<FINISH_MASTERPLAN>') && (window as any).syncMindMapFromMasterPlan) {
-        (window as any).syncMindMapFromMasterPlan();
+        await (window as any).syncMindMapFromMasterPlan();
       }
 
       // Extract reasoning if present
@@ -340,6 +300,8 @@ ${JSON.stringify(latestMP, null, 2)}`;
     } catch (error: any) {
       console.error("GROK API Error:", error);
       setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to GROK.'}` }]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -400,6 +362,21 @@ ${JSON.stringify(latestMP, null, 2)}`;
             )}
           </div>
         ))}
+        {isLoading && (
+          <div className="flex items-start gap-3 mb-6 animate-pulse">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
+              <Logo className="w-4 h-4 text-cyan-400" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-headline text-cyan-500 uppercase tracking-widest">Nebula is thinking...</span>
+              <div className="flex gap-1 mt-1">
+                <div className="w-1.5 h-1.5 bg-cyan-500/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-1.5 h-1.5 bg-cyan-500/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-1.5 h-1.5 bg-cyan-500/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

@@ -219,15 +219,18 @@ export default function App() {
         
         if (!section7) return;
 
-        // Simple parser for Section 7
-        // Expected format: "1. Page Name: Description" or similar
-        const lines = section7.split('\n').filter((l: string) => /^\d+\./.test(l.trim()));
+        // Flexible parser for Section 7
+        // Handles "1. Page", "- Page", "* Page", or just "Page"
+        const lines = section7.split('\n')
+          .map((l: string) => l.trim())
+          .filter((l: string) => l.length > 0 && !l.startsWith('#')); // Skip empty lines and headers
         
         if (lines.length === 0) return;
 
         const newPages = lines.map((line: string, index: number) => {
-          const content = line.replace(/^\d+\.\s*/, '').trim();
-          const [label, ...descParts] = content.split(':');
+          // Clean up list markers: "1. ", "- ", "* ", "1) "
+          const cleanLine = line.replace(/^(\d+[\.\)]|[-*])\s*/, '').trim();
+          const [label, ...descParts] = cleanLine.split(':');
           const description = descParts.join(':').trim();
           
           return {

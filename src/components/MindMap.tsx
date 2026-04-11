@@ -17,7 +17,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { v4 as uuidv4 } from 'uuid';
-import { Link, Trash2, Plus, AlertTriangle } from 'lucide-react';
+import { Link, Trash2, Plus, AlertTriangle, RefreshCw, Save } from 'lucide-react';
 
 // Custom Node Component
 const PageNode = ({ data, id }: any) => {
@@ -116,10 +116,21 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
     []
   );
 
+  const notifyChatAboutChange = useCallback((message: string) => {
+    if ((window as any).nebula_handleSendText) {
+      (window as any).nebula_handleSendText(`[MIND MAP UPDATE] ${message}`);
+    }
+  }, []);
+
   const confirmConnect = () => {
     if (pendingConnection) {
+      const sourceNode = pages.find((n: Node) => n.id === pendingConnection.source);
+      const targetNode = pages.find((n: Node) => n.id === pendingConnection.target);
+      
       setEdges((eds: Edge[]) => addEdge({ ...pendingConnection, animated: true, style: { stroke: '#00ffff' } }, eds));
       onSaveToMasterPlan();
+      
+      notifyChatAboutChange(`Connected page "${sourceNode?.data.label}" to "${targetNode?.data.label}". Please update the code to reflect this new navigation flow.`);
     }
     setShowConnectConfirm(false);
     setPendingConnection(null);
@@ -132,8 +143,14 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
 
   const confirmEdgeDelete = () => {
     if (edgeToDelete) {
+      const edge = edges.find((e: Edge) => e.id === edgeToDelete);
+      const sourceNode = pages.find((n: Node) => n.id === edge?.source);
+      const targetNode = pages.find((n: Node) => n.id === edge?.target);
+
       setEdges((eds: Edge[]) => eds.filter(e => e.id !== edgeToDelete));
       onSaveToMasterPlan();
+
+      notifyChatAboutChange(`Removed connection between "${sourceNode?.data.label}" and "${targetNode?.data.label}". Please update the code to remove this navigation path.`);
     }
     setShowEdgeDeleteConfirm(false);
     setEdgeToDelete(null);
@@ -146,9 +163,12 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
 
   const confirmDelete = () => {
     if (nodeToDelete) {
+      const node = pages.find((n: Node) => n.id === nodeToDelete);
       setPages((nds: Node[]) => nds.filter(n => n.id !== nodeToDelete));
       setEdges((eds: Edge[]) => eds.filter(e => e.source !== nodeToDelete && e.target !== nodeToDelete));
       onSaveToMasterPlan();
+
+      notifyChatAboutChange(`Deleted page "${node?.data.label}". Please remove all associated components and routes from the codebase.`);
     }
     setShowDeleteConfirm(false);
     setNodeToDelete(null);
@@ -177,6 +197,8 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
     setNewPageName('');
     setShowAddModal(false);
     onSaveToMasterPlan();
+
+    notifyChatAboutChange(`Added new page "${newNode.data.label}". Please create a new component and route for this page.`);
   };
 
   // Inject onDelete into node data
@@ -202,13 +224,44 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
       >
         <Background color="#00ffff" gap={16} size={1} />
         <Controls className="bg-[#040f1a] border border-white/10 fill-cyan-300 text-cyan-300" />
-        <Panel position="top-left" className="m-4">
+        <Panel position="top-left" className="m-4 flex gap-2">
           <button 
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded-md text-13 font-headline hover:bg-cyan-500/20 transition-all shadow-[0_0_10px_rgba(0,255,255,0.1)]"
           >
             <Plus className="w-3.5 h-3.5" />
             Add Page
+          </button>
+          <button 
+            onClick={() => {
+              if ((window as any).syncMindMapFromMasterPlan) {
+                (window as any).syncMindMapFromMasterPlan();
+              }
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 text-purple-300 border border-purple-500/20 rounded-md text-13 font-headline hover:bg-purple-500/20 transition-all shadow-[0_0_10px_rgba(168,85,247,0.1)]"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Sync from Master Plan
+          </button>
+          <button 
+            onClick={() => {
+              const pagesList = pages.map((p: any) => p.data.label).join(', ');
+              const edgesList = edges.map((e: any) => {
+                const s = pages.find((p: any) => p.id === e.source)?.data.label;
+                const t = pages.find((p: any) => p.id === e.target)?.data.label;
+                return `${s} -> ${t}`;
+              }).join(', ');
+              
+              notifyChatAboutChange(`Current Mind Map State:
+Pages: ${pagesList}
+Connections: ${edgesList}
+
+Please review this architecture and ensure the implementation is up to date.`);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded-md text-13 font-headline hover:bg-emerald-500/20 transition-all shadow-[0_0_10px_rgba(16,185,129,0.1)]"
+          >
+            <Save className="w-3.5 h-3.5" />
+            Push to AI
           </button>
         </Panel>
       </ReactFlow>
