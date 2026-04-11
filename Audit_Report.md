@@ -15,7 +15,7 @@
 | **Grok 4.1 Integration** | ✅ Operational | AI integration routing to direct x.ai API. Hands-free mode uses Speech-to-Text. |
 | **Master Plan Management** | ✅ Operational | Full CRUD support for `master-plan.json` via `/api/master-plan` endpoints. |
 | **Architecture Spec Writer** | ✅ Operational | Silent writer functionality for `Nebula Architecture Spec.md` via `/api/write-spec`. |
-| **Stripe Payments** | ✅ Operational | Backend support for creating checkout sessions via `/api/create-checkout-session`. |
+| **Stripe Payments** | 🚫 DISABLED | Backend endpoint `/api/create-checkout-session` is present but returns 503 per project settings. |
 | **File System Explorer** | ✅ Operational | Directory listing support via `/api/fs/list`. |
 | **Terminal Execution** | ✅ Operational | Command execution support via `/api/terminal/exec`. |
 

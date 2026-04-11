@@ -215,6 +215,14 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // Stripe Integration (DISABLED until further notice)
+  app.post("/api/create-checkout-session", (req, res) => {
+    res.status(503).json({ 
+      error: "Payments are currently disabled", 
+      message: "Stripe integration is kept in the codebase but inactive per project settings." 
+    });
+  });
+
   app.post("/api/stitch/mockup", async (req, res) => {
     const { pagesText, branding } = req.body;
     const apiKey = process.env.STITCH_API_KEY || process.env.GROK_API_NEBULLA;

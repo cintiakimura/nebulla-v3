@@ -114,95 +114,12 @@ function ProjectSettingsTab() {
     <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
       <div>
         <h3 className="text-xl font-headline text-cyan-300 mb-1">Project Settings</h3>
-        <p className="text-sm text-slate-500 mb-6">Configure domains, DNS, and hosting preferences for the current project.</p>
+        <p className="text-sm text-slate-500 mb-6">Manage project-specific configurations and preferences.</p>
       </div>
 
-      {/* Vercel Integration Section */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h4 className="text-sm font-headline text-slate-200 mb-2">Vercel Deployment</h4>
-            <p className="text-xs text-slate-500">Your project is configured for seamless deployment to Vercel.</p>
-          </div>
-          <div className="px-2 py-1 bg-cyan-500/10 text-cyan-400 text-[10px] uppercase tracking-wider rounded font-headline border border-cyan-500/20">Connected</div>
-        </div>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs p-3 bg-black/20 rounded-lg border border-white/5">
-            <span className="text-slate-400">Production URL</span>
-            <a href="#" className="text-cyan-300 hover:underline">nebulla-project.vercel.app</a>
-          </div>
-          <div className="flex items-center justify-between text-xs p-3 bg-black/20 rounded-lg border border-white/5">
-            <span className="text-slate-400">Latest Deployment</span>
-            <span className="text-slate-300">Just now by @nebula-user</span>
-          </div>
-          <button className="w-full py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-xs text-slate-300 font-headline">
-            View Deployment Logs
-          </button>
-        </div>
-      </div>
-
-      {/* Custom Domain Section */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <h4 className="text-sm font-headline text-slate-200 mb-2">Custom Domain</h4>
-        <p className="text-xs text-slate-500 mb-4">Connect a custom domain to your deployed application.</p>
-        <div className="flex gap-3">
-          <input 
-            type="text" 
-            placeholder="e.g. myapp.com" 
-            className="bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-sm w-full max-w-md text-slate-300 focus:border-cyan-500/50 outline-none transition-colors" 
-          />
-          <button className="px-5 py-2 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/20 transition-colors text-sm font-headline">
-            Add Domain
-          </button>
-        </div>
-      </div>
-
-      {/* DNS Records Section */}
-      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h4 className="text-sm font-headline text-slate-200 mb-1">DNS Records</h4>
-            <p className="text-xs text-slate-500">Configure these records in your domain registrar.</p>
-          </div>
-          <button className="text-xs px-3 py-1.5 bg-white/5 border border-white/10 rounded hover:bg-white/10 text-slate-300 transition-colors">
-            Refresh Status
-          </button>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-400">
-            <thead>
-              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
-                <th className="pb-3 font-headline font-normal">Type</th>
-                <th className="pb-3 font-headline font-normal">Name</th>
-                <th className="pb-3 font-headline font-normal">Value</th>
-                <th className="pb-3 font-headline font-normal">Status</th>
-              </tr>
-            </thead>
-            <tbody className="font-mono text-13">
-              <tr className="border-b border-white/5">
-                <td className="py-4 text-cyan-400">A</td>
-                <td className="py-4">@</td>
-                <td className="py-4">76.76.21.21</td>
-                <td className="py-4">
-                  <span className="flex items-center gap-1.5 text-green-400 text-xs font-sans">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span> Valid
-                  </span>
-                </td>
-              </tr>
-              <tr>
-                <td className="py-4 text-cyan-400">CNAME</td>
-                <td className="py-4">www</td>
-                <td className="py-4">cname.nebula-dns.com</td>
-                <td className="py-4">
-                  <span className="flex items-center gap-1.5 text-yellow-400 text-xs font-sans">
-                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span> Pending
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/10 rounded-xl bg-white/5">
+        <span className="material-symbols-outlined text-slate-600 text-4xl mb-4">settings_suggest</span>
+        <p className="text-slate-500 text-sm font-headline">No settings configured for this project yet.</p>
       </div>
     </div>
   );
@@ -286,6 +203,16 @@ function SecretsTab() {
             <div className="flex items-center gap-4">
               <span className="text-xs text-slate-500">Active</span>
               <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-3 border border-red-500/20 rounded-lg bg-red-500/5 opacity-60">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-red-400 text-lg">payments</span>
+              <span className="text-sm text-red-300 font-mono">STRIPE_SECRET_KEY</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-red-400 font-headline">DISABLED</span>
+              <button className="text-slate-500 cursor-not-allowed"><span className="material-symbols-outlined text-[18px]">lock</span></button>
             </div>
           </div>
         </div>
