@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Logo } from './Logo';
-import { Rocket, ArrowRight, CheckCircle, Terminal, LayoutGrid, Handshake, Network, Palette, Bug, Cpu, Globe, MoreHorizontal, PlusCircle, Trash2, CreditCard, Camera, List, Code, User } from 'lucide-react';
+import { Rocket, ArrowRight, CheckCircle, Terminal, LayoutGrid, Handshake, Network, Palette, Bug, Cpu, Globe, MoreHorizontal, PlusCircle, Save, Trash2, CreditCard, Camera, List, Code, User } from 'lucide-react';
 
 interface LandingPageProps {
   onEnter: () => void;
@@ -115,6 +115,26 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                   >
                     <Handshake className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
                     Brainstorm with dev partner
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      alert('Project configuration saved.');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-cyan-500/10 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/20 transition-all text-sm text-cyan-300 group"
+                  >
+                    <Save className="w-4 h-4" />
+                    Save
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      alert('Project stored successfully.');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-500/10 border border-purple-500/20 rounded-lg hover:bg-purple-500/20 transition-all text-sm text-purple-300 group"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Store the project
                   </button>
                 </div>
               </div>

@@ -39,7 +39,8 @@ import {
   History, 
   Bug,
   ChevronDown,
-  User
+  User,
+  Save
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -452,6 +453,15 @@ export default function App() {
           >
             <BookOpen className="w-5 h-5" />
           </button>
+          
+          <button 
+            onClick={handleSaveToMasterPlan}
+            className="text-slate-500 hover:text-green-400 transition-all"
+            title="Save Project"
+          >
+            <Save className="w-5 h-5" />
+          </button>
+
           <div className="w-8 h-[1px] bg-white/10 my-1"></div>
           
           <button 
