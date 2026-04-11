@@ -212,6 +212,23 @@ export default function App() {
       }
     });
 
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user) {
+            setUser({
+              uid: session.user.id,
+              displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
+              email: session.user.email || null,
+              photoURL: session.user.user_metadata.avatar_url || null,
+              role: 'user'
+            });
+          }
+        });
+      }
+    };
+    window.addEventListener('message', handleMessage);
+
     // Load project from Supabase if user is logged in
     const loadProject = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -243,7 +260,10 @@ export default function App() {
 
     loadProject();
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('message', handleMessage);
+    };
   }, []);
 
   useEffect(() => {
@@ -435,23 +455,41 @@ export default function App() {
   };
 
   const handleGithubLogin = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: `${window.location.origin}/auth/callback`,
+        skipBrowserRedirect: true
       }
     });
-    if (error) console.error("GitHub Login Error:", error.message);
+    
+    if (error) {
+      console.error("GitHub Login Error:", error.message);
+      return;
+    }
+
+    if (data?.url) {
+      window.open(data.url, 'nebula_auth_popup', 'width=600,height=700');
+    }
   };
 
   const handleGoogleLogin = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: `${window.location.origin}/auth/callback`,
+        skipBrowserRedirect: true
       }
     });
-    if (error) console.error("Google Login Error:", error.message);
+    
+    if (error) {
+      console.error("Google Login Error:", error.message);
+      return;
+    }
+
+    if (data?.url) {
+      window.open(data.url, 'nebula_auth_popup', 'width=600,height=700');
+    }
   };
   
   const handleLogout = async () => {

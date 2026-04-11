@@ -177,6 +177,35 @@ async function startServer() {
     });
   });
 
+  app.get("/auth/callback", (req, res) => {
+    res.send(`
+      <html>
+        <head>
+          <title>Authentication Successful</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #040f1a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: rgba(255,255,255,0.05); padding: 2rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.1); text-align: center; max-width: 400px; }
+            h2 { color: #00ffff; margin-top: 0; }
+            p { color: #94a3b8; line-height: 1.5; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>Authentication Successful</h2>
+            <p>Your account has been connected. This window should close automatically.</p>
+            <p style="font-size: 0.8rem; opacity: 0.5;">If it doesn't close, you can safely close it manually.</p>
+          </div>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+              setTimeout(() => window.close(), 1000);
+            }
+          </script>
+        </body>
+      </html>
+    `);
+  });
+
   app.post("/api/leads", (req, res) => {
     const { email, action } = req.body;
     if (!email) return res.status(400).json({ error: "Email is required" });

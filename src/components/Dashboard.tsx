@@ -270,26 +270,6 @@ function SecretsTab() {
           </div>
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
             <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">login</span>
-              <span className="text-sm text-slate-300 font-mono">GITHUB_CLIENT_SECRET</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">login</span>
-              <span className="text-sm text-slate-300 font-mono">GOOGLE_CLIENT_SECRET</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
               <span className="text-sm text-slate-300 font-mono">BUILDER_PRIVATE_KEY</span>
             </div>
@@ -307,6 +287,35 @@ function SecretsTab() {
               <span className="text-xs text-slate-500">Active</span>
               <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* OAuth Integration */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+        <h4 className="text-sm font-headline text-slate-200 mb-2">OAuth Integration (Supabase)</h4>
+        <p className="text-xs text-slate-500 mb-4">Configure your OAuth providers in the Supabase Dashboard.</p>
+        
+        <div className="space-y-4">
+          <div className="p-4 border border-cyan-500/20 rounded-lg bg-cyan-500/5">
+            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">Required Redirect URL</h5>
+            <div className="flex items-center gap-3 bg-black/40 p-3 rounded-md border border-white/5">
+              <code className="text-[11px] text-slate-300 flex-1 break-all">
+                {window.location.origin}/auth/callback
+              </code>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/auth/callback`);
+                  alert('Copied to clipboard!');
+                }}
+                className="text-slate-500 hover:text-cyan-300 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">content_copy</span>
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-2">
+              Add this URL to your Supabase project under <strong>Auth &gt; URL Configuration &gt; Redirect URLs</strong>.
+            </p>
           </div>
         </div>
       </div>
