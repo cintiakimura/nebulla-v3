@@ -42,7 +42,8 @@ import {
   User,
   Save,
   PlusCircle,
-  Handshake
+  Handshake,
+  Edit2
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -112,6 +113,7 @@ export default function App() {
   
   const [pages, setPages] = useState(initialPages);
   const [edges, setEdges] = useState(initialEdges);
+  const [projectName, setProjectName] = useState('Untitled Project');
 
   const [leftWidth, setLeftWidth] = useState(240);
   const [rightWidth, setRightWidth] = useState(320);
@@ -154,6 +156,7 @@ export default function App() {
       const data = JSON.parse(savedProject);
       if (data.pages) setPages(data.pages);
       if (data.edges) setEdges(data.edges);
+      if (data.projectName) setProjectName(data.projectName);
     }
   }, []);
 
@@ -196,9 +199,9 @@ export default function App() {
   }, [pages]);
 
   const handleSaveToMasterPlan = () => {
-    const projectData = { pages, edges };
+    const projectData = { pages, edges, projectName };
     localStorage.setItem('nebula_project_default', JSON.stringify(projectData));
-    console.log("Saved to Master Plan locally");
+    console.log("Saved project state locally");
   };
 
   const handleActionRequiresPayment = (actionName: string) => {
@@ -529,7 +532,26 @@ export default function App() {
 
               {/* Quick Actions */}
               <div className="p-4 border-t border-white/5 space-y-3">
-                <span className="text-[10px] text-slate-500 font-headline uppercase tracking-tighter no-bold">Quick Actions</span>
+                <div className="flex flex-col gap-1 group relative">
+                  <span className="text-[10px] text-slate-500 font-headline uppercase tracking-tighter no-bold">Active Project</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-13 text-slate-200 font-headline truncate max-w-[140px]">{projectName}</span>
+                    <button 
+                      onClick={() => {
+                        const newName = window.prompt('Enter new project name:', projectName);
+                        if (newName) {
+                          setProjectName(newName);
+                          localStorage.setItem('nebula_project_default', JSON.stringify({ pages, edges, projectName: newName }));
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-cyan-300"
+                      title="Rename Project"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <span className="text-[10px] text-slate-500 font-headline uppercase tracking-tighter no-bold block pt-2">Quick Actions</span>
                 <div className="flex flex-col gap-2">
                   <button 
                     onClick={() => handleActionRequiresPayment('Connect')}
@@ -608,7 +630,15 @@ export default function App() {
             <div className="flex-1 flex flex-col gap-6">
               {dashboardTab ? (
                 <div className="flex-1 flex flex-col">
-                  <Dashboard activeTab={dashboardTab} onTabChange={setDashboardTab} />
+                  <Dashboard 
+                    activeTab={dashboardTab} 
+                    onTabChange={setDashboardTab} 
+                    projectName={projectName}
+                    onProjectNameChange={(name) => {
+                      setProjectName(name);
+                      localStorage.setItem('nebula_project_default', JSON.stringify({ pages, edges, projectName: name }));
+                    }}
+                  />
                 </div>
               ) : showStitchMockup ? (
                 <div className="flex-1 flex flex-col">

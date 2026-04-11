@@ -6,9 +6,11 @@ export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | '
 interface DashboardProps {
   activeTab: DashboardTab;
   onTabChange: (tab: DashboardTab) => void;
+  projectName: string;
+  onProjectNameChange: (name: string) => void;
 }
 
-export function Dashboard({ activeTab, onTabChange }: DashboardProps) {
+export function Dashboard({ activeTab, onTabChange, projectName, onProjectNameChange }: DashboardProps) {
   return (
     <div className="flex-1 flex flex-col h-full bg-[#040f1a]/40 backdrop-blur-sm border border-white/5 rounded-lg overflow-hidden">
       {/* Dashboard Header */}
@@ -28,7 +30,12 @@ export function Dashboard({ activeTab, onTabChange }: DashboardProps) {
       {/* Dashboard Content Area */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto">
-          {activeTab === 'projects' && <ProjectsTab />}
+          {activeTab === 'projects' && (
+            <ProjectsTab 
+              projectName={projectName} 
+              onProjectNameChange={onProjectNameChange} 
+            />
+          )}
           {activeTab === 'project-settings' && <ProjectSettingsTab />}
           {activeTab === 'secrets' && <SecretsTab />}
           {activeTab === 'user-settings' && <UserSettingsTab />}
@@ -38,7 +45,7 @@ export function Dashboard({ activeTab, onTabChange }: DashboardProps) {
   );
 }
 
-function ProjectsTab() {
+function ProjectsTab({ projectName, onProjectNameChange }: { projectName: string, onProjectNameChange: (name: string) => void }) {
   return (
     <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
       <div>
@@ -48,17 +55,29 @@ function ProjectsTab() {
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Project Card */}
-        <div className="p-5 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all cursor-pointer group">
+        <div className="p-5 border border-cyan-500/30 rounded-xl bg-cyan-500/5 hover:bg-cyan-500/10 transition-all cursor-pointer group">
           <div className="flex justify-between items-start mb-4">
             <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center text-cyan-400">
               <span className="material-symbols-outlined">rocket_launch</span>
             </div>
             <span className="px-2 py-1 bg-green-500/10 text-green-400 text-[10px] uppercase tracking-wider rounded font-headline border border-green-500/20">Active</span>
           </div>
-          <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Nebula Core</h4>
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-slate-200 font-headline group-hover:text-cyan-300 transition-colors">{projectName}</h4>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                const newName = window.prompt('Enter new project name:', projectName);
+                if (newName) onProjectNameChange(newName);
+              }}
+              className="text-slate-500 hover:text-cyan-300 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">edit</span>
+            </button>
+          </div>
           <p className="text-xs text-slate-500 mb-4">React + Vite + Local State</p>
           <div className="flex items-center justify-between text-[11px] text-slate-600 border-t border-white/5 pt-3">
-            <span>Updated 2 mins ago</span>
+            <span>Updated Just Now</span>
             <span className="material-symbols-outlined text-[14px]">more_horiz</span>
           </div>
         </div>
