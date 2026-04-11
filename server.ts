@@ -225,11 +225,11 @@ async function startServer() {
 
   app.post("/api/stitch/mockup", async (req, res) => {
     const { pagesText, branding } = req.body;
-    const apiKey = process.env.GROK_API_KEY;
+    const apiKey = process.env.STITCH_API_KEY || process.env.GROK_API_NEBULLA;
     
     if (!apiKey) {
-      console.error('GROK_API_KEY is not set')
-      return res.status(500).json({error: "GROK_API_KEY is not configured"});
+      console.error("Stitch API Key not set (tried STITCH_API_KEY and GROK_API_NEBULLA)");
+      return res.status(500).json({ error: "Stitch API Key is not set. Please add STITCH_API_KEY in the Settings menu." });
     }
 
     try {
@@ -292,7 +292,7 @@ Requirements:
 
 app.post("/api/grok/chat", async (req, res) => {
 const { messages } = req.body;
-const apiKey = process.env.GROK_API_KEY;
+const apiKey = process.env.GROK_API_NEBULLA;
 
 if (!apiKey) {
   console.error("GROK API Nebula is not set in environment");
@@ -302,7 +302,7 @@ if (!apiKey) {
 // Basic validation of key format
 if (apiKey.length < 20) {
   const helpMsg = "Your GROK API Nebula appears to be invalid. Please check it in the Settings menu.";
-  console.error(`Invalid GROK_API_KEY format detected: ${helpMsg}`);
+  console.error(`Invalid GROK_API_NEBULLA format detected: ${helpMsg}`);
   return res.status(400).json({ error: helpMsg });
 }
 
