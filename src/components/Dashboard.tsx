@@ -1,4 +1,5 @@
 import React from 'react';
+import { PlusCircle, Handshake, Github, Save } from 'lucide-react';
 
 export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | 'secrets';
 
@@ -78,10 +79,47 @@ function ProjectsTab() {
           </div>
         </div>
 
-        {/* New Project */}
-        <div className="p-5 border border-dashed border-white/20 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-cyan-300 hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-all cursor-pointer min-h-[180px]">
-          <span className="material-symbols-outlined text-3xl mb-2">add_circle</span>
-          <span className="font-headline text-sm">Create New Project</span>
+        {/* New Project Starters */}
+        <div className="p-5 border border-dashed border-white/20 rounded-xl flex flex-col gap-3 min-h-[180px] bg-white/[0.02]">
+          <span className="text-xs font-headline text-slate-500 uppercase tracking-widest mb-1">Create New Project</span>
+          
+          <button 
+            onClick={() => {
+              const prompt = window.prompt('Paste your written prompt:');
+              if (prompt && (window as any).nebula_handleSendText) {
+                (window as any).nebula_handleSendText(prompt);
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-cyan-500/30 transition-all text-sm text-slate-300 group"
+          >
+            <PlusCircle className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+            Create with written prompt
+          </button>
+          
+          <button 
+            onClick={() => {
+              const repo = window.prompt('Paste GitHub repository link:');
+              if (repo && (window as any).nebula_handleSendText) {
+                (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-cyan-500/30 transition-all text-sm text-slate-300 group"
+          >
+            <Github className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />
+            Clone from GitHub
+          </button>
+
+          <button 
+            onClick={() => {
+              if ((window as any).nebula_toggleLive) {
+                (window as any).nebula_toggleLive();
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-cyan-500/30 transition-all text-sm text-slate-300 group"
+          >
+            <Handshake className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
+            Brainstorm with dev partner
+          </button>
         </div>
       </div>
     </div>

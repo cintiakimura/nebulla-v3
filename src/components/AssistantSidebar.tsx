@@ -343,6 +343,16 @@ ${JSON.stringify(latestMP, null, 2)}`;
     }
   };
 
+  useEffect(() => {
+    (window as any).nebula_handleSendText = handleSendText;
+    (window as any).nebula_toggleLive = toggleLive;
+    
+    return () => {
+      delete (window as any).nebula_handleSendText;
+      delete (window as any).nebula_toggleLive;
+    };
+  }, [handleSendText, toggleLive]);
+
   return (
     <aside className="flex flex-col border-l border-white/5 bg-[#040f1a]/40 backdrop-blur-md shrink-0" style={{ width }}>
       <div className="p-4 border-b border-white/5 flex items-center justify-between">

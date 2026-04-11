@@ -40,7 +40,9 @@ import {
   Bug,
   ChevronDown,
   User,
-  Save
+  Save,
+  PlusCircle,
+  Handshake
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -684,14 +686,53 @@ export function NebulaInterface() {
                         ) : (
                           <>
                             <div className="w-full h-full opacity-30 bg-gradient-to-br from-cyan-900/50 to-purple-900/50" />
-                            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center gap-4">
-                              <h2 className="text-2xl font-headline no-bold text-primary">Nebula Interface</h2>
-                              <p className="text-13 text-on-surface-variant max-w-sm no-bold leading-relaxed">
-                                System initialized. Working within the synchronized data-stream.
-                              </p>
-                              <button className="mt-2 px-6 py-2 bg-primary-container/10 text-primary border border-primary/20 rounded-md text-13 font-headline no-bold hover:bg-primary-container/20 transition-all">
-                                Sync Workspace
-                              </button>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center gap-6">
+                              <div className="flex flex-col gap-2">
+                                <h2 className="text-2xl font-headline no-bold text-primary">Nebula Interface</h2>
+                                <p className="text-13 text-on-surface-variant max-w-sm no-bold leading-relaxed">
+                                  System initialized. Ready to build your next architecture.
+                                </p>
+                              </div>
+                              
+                              <div className="flex flex-wrap justify-center gap-3">
+                                <button 
+                                  onClick={() => {
+                                    const prompt = window.prompt('Paste your written prompt:');
+                                    if (prompt && (window as any).nebula_handleSendText) {
+                                      (window as any).nebula_handleSendText(prompt);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-5 py-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl hover:bg-cyan-500/20 transition-all text-sm text-cyan-300 font-headline"
+                                >
+                                  <PlusCircle className="w-4 h-4" />
+                                  Written Prompt
+                                </button>
+                                
+                                <button 
+                                  onClick={() => {
+                                    const repo = window.prompt('Paste GitHub repository link:');
+                                    if (repo && (window as any).nebula_handleSendText) {
+                                      (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-sm text-slate-300 font-headline"
+                                >
+                                  <Save className="w-4 h-4 text-slate-400" />
+                                  Clone GitHub
+                                </button>
+
+                                <button 
+                                  onClick={() => {
+                                    if ((window as any).nebula_toggleLive) {
+                                      (window as any).nebula_toggleLive();
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-5 py-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl hover:bg-purple-500/20 transition-all text-sm text-purple-300 font-headline"
+                                >
+                                  <Handshake className="w-4 h-4" />
+                                  Brainstorm
+                                </button>
+                              </div>
                             </div>
                           </>
                         )}
