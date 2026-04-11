@@ -5,9 +5,6 @@ import { VoiceLinesIcon } from './VoiceLinesIcon';
 export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const [isLive, setIsLive] = useState(false);
   const [isMicOpen, setIsMicOpen] = useState(false);
-  const [isSoundOn, setIsSoundOn] = useState(true);
-  const isSoundOnRef = useRef(isSoundOn);
-  useEffect(() => { isSoundOnRef.current = isSoundOn; }, [isSoundOn]);
   const [messages, setMessages] = useState<{role: string, text: string, fullText?: string, reasoning?: string}[]>([
     { role: 'model', text: 'System initialized. Ready to collaborate.', fullText: 'System initialized. Ready to collaborate.' }
   ]);
@@ -216,10 +213,10 @@ SEPARATE PROJECT MODE:
 
 CRITICAL DISTINCTION:
 1. Nebula IDE (This Tool): The environment you are currently in. NEVER modify its internal files or code.
-2. Nebula Product (The Goal): The voice-first AI companion app we are building for users. All new features, pages, and logic must be built for this product.
+2. Nebula Product (The Goal): The AI companion app we are building for users. All new features, pages, and logic must be built for this product.
 
 MODEL RULES:
-- Everything (Conversation, Reasoning, Coding, Voice Output): GROK 4.1 (grok-4-1-fast-reasoning) using the GROK API Nebula key.
+- Everything (Conversation, Reasoning, Coding): GROK 4.1 (grok-4-1-fast-reasoning) using the GROK API Nebula key.
 
 GROK 4.1 BEHAVIOR:
 1. Always listen to the user and summarize what you understood (Grok A).
@@ -278,28 +275,6 @@ ${JSON.stringify(latestMP, null, 2)}`;
         .trim();
 
       setMessages(prev => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
-
-      // ElevenLabs TTS from Backend
-      if (isSoundOnRef.current && cleanText) {
-        try {
-          const ttsResponse = await fetch('/api/elevenlabs/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: cleanText })
-          });
-
-          if (ttsResponse.ok) {
-            const audioBlob = await ttsResponse.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            const audio = new Audio(audioUrl);
-            audio.play().catch(e => console.error("Audio playback failed:", e));
-          } else {
-            console.error("ElevenLabs TTS failed:", await ttsResponse.text());
-          }
-        } catch (err) {
-          console.error("Error calling ElevenLabs TTS:", err);
-        }
-      }
     } catch (error: any) {
       console.error("GROK API Error:", error);
       setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to GROK.'}` }]);
@@ -389,13 +364,6 @@ ${JSON.stringify(latestMP, null, 2)}`;
               title={isRecordingText ? "Stop Recording" : "Dictate Text"}
             >
               <span className="material-symbols-outlined text-18">mic</span>
-            </button>
-            <button 
-              onClick={() => setIsSoundOn(!isSoundOn)}
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all hover:bg-white/5 ${!isSoundOn ? 'text-red-400' : 'text-slate-500 hover:text-cyan-300'}`}
-              title={isSoundOn ? "Mute Sound" : "Unmute Sound"}
-            >
-              <span className="material-symbols-outlined text-18">{isSoundOn ? 'volume_up' : 'volume_off'}</span>
             </button>
           </div>
           <button 
