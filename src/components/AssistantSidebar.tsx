@@ -28,6 +28,29 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isMicOpenRef = useRef(isMicOpen);
   
+  useEffect(() => {
+    // 1. Handle auto-start chat (Brainstorm mode)
+    const autoStart = localStorage.getItem('nebula_auto_start_chat');
+    if (autoStart === 'true') {
+      localStorage.removeItem('nebula_auto_start_chat');
+      toggleLive();
+    }
+
+    // 2. Handle initial prompt
+    const initialPrompt = localStorage.getItem('nebula_initial_prompt');
+    if (initialPrompt) {
+      localStorage.removeItem('nebula_initial_prompt');
+      handleSendText(initialPrompt);
+    }
+
+    // 3. Handle GitHub import
+    const githubRepo = localStorage.getItem('nebula_github_import');
+    if (githubRepo) {
+      localStorage.removeItem('nebula_github_import');
+      handleSendText(`I want to clone and analyze this GitHub repository: ${githubRepo}`);
+    }
+  }, []);
+
   const [isRecordingText, setIsRecordingText] = useState(false);
   const recognitionRef = useRef<any>(null);
 
