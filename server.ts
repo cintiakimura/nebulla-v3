@@ -160,44 +160,64 @@ async function startServer() {
   });
 
   app.post("/api/stitch/mockup", async (req, res) => {
-    const { pagesText } = req.body;
-    const apiKey = process.env.STITCH_API_KEY;
+    const { pagesText, branding } = req.body;
+    const apiKey = process.env.STITCH_API_KEY || process.env.GROK_API_NEBULLA;
     
     if (!apiKey) {
-      console.error("STITCH_API_KEY is not set");
-      return res.status(500).json({ error: "STITCH_API_KEY is not set. Please add it in the Settings menu." });
+      console.error("Stitch API Key not set (tried STITCH_API_KEY and GROK_API_NEBULLA)");
+      return res.status(500).json({ error: "Stitch API Key is not set. Please add STITCH_API_KEY in the Settings menu." });
     }
 
     try {
-      // Mocking Stitch API call - in a real scenario, this would call the Stitch service
-      // For now, we'll use Grok as the engine but identify it as Stitch
+      const brandingPrompt = branding ? `
+Branding Context:
+- App Name: ${branding.appName}
+- Primary Color: ${branding.primaryColor}
+- Secondary Color: ${branding.secondaryColor}
+- Style: ${branding.style}
+` : '';
+
       const response = await fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.GROK_API_NEBULLA}`,
-    },
-    body: JSON.stringify({
-      model: 'grok-4-1-fast-reasoning',
-      messages: [{ 
-        role: 'user', 
-        content: `Generate a single SVG mockup based ONLY on this Master Plan data:\n\n${pagesText}\n\nReturn ONLY valid SVG code. No markdown formatting, no explanation.` 
-      }],
-      stream: false
-    }),
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'grok-4-1-fast-reasoning',
+          messages: [{ 
+            role: 'user', 
+            content: `You are a world-class UI designer. Generate a high-fidelity, modern, and professional SVG mockup for a mobile application.
+
+Master Plan Data:
+${pagesText}
+${brandingPrompt}
+
+Requirements:
+1. Return ONLY valid SVG code.
+2. No markdown formatting (no \`\`\`svg blocks).
+3. No explanations or text outside the <svg> tag.
+4. The SVG should be standalone and render a complete screen or dashboard.
+5. Use the provided branding colors if available.
+6. Ensure all text is readable and components are well-spaced.` 
+          }],
+          stream: false
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        console.error("Stitch Engine Error Response:", errBody);
+        throw new Error(`Stitch Engine Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error("Error calling Stitch API:", error);
+      res.status(500).json({ error: "Failed to call Stitch API" });
+    }
   });
-
-  if (!response.ok) {
-    throw new Error(`Stitch Engine Error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  res.json(data);
-} catch (error) {
-  console.error("Error calling Stitch API:", error);
-  res.status(500).json({ error: "Failed to call Stitch API" });
-}
-});
 
 app.post("/api/grok/chat", async (req, res) => {
 const { messages } = req.body;

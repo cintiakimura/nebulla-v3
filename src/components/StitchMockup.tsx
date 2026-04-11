@@ -51,8 +51,16 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
       
       // Clean up markdown if present
       svgCode = svgCode.replace(/```xml/g, '').replace(/```svg/g, '').replace(/```/g, '').trim();
+      
+      // Extract SVG if there is surrounding text
+      const svgMatch = svgCode.match(/<svg[\s\S]*?<\/svg>/);
+      if (svgMatch) {
+        svgCode = svgMatch[0];
+      }
 
-      const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgCode)}`;
+      // Use base64 encoding for more reliable rendering
+      const base64Svg = btoa(unescape(encodeURIComponent(svgCode)));
+      const dataUrl = `data:image/svg+xml;base64,${base64Svg}`;
       return dataUrl;
     } catch (err: any) {
       console.error("Failed to generate mockup:", err);
