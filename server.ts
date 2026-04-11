@@ -225,11 +225,11 @@ async function startServer() {
 
   app.post("/api/stitch/mockup", async (req, res) => {
     const { pagesText, branding } = req.body;
-    const apiKey = process.env.process.env.GROK_API_KEY;
+    const apiKey = process.env.GROK_API_KEY;
     
     if (!apiKey) {
       console.error('GROK_API_KEY is not set')
-      return res.status(500).json({error: GROK_API_KEY is not configured});
+      return res.status(500).json({error: "GROK_API_KEY is not configured"});
     }
 
     try {
