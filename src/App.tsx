@@ -11,6 +11,7 @@ import { StitchMockup } from './components/StitchMockup';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
 import { Logo } from './components/Logo';
+import { supabase } from './lib/supabase';
 import { 
   Folder, 
   FileCode, 
@@ -143,21 +144,65 @@ export default function App() {
   }, [terminalHistory]);
 
   useEffect(() => {
-    // Mock authentication check
-    const savedUser = localStorage.getItem('nebula_user');
-    if (savedUser) {
-      const parsedUser = JSON.parse(savedUser) as MockUser;
-      setUser(parsedUser);
-    }
+    // Real Supabase authentication check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          uid: session.user.id,
+          displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || null,
+          photoURL: session.user.user_metadata.avatar_url || null,
+          role: session.user.email === SUPER_ADMIN_EMAIL ? 'super-admin' : 'user'
+        });
+      }
+    });
 
-    // Mock project data loading
-    const savedProject = localStorage.getItem('nebula_project_default');
-    if (savedProject) {
-      const data = JSON.parse(savedProject);
-      if (data.pages) setPages(data.pages);
-      if (data.edges) setEdges(data.edges);
-      if (data.projectName) setProjectName(data.projectName);
-    }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          uid: session.user.id,
+          displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || null,
+          photoURL: session.user.user_metadata.avatar_url || null,
+          role: session.user.email === SUPER_ADMIN_EMAIL ? 'super-admin' : 'user'
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    // Load project from Supabase if user is logged in
+    const loadProject = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (data && !error) {
+          if (data.pages) setPages(data.pages);
+          if (data.edges) setEdges(data.edges);
+          if (data.name) setProjectName(data.name);
+        }
+      } else {
+        // Fallback to localStorage for guest users
+        const savedProject = localStorage.getItem('nebula_project_default');
+        if (savedProject) {
+          const data = JSON.parse(savedProject);
+          if (data.pages) setPages(data.pages);
+          if (data.edges) setEdges(data.edges);
+          if (data.projectName) setProjectName(data.projectName);
+        }
+      }
+    };
+
+    loadProject();
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -198,8 +243,28 @@ export default function App() {
     return `PAGES & NAVIGATION\n\nRULE: Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.\n\n` + sortedPages.map((p, i) => `${i + 1}. ${p.data.label}: ${p.data.description}`).join('\n');
   }, [pages]);
 
-  const handleSaveToMasterPlan = () => {
+  const handleSaveToMasterPlan = async () => {
     const projectData = { pages, edges, projectName };
+    
+    if (user) {
+      const { error } = await supabase
+        .from('projects')
+        .upsert({
+          user_id: user.uid,
+          name: projectName,
+          pages: pages,
+          edges: edges,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id, name' });
+
+      if (error) {
+        console.error("Error saving to Supabase:", error);
+        alert('Failed to save project to cloud. Saving locally instead.');
+      } else {
+        console.log("Saved project to Supabase");
+      }
+    }
+    
     localStorage.setItem('nebula_project_default', JSON.stringify(projectData));
     console.log("Saved project state locally");
   };
@@ -309,43 +374,28 @@ export default function App() {
     // Return to default view or mind map
   };
 
-  const handleGithubLogin = async (overrideEmail?: string) => {
-    // Mock Github Login
-    const email = overrideEmail || prompt('Enter email to login (e.g. cintiakimura20@gmail.com):', 'dev@nebula.io') || 'dev@nebula.io';
-    
-    const isSuperAdmin = email === SUPER_ADMIN_EMAIL;
-    
-    const mockUser: MockUser = {
-      uid: isSuperAdmin ? 'super-admin-uid' : 'github-mock-uid',
-      displayName: isSuperAdmin ? 'Cintia Kimura' : 'Nebula Dev',
-      email: email,
-      photoURL: isSuperAdmin ? 'https://picsum.photos/seed/cintia/200' : 'https://picsum.photos/seed/nebula-dev/200',
-      role: isSuperAdmin ? 'super-admin' : 'user'
-    };
-    
-    setUser(mockUser);
-    localStorage.setItem('nebula_user', JSON.stringify(mockUser));
+  const handleGithubLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+    if (error) console.error("GitHub Login Error:", error.message);
   };
 
   const handleGoogleLogin = async () => {
-    // Mock Google Login
-    const email = prompt('Enter email to login (e.g. cintiakimura20@gmail.com):', 'user@gmail.com') || 'user@gmail.com';
-    
-    const isSuperAdmin = email === SUPER_ADMIN_EMAIL;
-    
-    const mockUser: MockUser = {
-      uid: isSuperAdmin ? 'super-admin-uid' : 'google-mock-uid',
-      displayName: isSuperAdmin ? 'Cintia Kimura' : 'Google User',
-      email: email,
-      photoURL: isSuperAdmin ? 'https://picsum.photos/seed/cintia/200' : 'https://picsum.photos/seed/google-user/200',
-      role: isSuperAdmin ? 'super-admin' : 'user'
-    };
-    
-    setUser(mockUser);
-    localStorage.setItem('nebula_user', JSON.stringify(mockUser));
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+    if (error) console.error("Google Login Error:", error.message);
   };
   
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     localStorage.removeItem('nebula_user');
   };
@@ -549,20 +599,15 @@ export default function App() {
                 <div className="flex flex-col gap-1 group relative">
                   <span className="text-[10px] text-slate-500 font-headline uppercase tracking-tighter no-bold">Active Project</span>
                   <div className="flex items-center justify-between">
-                    <span className="text-13 text-slate-200 font-headline truncate max-w-[140px]">{projectName}</span>
-                    <button 
-                      onClick={() => {
-                        const newName = window.prompt('Enter new project name:', projectName);
-                        if (newName) {
-                          setProjectName(newName);
-                          localStorage.setItem('nebula_project_default', JSON.stringify({ pages, edges, projectName: newName }));
-                        }
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-cyan-300"
-                      title="Rename Project"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                    </button>
+                    <input
+                      type="text"
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value)}
+                      onBlur={handleSaveToMasterPlan}
+                      className="bg-transparent border-none text-13 text-slate-200 font-headline focus:ring-1 focus:ring-cyan-500/50 rounded px-1 -ml-1 w-full outline-none"
+                      placeholder="Project Name"
+                    />
+                    <Edit2 className="w-3 h-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>
                 <span className="text-[10px] text-slate-500 font-headline uppercase tracking-tighter no-bold block pt-2">Quick Actions</span>

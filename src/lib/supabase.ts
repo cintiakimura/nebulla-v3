@@ -1,23 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-let supabaseInstance: any = null;
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
-export async function getSupabase() {
-  if (supabaseInstance) return supabaseInstance;
-
-  try {
-    const response = await fetch('/api/config');
-    const config = await response.json();
-
-    if (!config.supabaseUrl || !config.supabaseAnonKey) {
-      console.warn('Supabase configuration missing. Check environment variables.');
-      return null;
-    }
-
-    supabaseInstance = createClient(config.supabaseUrl, config.supabaseAnonKey);
-    return supabaseInstance;
-  } catch (error) {
-    console.error('Failed to initialize Supabase:', error);
-    return null;
-  }
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn('Supabase credentials missing. Persistence and Auth will be disabled.');
 }
+
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder'
+);

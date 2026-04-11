@@ -43,7 +43,7 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Stitch Engine Error: ${response.status} - ${errorText}`);
+        throw new Error(`Pencil Engine Error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -137,15 +137,15 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
       <div className="h-14 border-b border-white/5 bg-white/5 flex items-center px-8 justify-between shrink-0">
         <div className="flex items-center gap-3">
           <Palette className="w-5 h-5 text-cyan-400" />
-          <h2 className="text-lg font-headline text-cyan-100">UI/UX Workflow</h2>
+          <h2 className="text-lg font-headline text-cyan-100">Pencil UI Studio</h2>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             {[
-              { id: 'branding', label: 'Branding' },
-              { id: 'generating', label: 'Stitch' },
+              { id: 'branding', label: 'Identity' },
+              { id: 'generating', label: 'Pencil Drafts' },
               { id: 'review', label: 'Selection' },
-              { id: 'pencil', label: 'Pencil' }
+              { id: 'pencil', label: 'Editor' }
             ].map((s, i) => (
               <React.Fragment key={s.id}>
                 <div className={`text-[10px] font-headline uppercase tracking-widest ${step === s.id ? 'text-cyan-300' : 'text-slate-600'}`}>
@@ -163,7 +163,7 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
           <div className="w-full max-w-2xl flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex flex-col gap-2">
               <h2 className="text-2xl font-headline text-slate-100">Branding & Identity</h2>
-              <p className="text-slate-400">Define the visual core of your application before Stitch generates your designs.</p>
+              <p className="text-slate-400">Define the visual core of your application before Pencil generates your designs.</p>
             </div>
 
             <form onSubmit={handleBrandingSubmit} className="flex flex-col gap-6 glass-panel p-8 rounded-2xl border border-white/10">
@@ -210,26 +210,56 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-headline text-slate-500 uppercase tracking-widest">Primary Color</label>
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="color"
-                      value={branding.primaryColor}
-                      onChange={e => setBranding({...branding, primaryColor: e.target.value})}
-                      className="w-12 h-12 rounded-lg bg-transparent border-none cursor-pointer"
-                    />
-                    <span className="text-sm font-mono text-slate-400 uppercase">{branding.primaryColor}</span>
+                  <div className="flex items-center gap-3 p-2 bg-white/5 border border-white/10 rounded-xl hover:border-white/20 transition-all">
+                    <div className="relative w-10 h-10 shrink-0">
+                      <input 
+                        type="color"
+                        value={branding.primaryColor}
+                        onChange={e => setBranding({...branding, primaryColor: e.target.value})}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      />
+                      <div 
+                        className="w-full h-full rounded-lg border border-white/20 shadow-inner"
+                        style={{ backgroundColor: branding.primaryColor }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5 flex-1">
+                      <span className="text-[10px] text-slate-500 font-headline uppercase">Hex Code</span>
+                      <input 
+                        type="text"
+                        value={branding.primaryColor}
+                        onChange={e => setBranding({...branding, primaryColor: e.target.value})}
+                        className="bg-transparent border-none p-0 text-sm font-mono text-cyan-300 outline-none w-full"
+                        placeholder="#000000"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-headline text-slate-500 uppercase tracking-widest">Secondary Color</label>
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="color"
-                      value={branding.secondaryColor}
-                      onChange={e => setBranding({...branding, secondaryColor: e.target.value})}
-                      className="w-12 h-12 rounded-lg bg-transparent border-none cursor-pointer"
-                    />
-                    <span className="text-sm font-mono text-slate-400 uppercase">{branding.secondaryColor}</span>
+                  <div className="flex items-center gap-3 p-2 bg-white/5 border border-white/10 rounded-xl hover:border-white/20 transition-all">
+                    <div className="relative w-10 h-10 shrink-0">
+                      <input 
+                        type="color"
+                        value={branding.secondaryColor}
+                        onChange={e => setBranding({...branding, secondaryColor: e.target.value})}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      />
+                      <div 
+                        className="w-full h-full rounded-lg border border-white/20 shadow-inner"
+                        style={{ backgroundColor: branding.secondaryColor }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5 flex-1">
+                      <span className="text-[10px] text-slate-500 font-headline uppercase">Hex Code</span>
+                      <input 
+                        type="text"
+                        value={branding.secondaryColor}
+                        onChange={e => setBranding({...branding, secondaryColor: e.target.value})}
+                        className="bg-transparent border-none p-0 text-sm font-mono text-cyan-300 outline-none w-full"
+                        placeholder="#000000"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -253,7 +283,7 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
                 type="submit"
                 className="mt-4 w-full py-4 bg-cyan-500 text-black rounded-xl font-headline font-medium hover:bg-cyan-400 transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,255,255,0.2)]"
               >
-                Generate 3 Stitch Variations
+                Generate 3 Pencil Variations
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
@@ -267,7 +297,7 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
               <Rocket className="absolute inset-0 m-auto w-8 h-8 text-cyan-400 animate-pulse" />
             </div>
             <div className="flex flex-col items-center gap-2">
-              <h2 className="text-2xl font-headline text-cyan-100">Stitch is crafting 3 variations...</h2>
+              <h2 className="text-2xl font-headline text-cyan-100">Pencil is drafting 3 variations...</h2>
               <p className="text-slate-400 text-sm">Using branding input & Master Plan architecture</p>
             </div>
           </div>
@@ -277,7 +307,7 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
           <div className="w-full max-w-6xl flex flex-col gap-8">
             <div className="flex flex-col gap-2">
               <h2 className="text-2xl font-headline text-slate-100">Choose your design direction</h2>
-              <p className="text-slate-400">Select one of the 3 variations generated by Stitch based on your branding.</p>
+              <p className="text-slate-400">Select one of the 3 variations generated by Pencil based on your branding.</p>
             </div>
 
             {error && <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg">{error}</div>}

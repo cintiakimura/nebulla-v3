@@ -184,13 +184,13 @@ Branding Context:
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'grok-4-1-fast-reasoning',
+          model: 'grok-beta',
           messages: [{ 
             role: 'user', 
             content: `You are a world-class UI designer. Generate a high-fidelity, modern, and professional SVG mockup for a mobile application.
 
 Master Plan Data:
-${pagesText}
+${pagesText || 'No pages defined yet.'}
 ${brandingPrompt}
 
 Requirements:
@@ -208,14 +208,21 @@ Requirements:
       if (!response.ok) {
         const errBody = await response.text();
         console.error("Stitch Engine Error Response:", errBody);
-        throw new Error(`Stitch Engine Error: ${response.status}`);
+        let errorMessage = `Stitch Engine Error: ${response.status}`;
+        try {
+          const parsedErr = JSON.parse(errBody);
+          if (parsedErr.error?.message) errorMessage += ` - ${parsedErr.error.message}`;
+        } catch (e) {
+          errorMessage += ` - ${errBody.substring(0, 100)}`;
+        }
+        return res.status(response.status).json({ error: errorMessage });
       }
 
       const data = await response.json();
       res.json(data);
     } catch (error) {
       console.error("Error calling Stitch API:", error);
-      res.status(500).json({ error: "Failed to call Stitch API" });
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to call Stitch API" });
     }
   });
 

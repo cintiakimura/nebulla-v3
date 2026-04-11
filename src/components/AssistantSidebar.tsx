@@ -223,8 +223,8 @@ ROLES:
 
 UI/UX WORKFLOW:
 1. Trigger UI/UX section with <START_UIUX> after architecture approval.
-2. Stitch generates 3 options based on branding input.
-3. User refines in Pencil.
+2. Pencil generates 3 initial design drafts based on branding input.
+3. User refines and finalizes in the Pencil Editor.
 4. Final approval leads to Coding Phase.
 
 RULES:
