@@ -274,6 +274,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    (window as any).startUIUXWorkflow = () => {
+      console.log("Starting UI/UX Workflow...");
+      setShowStitchMockup(true);
+      setShowMindMap(false);
+      setShowMasterPlan(false);
+      setDashboardTab(null);
+    };
+
+    return () => {
+      delete (window as any).startUIUXWorkflow;
+    };
+  }, []);
+
+  useEffect(() => {
     const handleCopyPaste = (e: ClipboardEvent) => {
       if (!user) {
         e.preventDefault();

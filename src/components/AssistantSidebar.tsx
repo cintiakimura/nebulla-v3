@@ -208,11 +208,18 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
 ROLES:
 - Grok A: Conversational. Summarizes ideas. Triggers Grok B with <START_MASTERPLAN>. Signals completion with <FINISH_MASTERPLAN>.
 - Grok B: Master Plan Agent. Writes 8 sections inside <START_MASTERPLAN> and <END_MASTERPLAN> tags.
-SECTIONS: 1. Problem, 2. User, 3. Features (table with 3 KPIs), 4. Scale, 5. Data, 6. Accessibility, 7. Pages/Nav (sync with mind map), 8. Research.
+
+UI/UX WORKFLOW (CRITICAL):
+1. After Master Plan and Mind Map are approved, trigger UI/UX section with <START_UIUX>.
+2. Stitch will generate 3 options. User will choose and provide branding.
+3. User will refine in Pencil.
+4. When user says "UI locked" or "UI/UX Approved", move to code generation with <START_CODING>.
+
 RULES:
 - Treat every new input as a new project.
 - Never modify Nebula IDE internal files.
 - Use <START_CODING> and <REASONING> for code changes.
+- Never generate code until UI/UX is approved.
 CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
 
       // Connect to GROK via Backend Proxy
@@ -282,6 +289,11 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         await (window as any).syncMindMapFromMasterPlan();
       }
 
+      // GROK 4.1 Behavior: Trigger UI/UX Workflow
+      if (fullResponse.includes('<START_UIUX>') && (window as any).startUIUXWorkflow) {
+        (window as any).startUIUXWorkflow();
+      }
+
       // Extract reasoning if present
       const reasoningMatch = fullResponse.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
       const reasoning = reasoningMatch ? reasoningMatch[1].trim() : undefined;
@@ -293,6 +305,7 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         .replace(/<START_MASTERPLAN>/g, '')
         .replace(/<END_MASTERPLAN>/g, '')
         .replace(/<START_CODING>/g, '')
+        .replace(/<START_UIUX>/g, '')
         .replace(/<FINISH_MASTERPLAN>/g, '')
         .trim();
 
