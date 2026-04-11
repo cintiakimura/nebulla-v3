@@ -1,10 +1,10 @@
 {
-  "1. The Problem We’re Solving": "THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by Grok B)",
-  "2. Target User & Context": "TARGET USER & CONTEXT\n\n(Content to be updated by Grok B)",
-  "3. Core Features": "CORE FEATURES TABLE\n\n| Feature Name | Description | Success Criteria | Priority |\n|--------------|-------------|------------------|----------|\n| (Example) | (Description) | (KPIs) | Must Have |\n\nDEVELOPMENT PLAN\n\n(Phases to be defined by Grok B)",
-  "4. User Scale & Load": "USER SCALE & LOAD\n\n(Content to be updated by Grok B)",
-  "5. Data Requirements": "DATA REQUIREMENTS\n\n(Content to be updated by Grok B)",
-  "6. Accessibility & Inclusivity": "ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by Grok B)",
-  "7. Pages & Navigation": "PAGES & NAVIGATION\n\nRULE: Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.\n\n(Content to be updated by Grok B)",
-  "8. Market & Tech Research": "MARKET & TECH RESEARCH\n\n(Content to be updated by Grok B)"
+  "1. The problem we are solving": "",
+  "2. Target user and context": "",
+  "3. Core features": "",
+  "4. User scale and load": "",
+  "5. Data requirements": "",
+  "6. Accessibility and inclusivity": "",
+  "7. Pages and navigation": "",
+  "8. Market and tech research": ""
 }

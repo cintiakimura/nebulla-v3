@@ -251,7 +251,43 @@ try {
   if (masterPlanMatch) {
     const newPlanContent = masterPlanMatch[1].trim();
     try {
-      fs.writeFileSync(masterPlanPath, newPlanContent, "utf8");
+      let plan: Record<string, string> = {};
+      if (fs.existsSync(masterPlanPath)) {
+        try {
+          plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
+        } catch (e) { plan = {}; }
+      }
+
+      const sections = [
+        "1. The problem we are solving",
+        "2. Target user and context",
+        "3. Core features",
+        "4. User scale and load",
+        "5. Data requirements",
+        "6. Accessibility and inclusivity",
+        "7. Pages and navigation",
+        "8. Market and tech research"
+      ];
+
+      sections.forEach((title, i) => {
+        const nextTitle = sections[i + 1];
+        const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+        
+        const regex = new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}[\\s\\S]*?(?=(?:###\\s*|\\*\\*|\\b)${escapedNextTitle || '$'})`, 'i');
+        const match = newPlanContent.match(regex);
+        
+        if (match) {
+          let content = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, 'i'), '').trim();
+          // Remove leading colons or dashes that might be left over
+          content = content.replace(/^[:\-\s]+/, '');
+          if (content) {
+            plan[title] = content;
+          }
+        }
+      });
+
+      fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
       console.log("[GROK 4.1] Master Plan updated silently.");
     } catch (err) {
       console.error("[GROK 4.1] Failed to update Master Plan:", err);

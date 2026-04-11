@@ -1,64 +1,55 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BookOpen, Lock, Save, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-const STATIC_SECTIONS = [
-  { 
-    id: 'problem', 
-    title: '1. The problem we are solving', 
-    content: `THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by GROK B)` 
-  },
-  { 
-    id: 'target', 
-    title: '2. Target user and context', 
-    content: `TARGET USER & CONTEXT\n\n(Content to be updated by GROK B)` 
-  },
-  { 
-    id: 'core-features', 
-    title: '3. Core features', 
-    content: `CORE FEATURES\n\n| Feature Name | Description | KPI 1 | KPI 2 | KPI 3 | Priority |\n|--------------|-------------|-------|-------|-------|----------|\n| (Example) | (Description) | (KPI) | (KPI) | (KPI) | Must Have |\n\n(Content to be updated by GROK B)` 
-  },
-  { 
-    id: 'scale', 
-    title: '4. User scale and load', 
-    content: `USER SCALE & LOAD\n\n(Content to be updated by GROK B)` 
-  },
-  { 
-    id: 'data', 
-    title: '5. Data requirements', 
-    content: `DATA REQUIREMENTS\n\n(Content to be updated by GROK B)` 
-  },
-  { 
-    id: 'accessibility', 
-    title: '6. Accessibility and inclusivity', 
-    content: `ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by GROK B)` 
-  },
-  { 
-    id: 'research', 
-    title: '8. Market and tech research', 
-    content: `MARKET & TECH RESEARCH\n\n(Content to be updated by GROK B)` 
-  },
-];
-
 export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesText: string }) {
-  const PLAN_SECTIONS = [
-    ...STATIC_SECTIONS.slice(0, 6),
-    {
-      id: 'pages',
-      title: '7. Pages and navigation',
-      content: pagesText
-    },
-    ...STATIC_SECTIONS.slice(6)
+  const [planData, setPlanData] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/master-plan/read')
+      .then(res => res.json())
+      .then(data => {
+        setPlanData(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Error fetching master plan:", err);
+        setLoading(false);
+      });
+  }, []);
+
+  const STATIC_TITLES = [
+    '1. The problem we are solving',
+    '2. Target user and context',
+    '3. Core features',
+    '4. User scale and load',
+    '5. Data requirements',
+    '6. Accessibility and inclusivity',
+    '7. Pages and navigation',
+    '8. Market and tech research'
   ];
+
+  const PLAN_SECTIONS = STATIC_TITLES.map((title, index) => {
+    const id = title.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    let content = planData[title] || '';
+    
+    // Special case for Pages and Navigation which is dynamic from Mind Map
+    if (index === 6) {
+      content = pagesText;
+    }
+
+    return { id, title, content };
+  });
 
   const [activeTab, setActiveTab] = useState(PLAN_SECTIONS[0].id);
   const [isSaved, setIsSaved] = useState(true);
 
-  const activeContent = PLAN_SECTIONS.find(s => s.id === activeTab)?.content;
+  const activeSection = PLAN_SECTIONS.find(s => s.id === activeTab);
+  const activeContent = activeSection?.content || (loading ? 'Loading...' : 'No content generated yet by GROK B.');
 
   const handleSave = () => {
     setIsSaved(true);
-    // In a real app, this would persist the plan to the backend
     console.log("Master Plan saved and locked.");
   };
 
