@@ -208,6 +208,63 @@ export default function App() {
   };
 
   useEffect(() => {
+    (window as any).syncMindMapFromMasterPlan = async () => {
+      try {
+        const res = await fetch('/api/master-plan/read');
+        const plan = await res.json();
+        const section7 = plan["7. Pages and navigation"];
+        
+        if (!section7) return;
+
+        // Simple parser for Section 7
+        // Expected format: "1. Page Name: Description" or similar
+        const lines = section7.split('\n').filter((l: string) => /^\d+\./.test(l.trim()));
+        
+        if (lines.length === 0) return;
+
+        const newPages = lines.map((line: string, index: number) => {
+          const content = line.replace(/^\d+\.\s*/, '').trim();
+          const [label, ...descParts] = content.split(':');
+          const description = descParts.join(':').trim();
+          
+          return {
+            id: String(index + 1),
+            type: 'pageNode',
+            data: { 
+              label: label.trim(), 
+              isCritical: index < 3, 
+              isCreated: false, 
+              description: description || 'Generated from Master Plan' 
+            },
+            position: { x: 50 + (index * 300), y: 250 }
+          };
+        });
+
+        const newEdges = newPages.slice(0, -1).map((page: any, index: number) => ({
+          id: `e${page.id}-${newPages[index + 1].id}`,
+          source: page.id,
+          target: newPages[index + 1].id,
+          animated: true,
+          style: { stroke: '#00ffff' }
+        }));
+
+        setPages(newPages);
+        setEdges(newEdges);
+        
+        // Persist to local storage as well
+        localStorage.setItem('nebula_project_default', JSON.stringify({ pages: newPages, edges: newEdges }));
+        console.log("Mind Map synchronized from Master Plan Section 7");
+      } catch (err) {
+        console.error("Failed to sync Mind Map from Master Plan:", err);
+      }
+    };
+
+    return () => {
+      delete (window as any).syncMindMapFromMasterPlan;
+    };
+  }, []);
+
+  useEffect(() => {
     const handleCopyPaste = (e: ClipboardEvent) => {
       if (!user) {
         e.preventDefault();

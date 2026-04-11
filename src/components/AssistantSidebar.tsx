@@ -317,6 +317,11 @@ ${JSON.stringify(latestMP, null, 2)}`;
         });
       }
 
+      // GROK 4.1 Behavior: Sync Mind Map from Master Plan when finished
+      if (fullResponse.includes('<FINISH_MASTERPLAN>') && (window as any).syncMindMapFromMasterPlan) {
+        (window as any).syncMindMapFromMasterPlan();
+      }
+
       // Extract reasoning if present
       const reasoningMatch = fullResponse.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
       const reasoning = reasoningMatch ? reasoningMatch[1].trim() : undefined;
