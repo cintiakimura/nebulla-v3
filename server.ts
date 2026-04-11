@@ -5,10 +5,10 @@ import fs from "fs";
 import { exec } from "child_process";
 import { WebSocketServer, WebSocket } from 'ws';
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+export const app = express();
+const PORT = 3000;
 
+async function startServer() {
   app.use(express.json());
 
   // API routes FIRST
@@ -350,9 +350,11 @@ try {
     });
   }
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+    const server = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer();

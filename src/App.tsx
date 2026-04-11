@@ -44,7 +44,9 @@ import {
   Save,
   PlusCircle,
   Handshake,
-  Edit2
+  Edit2,
+  Github,
+  Globe
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -55,10 +57,8 @@ interface MockUser {
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
-  role?: 'user' | 'admin' | 'super-admin';
+  role?: 'user' | 'admin';
 }
-
-const SUPER_ADMIN_EMAIL = 'cintiakimura20@gmail.com';
 
 const getFileIconInfo = (filename: string, isDirectory: boolean) => {
   if (isDirectory) return { Icon: Folder, color: 'text-cyan-400' };
@@ -123,9 +123,38 @@ export default function App() {
 
   const [isLeftOpen, setIsLeftOpen] = useState(true);
   const [isTerminalOpen, setIsTerminalOpen] = useState(true);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const [user, setUser] = useState<MockUser | null>(null);
   const [files, setFiles] = useState<{name: string, isDirectory: boolean}[]>([]);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string>('');
+
+  const getFileContent = async (filename: string) => {
+    try {
+      const res = await fetch(`/api/files/content?path=${encodeURIComponent(filename)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFileContent(data.content);
+      } else {
+        // Fallback for demo if API fails
+        setFileContent(`// Content of ${filename}\n\nexport function ${filename.split('.')[0]}() {\n  return <div>${filename} content</div>;\n}`);
+      }
+    } catch (err) {
+      setFileContent(`// Error loading ${filename}`);
+    }
+  };
+
+  const handleFileClick = (filename: string, isDirectory: boolean) => {
+    if (isDirectory) return;
+    setSelectedFile(filename);
+    getFileContent(filename);
+    setShowCodePreview(true);
+    setShowStitchMockup(false);
+    setShowMasterPlan(false);
+    setShowMindMap(false);
+    setDashboardTab(null);
+  };
   const [terminalHistory, setTerminalHistory] = useState<{command: string, output: string}[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
   const terminalEndRef = useRef<HTMLDivElement>(null);
@@ -152,7 +181,7 @@ export default function App() {
           displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
           email: session.user.email || null,
           photoURL: session.user.user_metadata.avatar_url || null,
-          role: session.user.email === SUPER_ADMIN_EMAIL ? 'super-admin' : 'user'
+          role: 'user'
         });
       }
     });
@@ -164,7 +193,7 @@ export default function App() {
           displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
           email: session.user.email || null,
           photoURL: session.user.user_metadata.avatar_url || null,
-          role: session.user.email === SUPER_ADMIN_EMAIL ? 'super-admin' : 'user'
+          role: 'user'
         });
       } else {
         setUser(null);
@@ -246,36 +275,36 @@ export default function App() {
   const handleSaveToMasterPlan = async () => {
     const projectData = { pages, edges, projectName };
     
-    if (user) {
-      const { error } = await supabase
-        .from('projects')
-        .upsert({
-          user_id: user.uid,
-          name: projectName,
-          pages: pages,
-          edges: edges,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id, name' });
+    if (!user) {
+      setShowLoginModal(true);
+      localStorage.setItem('nebula_project_default', JSON.stringify(projectData));
+      console.log("Saved project state locally (Guest)");
+      return;
+    }
+    
+    const { error } = await supabase
+      .from('projects')
+      .upsert({
+        user_id: user.uid,
+        name: projectName,
+        pages: pages,
+        edges: edges,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id, name' });
 
-      if (error) {
-        console.error("Error saving to Supabase:", error);
-        alert('Failed to save project to cloud. Saving locally instead.');
-      } else {
-        console.log("Saved project to Supabase");
-      }
+    if (error) {
+      console.error("Error saving to Supabase:", error);
+      alert('Failed to save project to cloud. Saving locally instead.');
+    } else {
+      console.log("Saved project to Supabase");
     }
     
     localStorage.setItem('nebula_project_default', JSON.stringify(projectData));
     console.log("Saved project state locally");
   };
 
-  const handleActionRequiresPayment = (actionName: string) => {
-    if (actionName === 'Login' || actionName === 'Connect') {
-      handleGithubLogin();
-    } else {
-      // Payment disabled - action proceeds freely
-      console.log(`${actionName} initiated.`);
-    }
+  const handleAction = (actionName: string) => {
+    console.log(`${actionName} initiated.`);
   };
 
   useEffect(() => {
@@ -352,23 +381,6 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const handleCopyPaste = (e: ClipboardEvent) => {
-      if (!user) {
-        e.preventDefault();
-        alert('Please log in to copy or paste.');
-      }
-    };
-
-    document.addEventListener('copy', handleCopyPaste);
-    document.addEventListener('paste', handleCopyPaste);
-
-    return () => {
-      document.removeEventListener('copy', handleCopyPaste);
-      document.removeEventListener('paste', handleCopyPaste);
-    };
-  }, [user]);
-
   const handleLockDesign = () => {
     setShowStitchMockup(false);
     // Return to default view or mind map
@@ -435,21 +447,22 @@ export default function App() {
   return (
     <>
       {/* TopAppBar */}
-      <header className="h-12 w-full z-50 flex justify-between items-center px-6 bg-[#040f1a]/60 backdrop-blur-xl border-b border-white/5 shadow-[0_0_20px_rgba(96,0,159,0.05)]">
-        <div className="flex items-center gap-3">
-          <Logo className="w-6 h-6" />
-          <h1 className="font-headline text-lg font-light tracking-tighter text-cyan-300 no-bold">nebulla</h1>
+      <header className="h-16 w-full z-50 flex justify-between items-center px-8 bg-[#040f1a]/60 backdrop-blur-xl border-b border-white/5 shadow-[0_0_20px_rgba(96,0,159,0.05)]">
+        <div className="flex items-center gap-4">
+          <Logo className="w-12 h-12" />
+          <h1 className="font-headline text-4xl font-light tracking-tighter text-cyan-300 no-bold">nebulla</h1>
         </div>
         <div className="flex items-center gap-4">
           <button 
-            onClick={() => handleActionRequiresPayment('Deploy')}
+            onClick={() => handleAction('Deploy')}
             className="text-xs px-3 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded hover:bg-cyan-500/20 transition-colors font-headline flex items-center gap-1"
+            title="Deploy to Vercel"
           >
             <Rocket className="w-3.5 h-3.5" />
-            Deploy
+            Vercel
           </button>
           <button 
-            onClick={() => handleActionRequiresPayment('Download')}
+            onClick={() => handleAction('Download')}
             className="text-xs px-3 py-1.5 bg-white/5 text-slate-300 border border-white/10 rounded hover:bg-white/10 transition-colors font-headline flex items-center gap-1"
           >
             <Download className="w-3.5 h-3.5" />
@@ -457,11 +470,6 @@ export default function App() {
           </button>
           {user ? (
             <div className="flex items-center gap-3">
-              {user.email === SUPER_ADMIN_EMAIL && (
-                <span className="text-[10px] px-2 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-full font-headline uppercase tracking-widest animate-pulse shadow-[0_0_10px_rgba(0,255,255,0.3)]">
-                  Super Admin
-                </span>
-              )}
               <img src={user.photoURL || ''} alt="User" className="w-6 h-6 rounded-full border border-white/10" referrerPolicy="no-referrer" />
               <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-cyan-300 transition-colors font-headline">Logout</button>
             </div>
@@ -537,13 +545,6 @@ export default function App() {
           <div className="w-8 h-[1px] bg-white/10 my-1"></div>
           
           <button 
-            onClick={() => { setDashboardTab('projects'); setShowStitchMockup(false); setShowMindMap(false); setShowMasterPlan(false); }}
-            className={`transition-all ${dashboardTab === 'projects' ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
-            title="User Projects"
-          >
-            <LayoutGrid className="w-5 h-5" />
-          </button>
-          <button 
             onClick={() => { setDashboardTab('project-settings'); setShowStitchMockup(false); setShowMindMap(false); setShowMasterPlan(false); }}
             className={`transition-all ${dashboardTab === 'project-settings' ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
             title="Project Settings"
@@ -574,7 +575,7 @@ export default function App() {
           <>
             <aside className="flex flex-col border-r border-white/5 bg-[#040f1a]/30 shrink-0" style={{ width: leftWidth }}>
               <div className="p-4 border-b border-white/5 flex justify-between items-center">
-                <span className="text-cyan-300 font-light tracking-widest text-xs font-headline no-bold uppercase">PROJECT</span>
+                <span className="text-cyan-300 font-light tracking-widest text-xs font-headline no-bold uppercase">Source Control</span>
                 <button 
                   onClick={() => setIsLeftOpen(false)}
                   className="text-slate-500 hover:text-cyan-300 transition-colors"
@@ -583,10 +584,23 @@ export default function App() {
                 </button>
               </div>
               <nav className="flex-1 py-2 flex flex-col px-1 overflow-y-auto font-mono text-13">
+                <div 
+                  onClick={() => { setDashboardTab('projects'); setShowStitchMockup(false); setShowMindMap(false); setShowMasterPlan(false); }}
+                  className={`flex items-center gap-1.5 px-2 h-[22px] transition-all cursor-pointer mb-2 ${dashboardTab === 'projects' ? 'text-cyan-300 bg-cyan-500/10' : 'text-slate-400 hover:text-cyan-200 hover:bg-white/5'}`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="no-bold text-[13px] leading-none truncate">User Projects</span>
+                </div>
+                <div className="h-[1px] bg-white/5 my-1 mx-2"></div>
                 {files.map((file, i) => {
                   const { Icon, color } = getFileIconInfo(file.name, file.isDirectory);
+                  const isSelected = selectedFile === file.name;
                   return (
-                    <div key={i} className={`flex items-center gap-1.5 px-2 h-[22px] text-slate-400 hover:text-cyan-200 hover:bg-white/5 transition-all cursor-pointer ${file.isDirectory ? 'font-bold' : 'ml-4'}`}>
+                    <div 
+                      key={i} 
+                      onClick={() => handleFileClick(file.name, file.isDirectory)}
+                      className={`flex items-center gap-1.5 px-2 h-[22px] transition-all cursor-pointer ${file.isDirectory ? 'font-bold text-slate-400' : 'ml-4'} ${isSelected ? 'text-cyan-300 bg-cyan-500/10' : 'text-slate-400 hover:text-cyan-200 hover:bg-white/5'}`}
+                    >
                       <Icon className={`w-3.5 h-3.5 ${color}`} />
                       <span className="no-bold text-[13px] leading-none truncate">{file.name}</span>
                     </div>
@@ -612,15 +626,24 @@ export default function App() {
                 </div>
                 <span className="text-[10px] text-slate-500 font-headline uppercase tracking-tighter no-bold block pt-2">Quick Actions</span>
                 <div className="flex flex-col gap-2">
+                  {!user && (
+                    <button 
+                      onClick={() => setShowLoginModal(true)}
+                      className="flex items-center gap-2 text-13 text-cyan-400 hover:text-cyan-300 transition-all no-bold"
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      Login to Save
+                    </button>
+                  )}
                   <button 
-                    onClick={() => handleActionRequiresPayment('Connect')}
+                    onClick={() => handleAction('Connect')}
                     className="flex items-center gap-2 text-13 text-slate-400 hover:text-cyan-300 transition-all no-bold"
                   >
                     <CloudUpload className="w-3.5 h-3.5" />
                     Sync Git
                   </button>
                   <button 
-                    onClick={() => handleActionRequiresPayment('Upload')}
+                    onClick={() => handleAction('Upload')}
                     className="flex items-center gap-2 text-13 text-slate-400 hover:text-cyan-300 transition-all no-bold"
                   >
                     <Upload className="w-3.5 h-3.5" />
@@ -672,7 +695,7 @@ export default function App() {
               ) : (
                 <>
                   <FileCode className="w-3.5 h-3.5" />
-                  <span className="no-bold">index.tsx</span>
+                  <span className="no-bold">{selectedFile || 'index.tsx'}</span>
                 </>
               )}
               <X className="w-3.5 h-3.5 hover:text-red-400 cursor-pointer" onClick={() => {
@@ -727,7 +750,7 @@ export default function App() {
                           <div className="w-2 h-2 rounded-full bg-slate-700"></div>
                           <div className="w-2 h-2 rounded-full bg-slate-700"></div>
                         </div>
-                        <span className="text-xs text-slate-500 font-headline no-bold">Preview Mode</span>
+                        <span className="text-xs text-slate-500 font-headline no-bold">{selectedFile ? 'File Preview' : 'Preview Mode'}</span>
                           <div className="flex items-center gap-2">
                             <button 
                               onClick={() => {
@@ -740,7 +763,7 @@ export default function App() {
                             </button>
                             <ExternalLink 
                               className="w-3.5 h-3.5 text-slate-500 cursor-pointer hover:text-slate-300 transition-colors" 
-                              onClick={() => handleActionRequiresPayment('Deploy')}
+                              onClick={() => handleAction('Deploy')}
                             />
                           </div>
                       </div>
@@ -748,11 +771,11 @@ export default function App() {
                         {showCodePreview ? (
                           <div className="absolute inset-0 bg-[#1e1e1e] overflow-auto text-13">
                             <SyntaxHighlighter 
-                              language="typescript" 
+                              language={selectedFile?.split('.').pop() === 'json' ? 'json' : 'typescript'} 
                               style={vscDarkPlus} 
                               customStyle={{ margin: 0, padding: '1rem', background: 'transparent', fontSize: '13px' }}
                             >
-{`// Nebula Interface Component
+{fileContent || `// Nebula Interface Component
 import React, { useState } from 'react';
 
 export function NebulaInterface() {
@@ -918,6 +941,55 @@ export function NebulaInterface() {
           <Bug className="w-5 h-5" />
         </button>
       </footer>
+
+      {/* Login Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-md glass-panel p-8 rounded-2xl border border-white/10 flex flex-col gap-6 shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-start">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-2xl font-headline text-slate-100">Login Required</h2>
+                <p className="text-slate-400 text-sm">Please log in to save your project to the cloud and access it from anywhere.</p>
+              </div>
+              <button 
+                onClick={() => setShowLoginModal(false)}
+                className="text-slate-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => {
+                  handleGithubLogin();
+                  setShowLoginModal(false);
+                }}
+                className="w-full py-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center gap-3 text-slate-200 hover:bg-white/10 transition-all font-headline"
+              >
+                <Github className="w-5 h-5" />
+                Continue with GitHub
+              </button>
+              <button 
+                onClick={() => {
+                  handleGoogleLogin();
+                  setShowLoginModal(false);
+                }}
+                className="w-full py-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center gap-3 text-slate-200 hover:bg-white/10 transition-all font-headline"
+              >
+                <Globe className="w-5 h-5" />
+                Continue with Google
+              </button>
+            </div>
+
+            <div className="pt-4 border-t border-white/5">
+              <p className="text-[10px] text-slate-500 text-center uppercase tracking-widest">
+                By continuing, you agree to our Terms of Service
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

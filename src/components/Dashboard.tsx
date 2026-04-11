@@ -153,6 +153,30 @@ function ProjectSettingsTab() {
         <p className="text-sm text-slate-500 mb-6">Configure domains, DNS, and hosting preferences for the current project.</p>
       </div>
 
+      {/* Vercel Integration Section */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <h4 className="text-sm font-headline text-slate-200 mb-2">Vercel Deployment</h4>
+            <p className="text-xs text-slate-500">Your project is configured for seamless deployment to Vercel.</p>
+          </div>
+          <div className="px-2 py-1 bg-cyan-500/10 text-cyan-400 text-[10px] uppercase tracking-wider rounded font-headline border border-cyan-500/20">Connected</div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs p-3 bg-black/20 rounded-lg border border-white/5">
+            <span className="text-slate-400">Production URL</span>
+            <a href="#" className="text-cyan-300 hover:underline">nebulla-project.vercel.app</a>
+          </div>
+          <div className="flex items-center justify-between text-xs p-3 bg-black/20 rounded-lg border border-white/5">
+            <span className="text-slate-400">Latest Deployment</span>
+            <span className="text-slate-300">Just now by @nebula-user</span>
+          </div>
+          <button className="w-full py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-xs text-slate-300 font-headline">
+            View Deployment Logs
+          </button>
+        </div>
+      </div>
+
       {/* Custom Domain Section */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
         <h4 className="text-sm font-headline text-slate-200 mb-2">Custom Domain</h4>
