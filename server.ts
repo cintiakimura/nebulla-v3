@@ -50,15 +50,14 @@ async function startServer() {
     }
 
     const tabNames: Record<number, string> = {
-      1: "1. The Problem We’re Solving",
-      2: "2. Target User & Context",
-      3: "3. Must-Have Features",
-      4: "4. Nice-to-Have Features",
-      5: "5. User Scale & Load",
-      6: "6. Data Requirements",
-      7: "7. Accessibility & Inclusivity",
-      8: "8. Pages & Navigation",
-      9: "9. Market & Tech Research"
+      1: "1. The problem we are solving",
+      2: "2. Target user and context",
+      3: "3. Core features",
+      4: "4. User scale and load",
+      5: "5. Data requirements",
+      6: "6. Accessibility and inclusivity",
+      7: "7. Pages and navigation",
+      8: "8. Market and tech research"
     };
 
     const tabName = tabNames[tabIndex as number];

@@ -5,38 +5,38 @@ import ReactMarkdown from 'react-markdown';
 const STATIC_SECTIONS = [
   { 
     id: 'problem', 
-    title: '1. The Problem We’re Solving', 
-    content: `THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by GROK 4.1)` 
+    title: '1. The problem we are solving', 
+    content: `THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by GROK B)` 
   },
   { 
     id: 'target', 
-    title: '2. Target User & Context', 
-    content: `TARGET USER & CONTEXT\n\n(Content to be updated by GROK 4.1)` 
+    title: '2. Target user and context', 
+    content: `TARGET USER & CONTEXT\n\n(Content to be updated by GROK B)` 
   },
   { 
     id: 'core-features', 
-    title: '3. Core Features', 
-    content: `CORE FEATURES\n\n| Feature Name | Description | Success Criteria | Priority |\n|--------------|-------------|------------------|----------|\n| (Example) | (Description) | (KPIs) | Must Have |\n\nDEVELOPMENT PLAN\n\n(Phases to be defined by GROK 4.1)` 
+    title: '3. Core features', 
+    content: `CORE FEATURES\n\n| Feature Name | Description | KPI 1 | KPI 2 | KPI 3 | Priority |\n|--------------|-------------|-------|-------|-------|----------|\n| (Example) | (Description) | (KPI) | (KPI) | (KPI) | Must Have |\n\n(Content to be updated by GROK B)` 
   },
   { 
     id: 'scale', 
-    title: '4. User Scale & Load', 
-    content: `USER SCALE & LOAD\n\n(Content to be updated by GROK 4.1)` 
+    title: '4. User scale and load', 
+    content: `USER SCALE & LOAD\n\n(Content to be updated by GROK B)` 
   },
   { 
     id: 'data', 
-    title: '5. Data Requirements', 
-    content: `DATA REQUIREMENTS\n\n(Content to be updated by GROK 4.1)` 
+    title: '5. Data requirements', 
+    content: `DATA REQUIREMENTS\n\n(Content to be updated by GROK B)` 
   },
   { 
     id: 'accessibility', 
-    title: '6. Accessibility & Inclusivity', 
-    content: `ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by GROK 4.1)` 
+    title: '6. Accessibility and inclusivity', 
+    content: `ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by GROK B)` 
   },
   { 
     id: 'research', 
-    title: '8. Market & Tech Research', 
-    content: `MARKET & TECH RESEARCH\n\n(Content to be updated by GROK 4.1)` 
+    title: '8. Market and tech research', 
+    content: `MARKET & TECH RESEARCH\n\n(Content to be updated by GROK B)` 
   },
 ];
 
@@ -45,7 +45,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     ...STATIC_SECTIONS.slice(0, 6),
     {
       id: 'pages',
-      title: '7. Pages & Navigation',
+      title: '7. Pages and navigation',
       content: pagesText
     },
     ...STATIC_SECTIONS.slice(6)
