@@ -129,16 +129,17 @@ export default function App() {
   const [files, setFiles] = useState<{name: string, isDirectory: boolean}[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
+  const [currentPath, setCurrentPath] = useState<string>('.');
 
   const getFileContent = async (filename: string) => {
     try {
-      const res = await fetch(`/api/files/content?path=${encodeURIComponent(filename)}`);
+      const fullPath = currentPath === '.' ? filename : `${currentPath}/${filename}`;
+      const res = await fetch(`/api/files/content?path=${encodeURIComponent(fullPath)}`);
       if (res.ok) {
         const data = await res.json();
         setFileContent(data.content);
       } else {
-        // Fallback for demo if API fails
-        setFileContent(`// Content of ${filename}\n\nexport function ${filename.split('.')[0]}() {\n  return <div>${filename} content</div>;\n}`);
+        setFileContent(`// Error loading ${filename}`);
       }
     } catch (err) {
       setFileContent(`// Error loading ${filename}`);
@@ -146,7 +147,11 @@ export default function App() {
   };
 
   const handleFileClick = (filename: string, isDirectory: boolean) => {
-    if (isDirectory) return;
+    if (isDirectory) {
+      const newPath = currentPath === '.' ? filename : `${currentPath}/${filename}`;
+      setCurrentPath(newPath);
+      return;
+    }
     setSelectedFile(filename);
     getFileContent(filename);
     setShowCodePreview(true);
@@ -154,6 +159,13 @@ export default function App() {
     setShowMasterPlan(false);
     setShowMindMap(false);
     setDashboardTab(null);
+  };
+
+  const handleGoBack = () => {
+    if (currentPath === '.') return;
+    const parts = currentPath.split('/');
+    parts.pop();
+    setCurrentPath(parts.length === 0 ? '.' : parts.join('/'));
   };
   const [terminalHistory, setTerminalHistory] = useState<{command: string, output: string}[]>([]);
   const [terminalInput, setTerminalInput] = useState('');
@@ -235,13 +247,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/fs/list')
+    fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
       .then(res => res.json())
       .then(data => {
         if (data.files) setFiles(data.files);
       })
       .catch(console.error);
-  }, []);
+  }, [currentPath]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -619,13 +631,38 @@ export default function App() {
           <>
             <aside className="flex flex-col border-r border-white/5 bg-[#040f1a]/30 shrink-0" style={{ width: leftWidth }}>
               <div className="p-4 border-b border-white/5 flex justify-between items-center">
-                <span className="text-cyan-300 font-light tracking-widest text-xs font-headline no-bold uppercase">Source Control</span>
-                <button 
-                  onClick={() => setIsLeftOpen(false)}
-                  className="text-slate-500 hover:text-cyan-300 transition-colors"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {currentPath !== '.' && (
+                    <button onClick={handleGoBack} className="text-slate-500 hover:text-cyan-300 transition-colors">
+                      <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+                    </button>
+                  )}
+                  <span className="text-cyan-300 font-light tracking-widest text-xs font-headline no-bold uppercase">
+                    {currentPath === '.' ? 'Source Control' : currentPath.split('/').pop()}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
+                        .then(res => res.json())
+                        .then(data => {
+                          if (data.files) setFiles(data.files);
+                        })
+                        .catch(console.error);
+                    }}
+                    className="text-slate-500 hover:text-cyan-300 transition-colors"
+                    title="Refresh"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">refresh</span>
+                  </button>
+                  <button 
+                    onClick={() => setIsLeftOpen(false)}
+                    className="text-slate-500 hover:text-cyan-300 transition-colors"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
               <nav className="flex-1 py-2 flex flex-col px-1 overflow-y-auto font-mono text-13">
                 {files.map((file, i) => {
@@ -918,6 +955,23 @@ export function NebulaInterface() {
                 />
                 <TerminalIcon className="w-3.5 h-3.5 text-cyan-300" />
                 <span className="text-[10px] text-cyan-300 font-headline uppercase no-bold">Terminal</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {isTerminalOpen && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTerminalHistory([]);
+                    }}
+                    className="text-slate-500 hover:text-cyan-300 transition-colors"
+                    title="Clear Terminal"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">block</span>
+                  </button>
+                )}
+                <ChevronDown 
+                  className={`w-3.5 h-3.5 text-slate-500 hover:text-cyan-300 transition-transform duration-300 ${!isTerminalOpen ? '-rotate-90' : 'rotate-0'}`}
+                />
               </div>
             </div>
             

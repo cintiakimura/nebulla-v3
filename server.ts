@@ -98,36 +98,55 @@ async function startServer() {
   // Example backend function: read file system
   app.get("/api/fs/list", (req, res) => {
     try {
-      const pathParam = req.query.path as string || "";
+      const pathParam = req.query.path as string || ".";
+      const targetDir = path.resolve(process.cwd(), pathParam);
       
-      // Mock a clean project structure
-      if (pathParam === "" || pathParam === process.cwd()) {
-        return res.json({
-          files: [
-            { name: "src", isDirectory: true },
-            { name: "public", isDirectory: true },
-            { name: "package.json", isDirectory: false },
-            { name: "vite.config.ts", isDirectory: false },
-            { name: "tsconfig.json", isDirectory: false },
-            { name: "index.html", isDirectory: false },
-            { name: "README.md", isDirectory: false },
-          ]
-        });
-      }
-      
-      if (pathParam.endsWith("src")) {
-        return res.json({
-          files: [
-            { name: "components", isDirectory: true },
-            { name: "App.tsx", isDirectory: false },
-            { name: "main.tsx", isDirectory: false },
-            { name: "index.css", isDirectory: false },
-          ]
-        });
+      // Security: Ensure the target directory is within the project root
+      if (!targetDir.startsWith(process.cwd())) {
+        return res.status(403).json({ error: "Access denied" });
       }
 
-      // Fallback for other paths (though in mockup we mostly care about root/src)
-      res.json({ files: [] });
+      if (!fs.existsSync(targetDir)) {
+        return res.status(404).json({ error: "Directory not found" });
+      }
+
+      const items = fs.readdirSync(targetDir, { withFileTypes: true });
+      const files = items
+        .filter(item => !item.name.startsWith('.') && item.name !== 'node_modules' && item.name !== 'dist')
+        .map(item => ({
+          name: item.name,
+          isDirectory: item.isDirectory()
+        }))
+        .sort((a, b) => {
+          if (a.isDirectory && !b.isDirectory) return -1;
+          if (!a.isDirectory && b.isDirectory) return 1;
+          return a.name.localeCompare(b.name);
+        });
+
+      res.json({ files });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/files/content", (req, res) => {
+    try {
+      const filePath = req.query.path as string;
+      if (!filePath) return res.status(400).json({ error: "Path is required" });
+
+      const targetFile = path.resolve(process.cwd(), filePath);
+      
+      // Security: Ensure the target file is within the project root
+      if (!targetFile.startsWith(process.cwd())) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      if (!fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      const content = fs.readFileSync(targetFile, "utf8");
+      res.json({ content });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -141,11 +160,19 @@ async function startServer() {
     }
     
     // Execute the command in the current working directory
-    exec(command, { cwd: process.cwd() }, (error, stdout, stderr) => {
+    exec(command, { cwd: process.cwd(), timeout: 30000 }, (error, stdout, stderr) => {
       let output = "";
       if (stdout) output += stdout;
       if (stderr) output += stderr;
-      if (error && !stdout && !stderr) output += error.message;
+      
+      if (error) {
+        if (error.killed) {
+          output += "\n[Error: Command timed out after 30 seconds]";
+        } else if (!stdout && !stderr) {
+          output += `\n[Error: ${error.message}]`;
+        }
+      }
+      
       res.json({ output: output || "Command executed successfully with no output." });
     });
   });
