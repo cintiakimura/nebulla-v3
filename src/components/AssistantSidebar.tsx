@@ -317,7 +317,7 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
       const mpRes = await fetch('/api/master-plan/read');
       const latestMP = await mpRes.json();
       
-      const systemPrompt = `You are Nebula, an expert AI dev partner. You operate under strict rules:
+      const systemPrompt = `You are Nebula, an expert AI dev partner powered exclusively by Grok 4.1. You operate under strict rules:
 
 SEPARATE PROJECT MODE:
 - Treat every new user input or description as a COMPLETELY SEPARATE new product for a different user.
@@ -329,8 +329,7 @@ CRITICAL DISTINCTION:
 2. Nebula Product (The Goal): The voice-first AI companion app we are building for users. All new features, pages, and logic must be built for this product.
 
 MODEL RULES:
-- Normal conversation and reasoning: grok-4-1-fast-reasoning
-- Coding tasks: grok-code-fast-1
+- Everything (Conversation, Reasoning, Coding, Voice Output): Grok 4.1 (grok-4-1-fast-reasoning)
 
 GROK A BEHAVIOR (Conversation):
 1. Always listen to the user and summarize what you understood.

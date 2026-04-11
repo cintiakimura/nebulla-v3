@@ -217,17 +217,8 @@ async function startServer() {
     }
 
     try {
-      // Determine model based on conversation history or tags
-      let model = 'grok-4-1-fast-reasoning';
-      
-      // Check if the last assistant message or current user message triggers coding mode
-      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant' || m.role === 'model');
-      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-      
-      if ((lastAssistantMessage && lastAssistantMessage.content.includes('<START_CODING>')) || 
-          (lastUserMessage && lastUserMessage.content.includes('<START_CODING>'))) {
-        model = 'grok-code-fast-1';
-      }
+      // Everything now runs on Grok 4.1 Fast Reasoning
+      const model = 'grok-4-1-fast-reasoning';
       
       const response = await fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST',
@@ -318,10 +309,10 @@ async function startServer() {
 
   wss.on('connection', (ws, request) => {
     console.log('[WS] Client connected for streaming TTS');
-    const apiKey = process.env.AGENT_GROK_VOICE || process.env.GROK_API_NEBULLA;
+    const apiKey = process.env.GROK_API_NEBULLA;
     
     if (!apiKey) {
-      ws.send(JSON.stringify({ type: 'error', message: 'AGENT_GROK_VOICE or GROK_API_NEBULLA is not set.' }));
+      ws.send(JSON.stringify({ type: 'error', message: 'GROK_API_NEBULLA is not set.' }));
       ws.close();
       return;
     }
