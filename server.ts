@@ -100,6 +100,8 @@ async function startServer() {
     try {
       const pathParam = req.query.path as string || ".";
       const targetDir = path.resolve(process.cwd(), pathParam);
+      console.log("CDW:", process.cdw());
+      console.log("targetDir:", targerDir);
       
       // Security: Ensure the target directory is within the project root
       if (!targetDir.startsWith(process.cwd())) {
