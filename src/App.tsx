@@ -202,7 +202,8 @@ export default function App() {
     if (actionName === 'Login' || actionName === 'Connect') {
       handleGithubLogin();
     } else {
-      alert(`${actionName} initiated successfully.`);
+      // Payment disabled - action proceeds freely
+      console.log(`${actionName} initiated.`);
     }
   };
 

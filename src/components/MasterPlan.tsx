@@ -6,37 +6,37 @@ const STATIC_SECTIONS = [
   { 
     id: 'problem', 
     title: '1. The Problem We’re Solving', 
-    content: `THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by Grok B)` 
+    content: `THE PROBLEM WE’RE SOLVING\n\n(Content to be updated by GROK 4.1)` 
   },
   { 
     id: 'target', 
     title: '2. Target User & Context', 
-    content: `TARGET USER & CONTEXT\n\n(Content to be updated by Grok B)` 
+    content: `TARGET USER & CONTEXT\n\n(Content to be updated by GROK 4.1)` 
   },
   { 
     id: 'core-features', 
     title: '3. Core Features', 
-    content: `CORE FEATURES\n\n| Feature Name | Description | Success Criteria | Priority |\n|--------------|-------------|------------------|----------|\n| (Example) | (Description) | (KPIs) | Must Have |\n\nDEVELOPMENT PLAN\n\n(Phases to be defined by Grok B)` 
+    content: `CORE FEATURES\n\n| Feature Name | Description | Success Criteria | Priority |\n|--------------|-------------|------------------|----------|\n| (Example) | (Description) | (KPIs) | Must Have |\n\nDEVELOPMENT PLAN\n\n(Phases to be defined by GROK 4.1)` 
   },
   { 
     id: 'scale', 
     title: '4. User Scale & Load', 
-    content: `USER SCALE & LOAD\n\n(Content to be updated by Grok B)` 
+    content: `USER SCALE & LOAD\n\n(Content to be updated by GROK 4.1)` 
   },
   { 
     id: 'data', 
     title: '5. Data Requirements', 
-    content: `DATA REQUIREMENTS\n\n(Content to be updated by Grok B)` 
+    content: `DATA REQUIREMENTS\n\n(Content to be updated by GROK 4.1)` 
   },
   { 
     id: 'accessibility', 
     title: '6. Accessibility & Inclusivity', 
-    content: `ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by Grok B)` 
+    content: `ACCESSIBILITY & INCLUSIVITY\n\n(Content to be updated by GROK 4.1)` 
   },
   { 
     id: 'research', 
     title: '8. Market & Tech Research', 
-    content: `MARKET & TECH RESEARCH\n\n(Content to be updated by Grok B)` 
+    content: `MARKET & TECH RESEARCH\n\n(Content to be updated by GROK 4.1)` 
   },
 ];
 

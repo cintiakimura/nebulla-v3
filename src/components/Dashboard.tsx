@@ -215,16 +215,6 @@ function SecretsTab() {
           </div>
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
             <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">payments</span>
-              <span className="text-sm text-slate-300 font-mono">STRIPE_SECRET_KEY</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-slate-500 text-lg">api</span>
               <span className="text-sm text-slate-300 font-mono">STITCH_API_KEY</span>
             </div>
@@ -291,19 +281,6 @@ function SecretsTab() {
               </div>
             </div>
             <button className="text-xs text-slate-400 hover:text-red-400 transition-colors">Disconnect</button>
-          </div>
-          
-          <div className="p-5 border border-white/10 rounded-xl bg-white/5 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-full bg-[#635BFF]/20 flex items-center justify-center text-[#635BFF]">
-                <span className="material-symbols-outlined">payments</span>
-              </div>
-              <div>
-                <div className="text-sm text-slate-200 font-headline">Stripe</div>
-                <div className="text-xs text-slate-500">Not connected</div>
-              </div>
-            </div>
-            <button className="text-xs px-4 py-1.5 bg-white/10 text-slate-300 rounded-lg hover:bg-white/20 transition-colors font-headline">Connect</button>
           </div>
         </div>
       </div>

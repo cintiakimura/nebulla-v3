@@ -2,142 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { VoiceLinesIcon } from './VoiceLinesIcon';
 
-let nextPlayTime = 0;
-
-// Streaming TTS Player using WebSocket and MediaSource
-class StreamingTTSPlayer {
-  private socket: WebSocket | null = null;
-  private mediaSource: MediaSource | null = null;
-  private sourceBuffer: SourceBuffer | null = null;
-  private audio: HTMLAudioElement | null = null;
-  private queue: Uint8Array[] = [];
-  private dormantTimer: NodeJS.Timeout | null = null;
-  private isInitialized = false;
-
-  constructor() {}
-
-  private initAudio() {
-    if (this.isInitialized) return;
-    
-    console.log("[TTS] Initializing audio elements...");
-    this.audio = new Audio();
-    this.mediaSource = new MediaSource();
-    
-    this.mediaSource.addEventListener('sourceopen', () => {
-      console.log("[TTS] MediaSource opened");
-      if (this.mediaSource && !this.sourceBuffer) {
-        try {
-          this.sourceBuffer = this.mediaSource.addSourceBuffer('audio/mpeg');
-          this.sourceBuffer.addEventListener('updateend', () => {
-            this.processQueue();
-          });
-          console.log("[TTS] SourceBuffer added successfully");
-        } catch (e) {
-          console.error("[TTS] Failed to add SourceBuffer:", e);
-        }
-      }
-    });
-    
-    this.audio.src = URL.createObjectURL(this.mediaSource);
-    this.isInitialized = true;
-  }
-
-  private processQueue() {
-    if (!this.sourceBuffer || this.sourceBuffer.updating || this.queue.length === 0) return;
-    const chunk = this.queue.shift();
-    if (chunk) {
-      try {
-        this.sourceBuffer.appendBuffer(chunk);
-      } catch (e) {
-        console.error("[TTS] Error appending buffer:", e);
-      }
-    }
-  }
-
-  async connect() {
-    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
-      if (this.dormantTimer) {
-        clearTimeout(this.dormantTimer);
-        this.dormantTimer = null;
-      }
-      return;
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    this.socket = new WebSocket(`${protocol}//${host}/ws/tts`);
-
-    this.socket.onmessage = async (event) => {
-      try {
-        const text = typeof event.data === 'string' ? event.data : await event.data.text();
-        const data = JSON.parse(text);
-        
-        if (data.type === 'audio.delta' && data.audio) {
-          const binary = atob(data.audio);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-          }
-          
-          this.queue.push(bytes);
-          this.processQueue();
-          
-          if (this.audio && this.audio.paused) {
-            this.audio.play().catch(err => {
-              if (err.name !== 'NotAllowedError') {
-                console.error("[TTS] Playback error:", err);
-              }
-            });
-          }
-        } else if (data.type === 'audio.done') {
-          console.log("[TTS] Audio stream finished");
-          this.dormantTimer = setTimeout(() => {
-            console.log("[TTS] Connection is now dormant");
-          }, 3000);
-        }
-      } catch (e) {
-        console.error("[TTS] Error processing WebSocket message:", e);
-      }
-    };
-
-    this.socket.onopen = () => console.log("[TTS] WebSocket connected");
-    this.socket.onclose = () => console.log("[TTS] WebSocket closed");
-    this.socket.onerror = (err) => console.error("[TTS] WebSocket error", err);
-
-    return new Promise((resolve) => {
-      if (this.socket) {
-        const onOpen = () => {
-          this.socket?.removeEventListener('open', onOpen);
-          resolve(true);
-        };
-        this.socket.addEventListener('open', onOpen);
-      }
-    });
-  }
-
-  speak(text: string) {
-    this.initAudio();
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      this.connect().then(() => this.sendText(text));
-    } else {
-      this.sendText(text);
-    }
-  }
-
-  private sendText(text: string) {
-    if (this.dormantTimer) {
-      clearTimeout(this.dormantTimer);
-      this.dormantTimer = null;
-    }
-    
-    console.log("[TTS] Sending text to stream:", text.substring(0, 30) + "...");
-    this.socket?.send(JSON.stringify({ type: 'text.delta', text }));
-    this.socket?.send(JSON.stringify({ type: 'text.done' }));
-  }
-}
-
-const ttsPlayer = new StreamingTTSPlayer();
-
 export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const [isLive, setIsLive] = useState(false);
   const [isMicOpen, setIsMicOpen] = useState(false);
@@ -317,7 +181,7 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
       const mpRes = await fetch('/api/master-plan/read');
       const latestMP = await mpRes.json();
       
-      const systemPrompt = `You are Nebula, an expert AI dev partner powered exclusively by Grok 4.1. You operate under strict rules:
+      const systemPrompt = `You are Nebula, an expert AI dev partner powered exclusively by GROK 4.1. You operate under strict rules:
 
 SEPARATE PROJECT MODE:
 - Treat every new user input or description as a COMPLETELY SEPARATE new product for a different user.
@@ -329,20 +193,17 @@ CRITICAL DISTINCTION:
 2. Nebula Product (The Goal): The voice-first AI companion app we are building for users. All new features, pages, and logic must be built for this product.
 
 MODEL RULES:
-- Everything (Conversation, Reasoning, Coding, Voice Output): Grok 4.1 (grok-4-1-fast-reasoning)
+- Everything (Conversation, Reasoning, Coding, Voice Output): GROK 4.1 (grok-4-1-fast-reasoning) using the GROK API Nebula key.
 
-GROK A BEHAVIOR (Conversation):
+GROK 4.1 BEHAVIOR:
 1. Always listen to the user and summarize what you understood.
 2. Scan the current Master Plan (provided below) to check for conflicts or inconsistencies.
 3. If there is any potential problem (security, architecture, breaking changes, etc.), clearly warn the user.
 4. Explain: "We're building this modularly — one fully tested phase at a time. That's why we define clear KPIs for each feature."
 5. Ask: "Does this Master Plan look good, or do you want to change anything before we start Phase 1?"
 6. Only when the user says "yes" or "yes, lock it in", output the correct invisible tag at the very end of your response: <START_MASTERPLAN> or <START_CODING>.
-
-GROK B BEHAVIOR (Silent):
-- When updating the Master Plan, wrap the new content in <START_MASTERPLAN> and <END_MASTERPLAN>.
-- Grok B must never speak to the user directly.
-- Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.
+7. When updating the Master Plan, wrap the new content in <START_MASTERPLAN> and <END_MASTERPLAN>.
+8. Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.
 
 CODING MODE:
 - When <START_CODING> is triggered, provide reasoning wrapped in <REASONING> tags.
@@ -352,7 +213,7 @@ CODING MODE:
 CURRENT MASTER PLAN:
 ${JSON.stringify(latestMP, null, 2)}`;
 
-      // Connect to Grok via Backend Proxy
+      // Connect to GROK via Backend Proxy
       const response = await fetch('/api/grok/chat', {
         method: 'POST',
         headers: {
@@ -371,7 +232,7 @@ ${JSON.stringify(latestMP, null, 2)}`;
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || `Grok API Error: ${response.status}`);
+        throw new Error(errorData.error || `GROK API Error: ${response.status}`);
       }
 
       const data = await response.json();
@@ -390,13 +251,30 @@ ${JSON.stringify(latestMP, null, 2)}`;
 
       setMessages(prev => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
 
-      // Streaming TTS with AGENT_GROK_VOICE
+      // ElevenLabs TTS from Backend
       if (isSoundOnRef.current && cleanText) {
-        ttsPlayer.speak(cleanText);
+        try {
+          const ttsResponse = await fetch('/api/elevenlabs/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: cleanText })
+          });
+
+          if (ttsResponse.ok) {
+            const audioBlob = await ttsResponse.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audio.play().catch(e => console.error("Audio playback failed:", e));
+          } else {
+            console.error("ElevenLabs TTS failed:", await ttsResponse.text());
+          }
+        } catch (err) {
+          console.error("Error calling ElevenLabs TTS:", err);
+        }
       }
     } catch (error: any) {
-      console.error("Grok API Error:", error);
-      setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to Grok.'}` }]);
+      console.error("GROK API Error:", error);
+      setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to GROK.'}` }]);
     }
   };
 

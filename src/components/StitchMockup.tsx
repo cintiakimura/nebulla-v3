@@ -25,7 +25,7 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Grok API Error: ${response.status} - ${errorText}`);
+        throw new Error(`GROK API Error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();

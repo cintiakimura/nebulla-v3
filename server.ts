@@ -177,94 +177,135 @@ async function startServer() {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.GROK_API_NEBULLA}`,
-        },
-        body: JSON.stringify({
-          model: 'grok-beta',
-          messages: [{ 
-            role: 'user', 
-            content: `Generate a single SVG mockup based ONLY on this Master Plan data:\n\n${pagesText}\n\nReturn ONLY valid SVG code. No markdown formatting, no explanation.` 
-          }],
-          stream: false
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Stitch Engine Error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      res.json(data);
-    } catch (error) {
-      console.error("Error calling Stitch API:", error);
-      res.status(500).json({ error: "Failed to call Stitch API" });
-    }
+    },
+    body: JSON.stringify({
+      model: 'grok-4-1-fast-reasoning',
+      messages: [{ 
+        role: 'user', 
+        content: `Generate a single SVG mockup based ONLY on this Master Plan data:\n\n${pagesText}\n\nReturn ONLY valid SVG code. No markdown formatting, no explanation.` 
+      }],
+      stream: false
+    }),
   });
 
-  app.post("/api/grok/chat", async (req, res) => {
-    const { messages } = req.body;
-    const apiKey = process.env.GROK_API_NEBULLA;
-    
-    if (!apiKey) {
-      console.error("GROK_API_NEBULLA is not set in environment");
-      return res.status(500).json({ error: "GROK_API_NEBULLA is not set. Please add it in the Settings menu." });
-    }
+  if (!response.ok) {
+    throw new Error(`Stitch Engine Error: ${response.status}`);
+  }
 
-    // Basic validation of key format
-    if (apiKey.length < 20) {
-      const helpMsg = "Your GROK_API_NEBULLA appears to be invalid. Please check it in the Settings menu.";
-      console.error(`Invalid GROK_API_NEBULLA format detected: ${helpMsg}`);
-      return res.status(400).json({ error: helpMsg });
-    }
+  const data = await response.json();
+  res.json(data);
+} catch (error) {
+  console.error("Error calling Stitch API:", error);
+  res.status(500).json({ error: "Failed to call Stitch API" });
+}
+});
 
+app.post("/api/grok/chat", async (req, res) => {
+const { messages } = req.body;
+const apiKey = process.env.GROK_API_NEBULLA;
+
+if (!apiKey) {
+  console.error("GROK API Nebula is not set in environment");
+  return res.status(500).json({ error: "GROK API Nebula is not set. Please add it in the Settings menu." });
+}
+
+// Basic validation of key format
+if (apiKey.length < 20) {
+  const helpMsg = "Your GROK API Nebula appears to be invalid. Please check it in the Settings menu.";
+  console.error(`Invalid GROK_API_NEBULLA format detected: ${helpMsg}`);
+  return res.status(400).json({ error: helpMsg });
+}
+
+try {
+  // Everything now runs on GROK 4.1 Fast Reasoning
+  const model = 'grok-4-1-fast-reasoning';
+  
+  const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: messages,
+      stream: false
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`GROK API error (${response.status}):`, errorText);
     try {
-      // Everything now runs on Grok 4.1 Fast Reasoning
-      const model = 'grok-4-1-fast-reasoning';
-      
-      const response = await fetch('https://api.x.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: messages,
-          stream: false
-        }),
-      });
+      const errorData = JSON.parse(errorText);
+      return res.status(response.status).json(errorData);
+    } catch (e) {
+      return res.status(response.status).json({ error: errorText });
+    }
+  }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Grok API error (${response.status}):`, errorText);
-        try {
-          const errorData = JSON.parse(errorText);
-          return res.status(response.status).json(errorData);
-        } catch (e) {
-          return res.status(response.status).json({ error: errorText });
-        }
-      }
+  const data = await response.json();
+  let responseText = data.choices?.[0]?.message?.content || '';
 
-      const data = await response.json();
-      let responseText = data.choices?.[0]?.message?.content || '';
-
-      // Grok B Behavior: Silent Master Plan Update
-      const masterPlanMatch = responseText.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
-      if (masterPlanMatch) {
-        const newPlanContent = masterPlanMatch[1].trim();
-        try {
-          fs.writeFileSync(masterPlanPath, newPlanContent, "utf8");
-          console.log("[GROK B] Master Plan updated silently.");
-        } catch (err) {
-          console.error("[GROK B] Failed to update Master Plan:", err);
-        }
-      }
+  // GROK 4.1 Behavior: Silent Master Plan Update
+  const masterPlanMatch = responseText.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
+  if (masterPlanMatch) {
+    const newPlanContent = masterPlanMatch[1].trim();
+    try {
+      fs.writeFileSync(masterPlanPath, newPlanContent, "utf8");
+      console.log("[GROK 4.1] Master Plan updated silently.");
+    } catch (err) {
+      console.error("[GROK 4.1] Failed to update Master Plan:", err);
+    }
+  }
 
       // We return the full responseText to the frontend so it can maintain state.
       // The frontend will be responsible for stripping tags for display.
       res.json(data);
     } catch (error) {
-      console.error("Error calling Grok API:", error);
-      res.status(500).json({ error: "Failed to call Grok API", details: error instanceof Error ? error.message : String(error) });
+      console.error("Error calling GROK API:", error);
+      res.status(500).json({ error: "Failed to call GROK API", details: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/elevenlabs/tts", async (req, res) => {
+    const { text } = req.body;
+    const apiKey = process.env.ELEVEN_LABS_API_KEY;
+
+    if (!apiKey) {
+      return res.status(500).json({ error: "ElevenLabs API key is not set." });
+    }
+
+    try {
+      // Using 'Rachel' voice as a high-quality default female voice
+      const voiceId = '21m00Tcm4TlvDq8ikWAM'; 
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_monolingual_v1',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.5,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "ElevenLabs API error");
+      }
+
+      const audioBuffer = await response.arrayBuffer();
+      res.set('Content-Type', 'audio/mpeg');
+      res.send(Buffer.from(audioBuffer));
+    } catch (error: any) {
+      console.error("ElevenLabs TTS Error:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -290,73 +331,6 @@ async function startServer() {
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-  });
-
-  // WebSocket Server for Streaming TTS Proxy
-  const wss = new WebSocketServer({ noServer: true });
-
-  server.on('upgrade', (request, socket, head) => {
-    const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
-
-    if (pathname === '/ws/tts') {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
-      });
-    } else {
-      socket.destroy();
-    }
-  });
-
-  wss.on('connection', (ws, request) => {
-    console.log('[WS] Client connected for streaming TTS');
-    const apiKey = process.env.GROK_API_NEBULLA;
-    
-    if (!apiKey) {
-      ws.send(JSON.stringify({ type: 'error', message: 'GROK_API_NEBULLA is not set.' }));
-      ws.close();
-      return;
-    }
-
-    // Connect to xAI TTS WebSocket
-    const xaiUrl = `wss://api.x.ai/v1/tts?language=en&voice=eve&codec=mp3&sample_rate=24000`;
-    const xaiWs = new WebSocket(xaiUrl, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      }
-    });
-
-    xaiWs.on('open', () => {
-      console.log('[WS] Connected to xAI TTS');
-    });
-
-    xaiWs.on('message', (data) => {
-      // Forward audio chunks from xAI to client
-      ws.send(data);
-    });
-
-    xaiWs.on('error', (err) => {
-      console.error('[WS] xAI TTS Error:', err);
-      ws.send(JSON.stringify({ type: 'error', message: 'xAI TTS connection error' }));
-    });
-
-    xaiWs.on('close', () => {
-      console.log('[WS] xAI TTS connection closed');
-      ws.close();
-    });
-
-    ws.on('message', (message) => {
-      // Forward text deltas from client to xAI
-      if (xaiWs.readyState === WebSocket.OPEN) {
-        xaiWs.send(message);
-      }
-    });
-
-    ws.on('close', () => {
-      console.log('[WS] Client disconnected');
-      if (xaiWs.readyState === WebSocket.OPEN || xaiWs.readyState === WebSocket.CONNECTING) {
-        xaiWs.close();
-      }
-    });
   });
 }
 
