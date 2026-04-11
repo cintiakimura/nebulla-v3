@@ -5,21 +5,7 @@ import ReactMarkdown from 'react-markdown';
 export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesText: string }) {
   const [planData, setPlanData] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/master-plan/read')
-      .then(res => res.json())
-      .then(data => {
-        setPlanData(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching master plan:", err);
-        setLoading(false);
-      });
-  }, []);
-
-  const STATIC_TITLES = [
+  const [titles, setTitles] = useState<string[]>([
     '1. The problem we are solving',
     '2. Target user and context',
     '3. Core features',
@@ -28,9 +14,53 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     '6. Accessibility and inclusivity',
     '7. Pages and navigation',
     '8. Market and tech research'
-  ];
+  ]);
 
-  const PLAN_SECTIONS = STATIC_TITLES.map((title, index) => {
+  const fetchPlan = async () => {
+    try {
+      const res = await fetch('/api/master-plan/read');
+      const data = await res.json();
+      setPlanData(data);
+      setLoading(false);
+    } catch (err) {
+      console.error("Error fetching master plan:", err);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPlan();
+  }, []);
+
+  // Expose updateSection to window for Grok B to use if needed
+  useEffect(() => {
+    (window as any).updateMasterPlanSection = async (tabNumber: number, newText: string) => {
+      const title = titles[tabNumber - 1];
+      if (!title) return { error: "Invalid tab number" };
+
+      // Update local state immediately for instant re-render
+      setPlanData(prev => ({ ...prev, [title]: newText }));
+
+      // Persist to backend
+      try {
+        const res = await fetch('/api/master-plan/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabIndex: tabNumber, content: newText })
+        });
+        return await res.json();
+      } catch (err) {
+        console.error("Failed to persist master plan update:", err);
+        return { error: err };
+      }
+    };
+
+    return () => {
+      delete (window as any).updateMasterPlanSection;
+    };
+  }, [titles]);
+
+  const PLAN_SECTIONS = titles.map((title, index) => {
     const id = title.toLowerCase().replace(/[^a-z0-9]/g, '-');
     let content = planData[title] || '';
     
@@ -48,8 +78,9 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
   const activeSection = PLAN_SECTIONS.find(s => s.id === activeTab);
   const activeContent = activeSection?.content || (loading ? 'Loading...' : 'No content generated yet by GROK B.');
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaved(true);
+    // The updateSection already handles persistence, but we can trigger a full save if needed
     console.log("Master Plan saved and locked.");
   };
 

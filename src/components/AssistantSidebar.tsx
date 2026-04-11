@@ -283,6 +283,40 @@ ${JSON.stringify(latestMP, null, 2)}`;
       const data = await response.json();
       const fullResponse = data.choices?.[0]?.message?.content || '';
       
+      // GROK 4.1 Behavior: Immediate Frontend Master Plan Update
+      const masterPlanMatch = fullResponse.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
+      if (masterPlanMatch && (window as any).updateMasterPlanSection) {
+        const newPlanContent = masterPlanMatch[1].trim();
+        const sections = [
+          "1. The problem we are solving",
+          "2. Target user and context",
+          "3. Core features",
+          "4. User scale and load",
+          "5. Data requirements",
+          "6. Accessibility and inclusivity",
+          "7. Pages and navigation",
+          "8. Market and tech research"
+        ];
+
+        sections.forEach((title, i) => {
+          const nextTitle = sections[i + 1];
+          const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+          
+          const regex = new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}[\\s\\S]*?(?=(?:###\\s*|\\*\\*|\\b)${escapedNextTitle || '$'})`, 'i');
+          const match = newPlanContent.match(regex);
+          
+          if (match) {
+            let content = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, 'i'), '').trim();
+            content = content.replace(/^[:\-\s]+/, '');
+            if (content) {
+              // Call the frontend update function for immediate re-render
+              (window as any).updateMasterPlanSection(i + 1, content);
+            }
+          }
+        });
+      }
+
       // Extract reasoning if present
       const reasoningMatch = fullResponse.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
       const reasoning = reasoningMatch ? reasoningMatch[1].trim() : undefined;
