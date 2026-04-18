@@ -454,6 +454,20 @@ try {
     });
   }
 }
+app.get("/api/test-tts", async (req, res) => {
+  try {
+    const audio = await speak("Hello, this is Eve speaking. How are you today?");
+    res.set({
+      "Content-Type": "audio/mpeg",
+      "Content-Length": audio.length.toString(),
+    });
+    res.send(audio);
+  } catch (error) {
+    console.error("TTS test failed:", error);
+    res.status(500).json({ error: "TTS failed" });
+  }
+});
+
 
 startServer();
 
@@ -466,7 +480,7 @@ export async function speak(text: string): Promise<Buffer> {
     },
     body: JSON.stringify({
       text: text,
-      voice_id: "Eve",           // we agreed on Eve
+      voice_id: "Eve",
       output_format: {
         codec: "mp3",
         sample_rate: 44100,
@@ -477,8 +491,8 @@ export async function speak(text: string): Promise<Buffer> {
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`TTS Error: ${response.status} - ${error}`);
+    const errorText = await response.text();
+    throw new Error(`TTS Error: ${response.status} - ${errorText}`);
   }
 
   return Buffer.from(await response.arrayBuffer());
