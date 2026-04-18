@@ -9,7 +9,8 @@ export const app = express();
 const PORT = 3000;
 
 async function startServer() {
-  app.use(express.json());
+  app.use(express.json() as any);
+
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {
@@ -100,8 +101,6 @@ async function startServer() {
     try {
       const pathParam = req.query.path as string || ".";
       const targetDir = path.resolve(process.cwd(), pathParam);
-      console.log("cwd:", process.cwd());
-      console.log("targetDir:", targetDir);
       
       // Security: Ensure the target directory is within the project root
       if (!targetDir.startsWith(process.cwd())) {
@@ -184,24 +183,57 @@ async function startServer() {
       <html>
         <head>
           <title>Authentication Successful</title>
+          <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #040f1a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
             .card { background: rgba(255,255,255,0.05); padding: 2rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.1); text-align: center; max-width: 400px; }
             h2 { color: #00ffff; margin-top: 0; }
             p { color: #94a3b8; line-height: 1.5; }
+            .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #00ffff; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 1rem auto; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
           </style>
         </head>
         <body>
           <div class="card">
-            <h2>Authentication Successful</h2>
-            <p>Your account has been connected. This window should close automatically.</p>
-            <p style="font-size: 0.8rem; opacity: 0.5;">If it doesn't close, you can safely close it manually.</p>
+            <div id="status-icon" class="spinner"></div>
+            <h2 id="status-title">Authenticating...</h2>
+            <p id="status-text">Completing the secure connection to your account.</p>
           </div>
           <script>
-            if (window.opener) {
-              window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-              setTimeout(() => window.close(), 1000);
-            }
+            // We need the Supabase config to initialize the client in the popup
+            // so it can capture the session from the URL hash/query
+            fetch('/api/config')
+              .then(res => res.json())
+              .then(config => {
+                if (!config.supabaseUrl || !config.supabaseAnonKey) {
+                  throw new Error('Supabase configuration missing');
+                }
+                
+                const supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+                
+                // Supabase automatically handles the session from the URL on init
+                // but we'll wait a bit to ensure it's processed
+                setTimeout(() => {
+                  if (window.opener) {
+                    window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                    
+                    document.getElementById('status-icon').style.display = 'none';
+                    document.getElementById('status-title').innerText = 'Success!';
+                    document.getElementById('status-text').innerText = 'You are now logged in. This window will close automatically.';
+                    
+                    setTimeout(() => window.close(), 1500);
+                  } else {
+                    window.location.href = '/';
+                  }
+                }, 500);
+              })
+              .catch(err => {
+                console.error('Auth Callback Error:', err);
+                document.getElementById('status-icon').style.display = 'none';
+                document.getElementById('status-title').innerText = 'Authentication Error';
+                document.getElementById('status-title').style.color = '#ff4444';
+                document.getElementById('status-text').innerText = 'There was a problem completing your login. Please try again.';
+              });
           </script>
         </body>
       </html>
@@ -407,10 +439,10 @@ try {
       },
       appType: "spa",
     });
-    app.use(vite.middlewares);
+    app.use((vite.middlewares) as any);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath) as any);
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
@@ -424,3 +456,30 @@ try {
 }
 
 startServer();
+
+export async function speak(text: string): Promise<Buffer> {
+  const response = await fetch("https://api.x.ai/v1/tts", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.GROK_TTS_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text: text,
+      voice_id: "Eve",           // we agreed on Eve
+      output_format: {
+        codec: "mp3",
+        sample_rate: 44100,
+        bit_rate: 128000
+      },
+      language: "en"
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`TTS Error: ${response.status} - ${error}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}

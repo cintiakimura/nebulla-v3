@@ -221,11 +221,11 @@ function SecretsTab() {
       {/* OAuth Integration */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
         <h4 className="text-sm font-headline text-slate-200 mb-2">OAuth Integration (Supabase)</h4>
-        <p className="text-xs text-slate-500 mb-4">Configure your OAuth providers in the Supabase Dashboard.</p>
+        <p className="text-xs text-slate-500 mb-4">Configure your OAuth providers and redirect URLs in the Supabase Dashboard.</p>
         
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="p-4 border border-cyan-500/20 rounded-lg bg-cyan-500/5">
-            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">Required Redirect URL</h5>
+            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">Step 1: Required Redirect URL</h5>
             <div className="flex items-center gap-3 bg-black/40 p-3 rounded-md border border-white/5">
               <code className="text-[11px] text-slate-300 flex-1 break-all">
                 {window.location.origin}/auth/callback
@@ -240,9 +240,26 @@ function SecretsTab() {
                 <span className="material-symbols-outlined text-[18px]">content_copy</span>
               </button>
             </div>
-            <p className="text-[10px] text-slate-500 mt-2">
-              Add this URL to your Supabase project under <strong>Auth &gt; URL Configuration &gt; Redirect URLs</strong>.
+            <p className="text-[10px] text-slate-400 mt-3 leading-relaxed">
+              <strong>CRITICAL:</strong> You must add this URL to your Supabase project under:<br/>
+              <span className="text-cyan-400">Authentication &gt; URL Configuration &gt; Redirect URLs</span>
             </p>
+          </div>
+
+          <div className="p-4 border border-white/10 rounded-lg bg-white/5">
+            <h5 className="text-xs font-headline text-slate-300 mb-2 uppercase tracking-wider">Step 2: Configure Providers</h5>
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              In your Supabase Dashboard, go to <strong>Authentication &gt; Sign In / Providers</strong> and enable Google and GitHub using your Client IDs and Secrets.
+            </p>
+          </div>
+
+          <div className="p-4 border border-yellow-500/20 rounded-lg bg-yellow-500/5">
+            <h5 className="text-xs font-headline text-yellow-400 mb-2 uppercase tracking-wider">Common Issues</h5>
+            <ul className="text-[10px] text-slate-400 space-y-2 list-disc pl-4">
+              <li>Ensure <strong>Site URL</strong> in Supabase matches your App URL.</li>
+              <li>Check that the Redirect URL above is exactly matched in your Google/GitHub console.</li>
+              <li>If using a custom domain on Vercel, update the Redirect URL in Supabase to use your custom domain.</li>
+            </ul>
           </div>
         </div>
       </div>
