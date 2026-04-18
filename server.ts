@@ -21,8 +21,8 @@ async function startServer() {
     res.json({
       supabaseUrl: process.env.SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY,
-      googleClientId: process.env.GOOGLE_CLIENT_ID,
-      githubClientId: process.env.GITHUB_CLIENT_ID,
+      googleClientId: process.env.GOOGLE_CLIENT_ID || '150218202075669-9cbr2fnxh8ilh0ih1k2cs8phrmkf43eq.apps.googleusercontent.com',
+      githubClientId: process.env.GITHUB_CLIENT_ID || '0v231lrj4n4star njb wz1h update',
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
     });
   });
