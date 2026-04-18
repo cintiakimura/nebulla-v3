@@ -419,6 +419,31 @@ try {
     }
   }
 
+      // Extract clean text for TTS (removing internal tags)
+      const cleanText = responseText
+        .replace(/<REASONING>[\s\S]*?<\/REASONING>/g, '')
+        .replace(/<START_MASTERPLAN>[\s\S]*?<END_MASTERPLAN>/g, '')
+        .replace(/<START_MASTERPLAN>/g, '')
+        .replace(/<END_MASTERPLAN>/g, '')
+        .replace(/<START_CODING>/g, '')
+        .replace(/START_CODING/g, '')
+        .replace(/<START_UIUX>/g, '')
+        .replace(/<FINISH_MASTERPLAN>/g, '')
+        .replace(/<APPROVE_MASTERPLAN>/g, '')
+        .replace(/<APPROVE_MINDMAP>/g, '')
+        .replace(/<APPROVE_UI>/g, '')
+        .trim();
+
+      if (cleanText) {
+        try {
+          // Immediately speak the reply text using XAI TTS
+          const audioBuffer = await speak (cleanText);
+          data.audio = audioBuffer.toString('base64');
+        } catch (ttsErr) {
+          console.error("[TTS] Speech generation failed:", ttsErr);
+        }
+      }
+
       // We return the full responseText to the frontend so it can maintain state.
       // The frontend will be responsible for stripping tags for display.
       res.json(data);
@@ -454,20 +479,6 @@ try {
     });
   }
 }
-app.get("/api/test-tts", async (req, res) => {
-  try {
-    const audio = await speak("Hello, this is Eve speaking. How are you today?");
-    res.set({
-      "Content-Type": "audio/mpeg",
-      "Content-Length": audio.length.toString(),
-    });
-    res.send(audio);
-  } catch (error) {
-    console.error("TTS test failed:", error);
-    res.status(500).json({ error: "TTS failed" });
-  }
-});
-
 
 startServer();
 
