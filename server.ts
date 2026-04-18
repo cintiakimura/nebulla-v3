@@ -498,11 +498,11 @@ startServer().catch(err => {
 });
 
 export async function speak(text: string): Promise<Buffer> {
-  // Use grok_tts_api_kea for TTS
-  const apiKey = process.env.grok_tts_api_kea;
+  // Use GROK_TTS_API_KEY for TTS
+  const apiKey = process.env.GROK_TTS_API_KEY;
   
   if (!apiKey) {
-    throw new Error("grok_tts_api_kea is not set. Please check your environment variables.");
+    throw new Error("GROK_TTS_API_KEY is not set. Please check your environment variables.");
   }
 
   const response = await fetch("https://api.x.ai/v1/tts", {
