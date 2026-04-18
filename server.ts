@@ -371,52 +371,15 @@ try {
   const data = await response.json();
   let responseText = data.choices?.[0]?.message?.content || '';
 
-  // GROK 4.1 Behavior: Silent Master Plan Update
-  const masterPlanMatch = responseText.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
-  if (masterPlanMatch) {
-    const newPlanContent = masterPlanMatch[1].trim();
-    try {
-      let plan: Record<string, string> = {};
-      if (fs.existsSync(masterPlanPath)) {
-        try {
-          plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
-        } catch (e) { plan = {}; }
-      }
-
-      const sections = [
-        "1. The problem we are solving",
-        "2. Target user and context",
-        "3. Core features",
-        "4. User scale and load",
-        "5. Data requirements",
-        "6. Accessibility and inclusivity",
-        "7. Pages and navigation",
-        "8. Market and tech research"
-      ];
-
-      sections.forEach((title, i) => {
-        const nextTitle = sections[i + 1];
-        const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
-        
-        const regex = new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}[\\s\\S]*?(?=(?:###\\s*|\\*\\*|\\b)${escapedNextTitle || '$'})`, 'i');
-        const match = newPlanContent.match(regex);
-        
-        if (match) {
-          let content = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, 'i'), '').trim();
-          // Remove leading colons or dashes that might be left over
-          content = content.replace(/^[:\-\s]+/, '');
-          if (content) {
-            plan[title] = content;
-          }
-        }
-      });
-
-      fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
-      console.log("[GROK 4.1] Master Plan updated silently.");
-    } catch (err) {
-      console.error("[GROK 4.1] Failed to update Master Plan:", err);
-    }
+  // Grok B: Silent Master Plan Update Trigger
+  if (responseText.includes('START MASTER PLAN')) {
+    console.log("[GROK B] Triggered: Starting silent Master Plan update...");
+    // We run this without awaiting to keep Grok A's response fast
+    runGrokB(messages, apiKey, masterPlanPath).then(() => {
+       console.log("[GROK B] Completed successfully.");
+    }).catch(err => {
+       console.error("[GROK B] Failed to update Master Plan:", err);
+    });
   }
 
       // Extract clean text for TTS (removing internal tags)
@@ -529,4 +492,97 @@ export async function speak(text: string): Promise<Buffer> {
   }
 
   return Buffer.from(await response.arrayBuffer());
+}
+
+async function runGrokB(history: any[], apiKey: string, masterPlanPath: string) {
+  const sections = [
+    "1. The problem we are solving",
+    "2. Target user and context",
+    "3. Core features",
+    "4. User scale and load",
+    "5. Data requirements",
+    "6. Accessibility and inclusivity",
+    "7. Pages and navigation",
+    "8. Market and tech research"
+  ];
+
+  const grokBSystemPrompt = `You are Grok B, the silent Master Plan Architect. 
+Your sole purpose is to fill out the Master Plan based on the provided conversation history.
+You must be thorough and use the information discussed to populate every single section.
+
+STRICT OUTPUT FORMAT:
+Wrap your entire update in <START_MASTERPLAN> and <END_MASTERPLAN> tags.
+Use ### for section titles.
+
+Sections for you to populate:
+${sections.join('\n')}
+
+Example format:
+<START_MASTERPLAN>
+### 1. The problem we are solving
+Detailed description based on conversation...
+...
+<END_MASTERPLAN>
+
+Stay completely silent. No text outside the tags. Analyze the history carefully.`;
+
+  try {
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-4-1-fast-reasoning',
+        messages: [
+          { role: 'system', content: grokBSystemPrompt },
+          ...history
+        ],
+        stream: false
+      }),
+    });
+
+    if (!response.ok) {
+       console.error(`Grok B error: ${response.status}`);
+       return;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    
+    // Process Grok B's architectural output
+    const masterPlanMatch = content.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
+    if (masterPlanMatch) {
+      const newPlanContent = masterPlanMatch[1].trim();
+      let plan: Record<string, string> = {};
+      
+      if (fs.existsSync(masterPlanPath)) {
+        try {
+          plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
+        } catch (e) { plan = {}; }
+      }
+
+      sections.forEach((title, i) => {
+        const nextTitle = sections[i + 1];
+        const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+        
+        const regex = new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}[\\s\\S]*?(?=(?:###\\s*|\\*\\*|\\b)${escapedNextTitle || '$'})`, 'i');
+        const match = newPlanContent.match(regex);
+        
+        if (match) {
+          let sectionContent = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, 'i'), '').trim();
+          sectionContent = sectionContent.replace(/^[:\-\s]+/, '');
+          if (sectionContent) {
+            plan[title] = sectionContent;
+          }
+        }
+      });
+
+      fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
+    }
+  } catch (err) {
+    console.error("Grok B processing failed:", err);
+  }
 }
