@@ -116,6 +116,12 @@ export default defineConfig(({mode}) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    define: {
+      'process.env': {
+        SUPABASE_URL: env.SUPABASE_URL,
+        SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY,
+      }
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
