@@ -108,6 +108,7 @@ export default function App() {
   const [showLanding, setShowLanding] = useState(true);
   const [showMasterPlan, setShowMasterPlan] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
+  const [showAuthGuide, setShowAuthGuide] = useState(false);
   const [showStitchMockup, setShowStitchMockup] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<DashboardTab | null>('projects');
@@ -455,10 +456,12 @@ export default function App() {
   };
 
   const handleGithubLogin = async () => {
+    const redirectUrl = `${window.location.origin}/auth/callback`;
+    console.log("[AUTH] Initiating GitHub login with redirect:", redirectUrl);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: redirectUrl,
         skipBrowserRedirect: true
       }
     });
@@ -474,10 +477,12 @@ export default function App() {
   };
 
   const handleGoogleLogin = async () => {
+    const redirectUrl = `${window.location.origin}/auth/callback`;
+    console.log("[AUTH] Initiating Google login with redirect:", redirectUrl);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: redirectUrl,
         skipBrowserRedirect: true
       }
     });
@@ -547,6 +552,14 @@ export default function App() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setShowAuthGuide(true)}
+                className="text-xs px-2 py-1 text-slate-500 hover:text-cyan-300 transition-colors flex items-center gap-1"
+                title="Auth Setup Help"
+              >
+                <Key className="w-3.5 h-3.5" />
+                Auth Guide
+              </button>
               <button onClick={() => handleGoogleLogin()} className="text-xs px-3 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded hover:bg-cyan-500/20 transition-colors font-headline flex items-center gap-2">
                 <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
                 Google
@@ -1104,6 +1117,84 @@ export function NebulaInterface() {
           </div>
         </div>
       )}
+
+      {/* Auth Guide Modal */}
+      <AuthGuideModal isOpen={showAuthGuide} onClose={() => setShowAuthGuide(false)} />
     </>
+  );
+}
+
+function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
+  if (!isOpen) return null;
+  
+  const callbackUrl = `${window.location.origin}/auth/callback`;
+  
+  return (
+    <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-[#0b1219] border border-white/10 rounded-2xl p-6 max-w-2xl w-full shadow-2xl flex flex-col gap-6 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2 text-cyan-300">
+            <Key className="w-5 h-5" />
+            <h2 className="text-xl font-headline font-normal">OAuth Setup Guide</h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
+            <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">1</span>
+              Configure Supabase (Critical)
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed pl-7">
+              Supabase needs to know this specific preview environment is allowed. 
+              Go to your <a href="https://supabase.com/dashboard/project/_/auth/url-configuration" target="_blank" className="text-cyan-400 hover:underline">Supabase Dashboard</a> &gt; <b>Auth</b> &gt; <b>URL Configuration</b> and add this exactly to <b>"Additional Redirect URIs"</b>:
+            </p>
+            <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
+              <code className="text-[10px] text-cyan-500 font-mono break-all">{callbackUrl}</code>
+              <button 
+                onClick={() => { navigator.clipboard.writeText(callbackUrl); alert('Copied!'); }}
+                className="p-1 px-2 text-[10px] bg-white/5 hover:bg-white/10 text-slate-400 rounded transition-all"
+              >
+                Copy
+              </button>
+            </div>
+          </section>
+
+          <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
+            <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">2</span>
+              Configure Google Cloud (Fixes "Access Blocked")
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed pl-7">
+              If Google says "Blocked" or "Redirect URI mismatch", you must whitelist your unique <b>Supabase Auth URL</b> in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-cyan-400 hover:underline">Google Cloud Console</a>.
+            </p>
+            <p className="text-[10px] text-slate-500 pl-7 italic">
+              Find this URL in Supabase under Auth &gt; Providers &gt; Google (it's labeled as "Callback URL"). 
+              <b> It will look like: <code>https://[your-id].supabase.co/auth/v1/callback</code></b>
+            </p>
+          </section>
+
+          <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
+            <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">3</span>
+              Fix GitHub Redirects
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed pl-7">
+              If GitHub opens your website instead of the IDE, it's because Step 1 wasn't completed properly. GitHub defaults to your main "Site URL" if the redirect URI isn't exactly matched in your Supabase whitelist.
+            </p>
+          </section>
+        </div>
+
+        <button 
+          onClick={onClose}
+          className="w-full py-3 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 rounded-xl hover:bg-cyan-500/30 transition-all font-headline text-sm"
+        >
+          I've updated my settings
+        </button>
+      </div>
+    </div>
   );
 }
