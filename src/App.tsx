@@ -539,21 +539,7 @@ export default function App() {
           <h1 className="font-headline text-4xl font-light tracking-tighter text-cyan-300 no-bold">nebulla</h1>
         </div>
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => handleAction('Deploy')}
-            className="text-xs px-3 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded hover:bg-cyan-500/20 transition-colors font-headline flex items-center gap-1"
-            title="Deploy to Vercel"
-          >
-            <Rocket className="w-3.5 h-3.5" />
-            Vercel
-          </button>
-          <button 
-            onClick={() => handleAction('Download')}
-            className="text-xs px-3 py-1.5 bg-white/5 text-slate-300 border border-white/10 rounded hover:bg-white/10 transition-colors font-headline flex items-center gap-1"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download
-          </button>
+          {/* Action buttons removed as requested */}
           {user ? (
             <div className="flex items-center gap-3">
               <img src={user.photoURL || ''} alt="User" className="w-6 h-6 rounded-full border border-white/10" referrerPolicy="no-referrer" />

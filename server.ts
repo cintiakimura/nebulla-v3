@@ -19,8 +19,8 @@ async function startServer() {
 
   app.get("/api/config", (req, res) => {
     res.json({
-      supabaseUrl: process.env.SUPABASE_URL,
-      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      supabaseUrl: process.env.SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY,
       googleClientId: process.env.GOOGLE_CLIENT_ID,
       githubClientId: process.env.GITHUB_CLIENT_ID,
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
@@ -111,9 +111,23 @@ async function startServer() {
         return res.status(404).json({ error: "Directory not found" });
       }
 
+      const nebulaInternal = new Set([
+        'node_modules', 'dist', '.git', '.github', 'index.ts', 'README.md',
+        'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.node.json',
+        'vite.config.ts', 'postcss.config.js', 'tailwind.config.js', 'components.json',
+        'metadata.json', 'server.ts', '.env.example', 'firebase-applet-config.json',
+        'master-plan.json', 'Nebula Architecture Spec.md', 'index.html', 'src', 'public',
+        'firebase-blueprint.json', 'firestore.rules', 'DRAFT_firestore.rules',
+        'api', 'vercel.json', 'Audit_Report.md', '.gitignore'
+      ]);
+
       const items = fs.readdirSync(targetDir, { withFileTypes: true });
       const files = items
-        .filter(item => !item.name.startsWith('.') && item.name !== 'node_modules' && item.name !== 'dist')
+        .filter(item => {
+          const isHidden = item.name.startsWith('.');
+          const isInternal = nebulaInternal.has(item.name);
+          return !isHidden && !isInternal;
+        })
         .map(item => ({
           name: item.name,
           isDirectory: item.isDirectory()
@@ -211,21 +225,31 @@ async function startServer() {
                 
                 const supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
                 
-                // Supabase automatically handles the session from the URL on init
-                // but we'll wait a bit to ensure it's processed
+                // Ensure auth state is fully synchronized before closing
+                supabase.auth.onAuthStateChange((event, session) => {
+                  if (session) {
+                    console.log('Auth event:', event);
+                    if (window.opener) {
+                      window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                      
+                      document.getElementById('status-icon').style.display = 'none';
+                      document.getElementById('status-title').innerText = 'Success!';
+                      document.getElementById('status-text').innerText = 'You are now logged in. This window will close automatically.';
+                      
+                      setTimeout(() => window.close(), 1000);
+                    } else {
+                      window.location.href = '/';
+                    }
+                  }
+                });
+
+                // Fallback timeout in case onAuthStateChange doesn't fire immediately
                 setTimeout(() => {
                   if (window.opener) {
                     window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                    
-                    document.getElementById('status-icon').style.display = 'none';
-                    document.getElementById('status-title').innerText = 'Success!';
-                    document.getElementById('status-text').innerText = 'You are now logged in. This window will close automatically.';
-                    
-                    setTimeout(() => window.close(), 1500);
-                  } else {
-                    window.location.href = '/';
+                    document.getElementById('status-text').innerText = 'Taking a bit longer... you can close this window if the main app is logged in.';
                   }
-                }, 500);
+                }, 5000);
               })
               .catch(err => {
                 console.error('Auth Callback Error:', err);
