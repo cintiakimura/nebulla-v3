@@ -5,7 +5,7 @@ import { Logo } from './Logo';
 
 export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const [isLive, setIsLive] = useState(false);
-  const [isMicOpen, setIsMicOpen] = useState(false);
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [messages, setMessages] = useState<{role: string, text: string, fullText?: string, reasoning?: string}[]>([
     { role: 'model', text: 'System initialized. Ready to collaborate.', fullText: 'System initialized. Ready to collaborate.' }
   ]);
@@ -27,162 +27,34 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const captureStreamRef = useRef<MediaStream | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isMicOpenRef = useRef(isMicOpen);
-  
+  const isMicOpenRef = useRef(false);
+  const isLiveRef = useRef(isLive);
+  const isAiSpeakingRef = useRef(isAiSpeaking);
+
   useEffect(() => {
-    // 1. Handle auto-start chat (Brainstorm mode)
-    const autoStart = localStorage.getItem('nebula_auto_start_chat');
-    if (autoStart === 'true') {
-      localStorage.removeItem('nebula_auto_start_chat');
-      toggleLive();
-    }
+    isLiveRef.current = isLive;
+  }, [isLive]);
 
-    // 2. Handle initial prompt
-    const initialPrompt = localStorage.getItem('nebula_initial_prompt');
-    if (initialPrompt) {
-      localStorage.removeItem('nebula_initial_prompt');
-      if ((window as any).openMasterPlan) (window as any).openMasterPlan();
-      handleSendText(initialPrompt);
+  useEffect(() => {
+    isAiSpeakingRef.current = isAiSpeaking;
+    
+    // Auto-toggle recognition when AI starts/stops speaking
+    if (isLive) {
+      if (isAiSpeaking) {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch (e) {}
+        }
+      } else {
+        if (recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch (e) {}
+        }
+      }
     }
-
-    // 3. Handle GitHub import
-    const githubRepo = localStorage.getItem('nebula_github_import');
-    if (githubRepo) {
-      localStorage.removeItem('nebula_github_import');
-      handleSendText(`I want to clone and analyze this GitHub repository: ${githubRepo}`);
-    }
-  }, []);
+  }, [isAiSpeaking, isLive]);
 
   const [isRecordingText, setIsRecordingText] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
-
-  useEffect(() => {
-    if ('webkitSpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      
-      recognitionRef.current.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInputText(prev => prev + (prev ? ' ' : '') + transcript);
-      };
-      
-      recognitionRef.current.onend = () => {
-        setIsRecordingText(false);
-      };
-      
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsRecordingText(false);
-      };
-    }
-  }, []);
-
-  const toggleTextRecording = () => {
-    if (isRecordingText) {
-      recognitionRef.current?.stop();
-      setIsRecordingText(false);
-    } else {
-      recognitionRef.current?.start();
-      setIsRecordingText(true);
-    }
-  };
-
-  useEffect(() => {
-    isMicOpenRef.current = isMicOpen;
-  }, [isMicOpen]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const autoSendTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const startAudioCapture = async () => {
-    try {
-      if (!('webkitSpeechRecognition' in window)) {
-        throw new Error('Speech recognition not supported in this browser.');
-      }
-
-      const SpeechRecognition = (window as any).webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      
-      recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          }
-        }
-        
-        if (finalTranscript) {
-          setInputText(prev => {
-            const newText = prev + (prev ? ' ' : '') + finalTranscript;
-            
-            // Clear existing timer
-            if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
-            
-            // Set a new timer to auto-send after 2 seconds of silence
-            autoSendTimerRef.current = setTimeout(() => {
-              handleSendText(newText);
-            }, 2000);
-            
-            return newText;
-          });
-        }
-      };
-
-      recognition.onend = () => {
-        if (isLive) recognition.start();
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-      setIsMicOpen(true);
-      setIsLive(true);
-    } catch (err: any) {
-      console.error("Failed to start hands-free mode", err);
-      let errorMsg = 'Failed to start hands-free mode.';
-      if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-        errorMsg = 'Microphone permission denied. Please allow microphone access.';
-      }
-      setMessages(prev => [...prev, { role: 'system', text: errorMsg }]);
-      setIsLive(false);
-    }
-  };
-
-  const stopAudioCapture = () => {
-    setIsMicOpen(false);
-    setIsLive(false);
-    if (autoSendTimerRef.current) {
-      clearTimeout(autoSendTimerRef.current);
-      autoSendTimerRef.current = null;
-    }
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-  };
-
-  const connectLive = async () => {
-    try {
-      setMessages(prev => [...prev, { role: 'system', text: 'Hands-free mode active. Speak naturally; I will auto-send after a short pause.' }]);
-      startAudioCapture();
-    } catch (err: any) {
-      console.error("Failed to connect", err);
-      setMessages(prev => [...prev, { role: 'system', text: 'Failed to start conversation mode.' }]);
-    }
-  };
-
-  const disconnectLive = () => {
-    if (sessionRef.current) { sessionRef.current.close(); sessionRef.current = null; }
-    setIsLive(false);
-    stopAudioCapture();
-  };
 
   const handleSendText = async (overrideText?: string) => {
     const textToSend = overrideText || inputText;
@@ -378,9 +250,24 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
           const audioUrl = `/api/speak?text=${encodeURIComponent(cleanText)}`;
           const audio = new Audio(audioUrl);
           (window as any).nebula_currentAudio = audio;
-          audio.play().catch(e => console.error("[TTS] Playback error:", e));
+          
+          setIsAiSpeaking(true);
+          
+          audio.onended = () => {
+            setIsAiSpeaking(false);
+          };
+
+          audio.onerror = () => {
+            setIsAiSpeaking(false);
+          };
+
+          audio.play().catch(e => {
+            console.error("[TTS] Playback error:", e);
+            setIsAiSpeaking(false);
+          });
         } catch (audioErr) {
           console.error("[TTS] Audio initialization failed:", audioErr);
+          setIsAiSpeaking(false);
         }
       }
 
@@ -394,7 +281,7 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
   };
 
   const toggleLive = () => {
-    if (isLive) {
+    if (isLiveRef.current) {
       disconnectLive();
     } else {
       if ((window as any).openMasterPlan) (window as any).openMasterPlan();
@@ -408,14 +295,162 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
   };
 
   useEffect(() => {
-    (window as any).nebula_handleSendText = handleSendText;
-    (window as any).nebula_toggleLive = toggleLive;
-    
-    return () => {
-      delete (window as any).nebula_handleSendText;
-      delete (window as any).nebula_toggleLive;
-    };
-  }, [handleSendText, toggleLive]);
+    // 1. Handle auto-start chat (Brainstorm mode)
+    const autoStart = localStorage.getItem('nebula_auto_start_chat');
+    if (autoStart === 'true') {
+      localStorage.removeItem('nebula_auto_start_chat');
+      toggleLive();
+    }
+
+    // 2. Handle initial prompt
+    const initialPrompt = localStorage.getItem('nebula_initial_prompt');
+    if (initialPrompt) {
+      localStorage.removeItem('nebula_initial_prompt');
+      if ((window as any).openMasterPlan) (window as any).openMasterPlan();
+      handleSendText(initialPrompt);
+    }
+
+    // 3. Handle GitHub import
+    const githubRepo = localStorage.getItem('nebula_github_import');
+    if (githubRepo) {
+      localStorage.removeItem('nebula_github_import');
+      handleSendText(`I want to clone and analyze this GitHub repository: ${githubRepo}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      
+      recognitionRef.current.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInputText(prev => prev + (prev ? ' ' : '') + transcript);
+      };
+      
+      recognitionRef.current.onend = () => {
+        setIsRecordingText(false);
+      };
+      
+      recognitionRef.current.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsRecordingText(false);
+      };
+    }
+  }, []);
+
+  const toggleTextRecording = () => {
+    if (isRecordingText) {
+      recognitionRef.current?.stop();
+      setIsRecordingText(false);
+    } else {
+      recognitionRef.current?.start();
+      setIsRecordingText(true);
+    }
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const autoSendTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startAudioCapture = async () => {
+    try {
+      if (!('webkitSpeechRecognition' in window)) {
+        throw new Error('Speech recognition not supported in this browser.');
+      }
+
+      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      
+      recognition.onresult = (event: any) => {
+        // Reset the timer on ANY detection (interim or final)
+        if (autoSendTimerRef.current) {
+          clearTimeout(autoSendTimerRef.current);
+          autoSendTimerRef.current = null;
+        }
+
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        if (finalTranscript) {
+          setInputText(prev => prev + (prev ? ' ' : '') + finalTranscript);
+        }
+
+        // Set a new timer to auto-send after 3.5 seconds of silence
+        autoSendTimerRef.current = setTimeout(() => {
+          const currentText = (document.getElementById('assistant-input') as HTMLTextAreaElement)?.value;
+          if (currentText && currentText.trim()) {
+            handleSendText(currentText);
+          }
+        }, 3500);
+      };
+
+      recognition.onend = () => {
+        // Automatically restart if live and AI is not speaking
+        if (isLiveRef.current && !isAiSpeakingRef.current) {
+          try {
+            recognition.start();
+          } catch (e) {
+            console.warn("Speech recognition restart failed", e);
+          }
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsLive(true);
+    } catch (err: any) {
+      console.error("Failed to start hands-free mode", err);
+      let errorMsg = 'Failed to start hands-free mode.';
+      if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
+        errorMsg = 'Microphone permission denied. Please allow microphone access.';
+      }
+      setMessages(prev => [...prev, { role: 'system', text: errorMsg }]);
+      setIsLive(false);
+    }
+  };
+
+  const stopAudioCapture = () => {
+    setIsLive(false);
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      // We don't null it here to let onend handle it if needed
+    }
+  };
+
+  const connectLive = async () => {
+    try {
+      setMessages(prev => [...prev, { role: 'system', text: 'Hands-free mode active. Speak naturally; I will auto-send after a short pause.' }]);
+      startAudioCapture();
+    } catch (err: any) {
+      console.error("Failed to connect", err);
+      setMessages(prev => [...prev, { role: 'system', text: 'Failed to start conversation mode.' }]);
+    }
+  };
+
+  const disconnectLive = () => {
+    if (sessionRef.current) { sessionRef.current.close(); sessionRef.current = null; }
+    setIsLive(false);
+    stopAudioCapture();
+  };
 
   return (
     <aside className="flex flex-col border-l border-white/5 bg-[#040f1a]/40 backdrop-blur-md shrink-0" style={{ width }}>
@@ -504,10 +539,16 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
           <div className="flex items-center gap-2">
             <button 
               onClick={toggleLive}
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${isLive ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]' : 'bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20'}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${
+                isAiSpeaking 
+                  ? 'bg-cyan-500/20 text-cyan-400 shadow-[0_0_10px_rgba(0,255,255,0.2)]' 
+                  : isLive 
+                    ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]' 
+                    : 'bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20'
+              }`}
               title={isLive ? "End Talk" : "Start Talk"}
             >
-              <VoiceLinesIcon className="w-4 h-4" active={isLive} />
+              <VoiceLinesIcon className="w-4 h-4" active={isLive || isAiSpeaking} />
             </button>
             <button 
               onClick={toggleTextRecording}

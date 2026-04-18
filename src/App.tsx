@@ -1125,6 +1125,20 @@ export function NebulaInterface() {
 }
 
 function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
+  const [status, setStatus] = useState<{ url: boolean, key: boolean }>({ url: false, key: false });
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(config => {
+        setStatus({
+          url: !!config.supabaseUrl,
+          key: !!config.supabaseAnonKey
+        });
+      })
+      .catch(console.error);
+  }, [isOpen]);
+
   if (!isOpen) return null;
   
   const callbackUrl = `${window.location.origin}/auth/callback`;
@@ -1133,9 +1147,21 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
     <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-[#0b1219] border border-white/10 rounded-2xl p-6 max-w-2xl w-full shadow-2xl flex flex-col gap-6 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
         <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2 text-cyan-300">
-            <Key className="w-5 h-5" />
-            <h2 className="text-xl font-headline font-normal">OAuth Setup Guide</h2>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-cyan-300">
+              <Key className="w-5 h-5" />
+              <h2 className="text-xl font-headline font-normal">OAuth Setup Guide</h2>
+            </div>
+            <div className="flex gap-4 mt-1">
+              <span className={`text-[10px] flex items-center gap-1 ${status.url ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${status.url ? 'bg-green-400' : 'bg-red-400'}`}></span>
+                SUPABASE_URL
+              </span>
+              <span className={`text-[10px] flex items-center gap-1 ${status.key ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${status.key ? 'bg-green-400' : 'bg-red-400'}`}></span>
+                SUPABASE_ANON_KEY
+              </span>
+            </div>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 transition-colors">
             <X className="w-5 h-5" />

@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -21,8 +22,8 @@ async function startServer() {
     res.json({
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
-      googleClientId: process.env.GOOGLE_CLIENT_ID,
-      githubClientId: process.env.GITHUB_CLIENT_ID,
+      googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.google_client_id || '150218202075669-9cbr2fnxh8ilh0ih1k2cs8phrmkf43eq.apps.googleusercontent.com',
+      githubClientId: process.env.GITHUB_CLIENT_ID || process.env.github_client_id || '0v231lrj4n4star njb wz1h update',
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
     });
   });
