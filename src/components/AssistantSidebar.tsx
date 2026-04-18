@@ -283,33 +283,6 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
       }
 
       const data = await response.json();
-
-      // VOICE CHAT FLOW: Immediately speak the response if audio is provided
-      if (data.audio) {
-        try {
-          const byteCharacters = atob(data.audio);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          const audioBlob = new Blob([byteArray], { type: 'audio/mpeg' });
-          const audioUrl = URL.createObjectURL(audioBlob);
-          
-          // Stop any currently playing audio
-          if ((window as any).nebula_currentAudio) {
-            (window as any).nebula_currentAudio.pause();
-            (window as any).nebula_currentAudio.currentTime = 0;
-          }
-          
-          const audio = new Audio(audioUrl);
-          (window as any).nebula_currentAudio = audio;
-          audio.play().catch(e => console.error("[TTS] Playback error:", e));
-        } catch (audioErr) {
-          console.error("[TTS] Audio processing failed:", audioErr);
-        }
-      }
-
       const fullResponse = data.choices?.[0]?.message?.content || '';
       
       // GROK 4.1 Behavior: Immediate Frontend Master Plan Update
@@ -389,6 +362,24 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         .replace(/<APPROVE_MINDMAP>/g, '')
         .replace(/<APPROVE_UI>/g, '')
         .trim();
+
+      // VOICE CHAT FLOW: Speak the cleaned text
+      if (cleanText) {
+        try {
+          // Stop any currently playing audio
+          if ((window as any).nebula_currentAudio) {
+            (window as any).nebula_currentAudio.pause();
+            (window as any).nebula_currentAudio.currentTime = 0;
+          }
+          
+          const audioUrl = `/api/speak?text=${encodeURIComponent(cleanText)}`;
+          const audio = new Audio(audioUrl);
+          (window as any).nebula_currentAudio = audio;
+          audio.play().catch(e => console.error("[TTS] Playback error:", e));
+        } catch (audioErr) {
+          console.error("[TTS] Audio initialization failed:", audioErr);
+        }
+      }
 
       setMessages(prev => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
     } catch (error: any) {

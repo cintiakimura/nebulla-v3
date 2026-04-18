@@ -259,10 +259,10 @@ async function startServer() {
 
   app.post("/api/stitch/mockup", async (req, res) => {
     const { pagesText, branding } = req.body;
-    const apiKey = process.env.STITCH_API_KEY || process.env.GROK_API_NEBULLA;
+    const apiKey = process.env.STITCH_API_KEY || process.env.GROK_API_KEY;
     
     if (!apiKey) {
-      console.error("Stitch API Key not set (tried STITCH_API_KEY and GROK_API_NEBULLA)");
+      console.error("Stitch API Key not set (tried STITCH_API_KEY and GROK_API_KEY)");
       return res.status(500).json({ error: "Stitch API Key is not set. Please add STITCH_API_KEY in the Settings menu." });
     }
 
@@ -326,17 +326,17 @@ Requirements:
 
 app.post("/api/grok/chat", async (req, res) => {
 const { messages } = req.body;
-const apiKey = process.env.GROK_API_NEBULLA;
+const apiKey = process.env.GROK_API_KEY;
 
 if (!apiKey) {
-  console.error("GROK API Nebula is not set in environment");
-  return res.status(500).json({ error: "GROK API Nebula is not set. Please add it in the Settings menu." });
+  console.error("GROK_API_KEY is not set in environment");
+  return res.status(500).json({ error: "GROK_API_KEY is not set. Please add it in the Settings menu." });
 }
 
 // Basic validation of key format
 if (apiKey.length < 20) {
-  const helpMsg = "Your GROK API Nebula appears to be invalid. Please check it in the Settings menu.";
-  console.error(`Invalid GROK_API_NEBULLA format detected: ${helpMsg}`);
+  const helpMsg = "Your GROK_API_KEY appears to be invalid. Please check it in the Settings menu.";
+  console.error(`Invalid GROK_API_KEY format detected: ${helpMsg}`);
   return res.status(400).json({ error: helpMsg });
 }
 
@@ -435,13 +435,8 @@ try {
         .trim();
 
       if (cleanText) {
-        try {
-          // Immediately speak the reply text using XAI TTS
-          const audioBuffer = await speak (cleanText);
-          data.audio = audioBuffer.toString('base64');
-        } catch (ttsErr) {
-          console.error("[TTS] Speech generation failed:", ttsErr);
-        }
+        // Voice chat flow: Audio is now handled via direct /api/speak endpoint to avoid base64 overhead
+        console.log("[TTS] Response ready for speech:", cleanText.substring(0, 50) + "...");
       }
 
       // We return the full responseText to the frontend so it can maintain state.
@@ -480,13 +475,40 @@ try {
   }
 }
 
-startServer();
+app.get("/api/speak", async (req, res) => {
+  const text = req.query.text as string;
+  if (!text) return res.status(400).json({ error: "Text is required" });
+  
+  try {
+    const audio = await speak(text);
+    res.set({
+      "Content-Type": "audio/mpeg",
+      "Content-Length": audio.length.toString(),
+      "Cache-Control": "public, max-age=3600"
+    });
+    res.send(audio);
+  } catch (error) {
+    console.error("TTS endpoint failed:", error);
+    res.status(500).json({ error: "TTS failed" });
+  }
+});
+
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+});
 
 export async function speak(text: string): Promise<Buffer> {
+  // Use grok_tts_api_kea for TTS
+  const apiKey = process.env.grok_tts_api_kea;
+  
+  if (!apiKey) {
+    throw new Error("grok_tts_api_kea is not set. Please check your environment variables.");
+  }
+
   const response = await fetch("https://api.x.ai/v1/tts", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${process.env.GROK_TTS_API_KEY}`,
+      "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
