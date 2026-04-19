@@ -1,8 +1,8 @@
 /**
- * Vercel serverless entry: Express app (wrapped for Lambda-style invocation).
+ * Vercel serverless entry: Express app.
  * Rewrites in vercel.json send `/api/*` and `/auth/callback` here.
+ * Use default export only (Vercel wraps Express — no serverless-http needed).
  */
-import serverless from "serverless-http";
 import { app } from "../server";
 
-export default serverless(app);
+export default app;

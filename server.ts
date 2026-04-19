@@ -582,8 +582,8 @@ try {
     res.status(404).json({ error: `Path ${req.originalUrl} not found on this server` });
   });
 
-  // Vite middleware for development (dynamic import keeps Vite out of Vercel serverless bundle)
-  if (process.env.NODE_ENV !== "production") {
+  // Vite only for local `npm run dev`. Never on Vercel: NODE_ENV may be unset there; loading Vite in serverless crashes (500).
+  if (!process.env.VERCEL && process.env.NODE_ENV !== "production") {
     const hmrPort = Number(process.env.VITE_HMR_PORT) || 24678;
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
