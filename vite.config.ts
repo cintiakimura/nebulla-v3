@@ -17,15 +17,15 @@ export default defineConfig(({ mode }) => {
       (function() {
         const isViteError = (msg) =>
           msg && (
-            msg.includes('WebSocket') ||
+  
             msg.includes('vite') ||
             msg.includes('hmr') ||
             msg.includes('ScriptProcessorNode') ||
             msg.includes('service-worker') ||
             msg.includes('Service Worker') ||
             msg.includes('Failed to fetch') ||
-            msg.includes('WebSocketInterceptor') ||
-            msg.includes('Global WebSocket constructor') ||
+            
+            
             msg.includes('ScriptProcessorNode is deprecated') ||
             msg.includes('listener indicated an asynchronous response') ||
             msg.includes('message channel closed before a response was received') ||
@@ -34,29 +34,6 @@ export default defineConfig(({ mode }) => {
             msg.includes('blobstore') ||
             msg.includes('makersuite')
           );
-
-        const OriginalWebSocket = window.WebSocket;
-        window.WebSocket = function(url, protocols) {
-          if (typeof url === 'string' && (url.includes('vite') || url.includes('hmr') || url.includes('token='))) {
-            return {
-              readyState: 3,
-              close: function() {},
-              send: function() {},
-              addEventListener: function() {},
-              removeEventListener: function() {},
-              onopen: null,
-              onclose: null,
-              onerror: null,
-              onmessage: null
-            };
-          }
-          try {
-            return new OriginalWebSocket(url, protocols);
-          } catch (e) {
-            return {};
-          }
-        };
-        window.WebSocket.prototype = OriginalWebSocket.prototype;
 
         window.addEventListener('unhandledrejection', (event) => {
           const reason = event.reason;

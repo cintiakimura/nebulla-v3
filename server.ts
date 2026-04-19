@@ -4,6 +4,12 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import { exec } from "child_process";
+import {
+  appendConversationTurn,
+  appendWriterAuditEvent,
+  buildMemorySystemContent,
+  injectMemoryIntoMessages,
+} from "./conversationLog";
 
 
 dotenv.config({ path: path.join(process.cwd(), ".env") });
@@ -26,6 +32,8 @@ async function startServer() {
 
   app.get("/api/config", (req, res) => {
     const grok = process.env.GROK_API_KEY?.trim() ?? "";
+    const tts = process.env.GROK_TTS_API_KEY?.trim() ?? "";
+    const writer = process.env.GROK_3_API_KEY?.trim() ?? "";
     res.json({
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
@@ -33,6 +41,8 @@ async function startServer() {
       githubClientId: process.env.GITHUB_CLIENT_ID || process.env.github_client_id || '0v231lrj4n4star njb wz1h update',
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
       hasGrokApiKey: grok.length >= 20,
+      hasGrokTtsKey: tts.length >= 20,
+      hasGrokWriterKey: writer.length >= 20,
     });
   });
 
@@ -359,7 +369,7 @@ Requirements:
   });
 
 app.post("/api/grok/chat", async (req, res) => {
-const { messages, grokApiKey: bodyGrokKey } = req.body || {};
+const { messages, grokApiKey: bodyGrokKey, userId, projectName } = req.body || {};
 const headerKey =
   typeof req.headers["x-grok-api-key"] === "string"
     ? req.headers["x-grok-api-key"].trim()
@@ -372,7 +382,7 @@ const apiKey =
 
 if (!apiKey) {
   console.error("GROK_API_KEY is not set (env, X-Grok-Api-Key header, or Settings)");
-  return res.status(500).json({
+  return res.status(401).json({
     error:
       "Grok API key is missing. Add GROK_API_KEY to your .env file, restart the server, or save your key under Dashboard → Secrets (stored in this browser only).",
   });
@@ -383,6 +393,23 @@ if (apiKey.length < 20) {
   const helpMsg = "Your GROK_API_KEY appears to be invalid. Please check it in the Settings menu.";
   console.error(`Invalid GROK_API_KEY format detected: ${helpMsg}`);
   return res.status(400).json({ error: helpMsg });
+}
+
+const convUserId =
+  typeof userId === "string" && userId.trim() ? userId.trim() : "anonymous";
+const convProject =
+  typeof projectName === "string" && projectName.trim()
+    ? projectName.trim()
+    : "Untitled Project";
+
+let messagesForApi: { role: string; content?: string }[] = Array.isArray(messages)
+  ? messages
+  : [];
+try {
+  const memory = buildMemorySystemContent(convUserId, convProject);
+  messagesForApi = injectMemoryIntoMessages(messagesForApi, memory);
+} catch (memErr) {
+  console.error("Conversation memory load failed:", memErr);
 }
 
 try {
@@ -397,7 +424,7 @@ try {
     },
     body: JSON.stringify({
       model: model,
-      messages: messages,
+      messages: messagesForApi,
       stream: false
     }),
   });
@@ -416,15 +443,36 @@ try {
   const data = await response.json();
   let responseText = data.choices?.[0]?.message?.content || '';
 
-  // Grok B: Silent Master Plan Update Trigger
-  if (responseText.includes('START MASTER PLAN')) {
-    console.log("[GROK B] Triggered: Starting silent Master Plan update...");
-    // We run this without awaiting to keep Grok A's response fast
-    runGrokB(messages, apiKey, masterPlanPath).then(() => {
-       console.log("[GROK B] Completed successfully.");
-    }).catch(err => {
-       console.error("[GROK B] Failed to update Master Plan:", err);
-    });
+  // Grok B (writer): standby until explicit ANSWER_Qn triggers from Grok 4
+  const answerTabMatches = [...responseText.matchAll(/\bANSWER_Q([1-9])\b/gi)];
+  const answerTabs = [...new Set(answerTabMatches.map((m) => parseInt(m[1], 10)))].sort(
+    (a, b) => a - b
+  );
+  const shouldRunWriter = answerTabs.length > 0;
+  if (shouldRunWriter) {
+    const summaries = extractGrokBSummaries(responseText);
+    const summaryEntries = answerTabs
+      .map((idx) => {
+        const summary = summaries[idx];
+        return summary ? ({ tabIndex: idx, summary } as const) : null;
+      })
+      .filter((entry): entry is { tabIndex: number; summary: string } => entry !== null);
+
+    if (summaryEntries.length === 0) {
+      console.warn("[GROK B] Trigger ignored: missing <GROK_B_SUMMARY_Qn> payload.");
+    } else {
+      appendWriterAuditEvent({
+        userId: convUserId,
+        projectName: convProject,
+        triggeredQn: summaryEntries.map((x) => x.tabIndex),
+      });
+      console.log(
+        `[GROK B] Trigger: ANSWER_Q tabs=${summaryEntries.map((x) => x.tabIndex).join(",")}`
+      );
+      runGrokB(masterPlanPath, summaryEntries).catch((err) => {
+        console.error("[GROK B] Failed to update Master Plan:", err);
+      });
+    }
   }
 
       // Extract clean text for TTS (removing internal tags)
@@ -440,11 +488,28 @@ try {
         .replace(/<APPROVE_MASTERPLAN>/g, '')
         .replace(/<APPROVE_MINDMAP>/g, '')
         .replace(/<APPROVE_UI>/g, '')
+        .replace(/<GROK_B_SUMMARY_Q([1-9])>[\s\S]*?<\/GROK_B_SUMMARY_Q\1>/g, '')
+        .replace(/\bANSWER_Q[1-9]\b/g, '')
         .trim();
 
       if (cleanText) {
         // Voice chat flow: Audio is now handled via direct /api/speak endpoint to avoid base64 overhead
         console.log("[TTS] Response ready for speech:", cleanText.substring(0, 50) + "...");
+      }
+
+      try {
+        const lastUser = [...messagesForApi]
+          .reverse()
+          .find((m) => m.role === "user");
+        if (lastUser && typeof lastUser.content === "string" && lastUser.content.length > 0) {
+          appendConversationTurn(convUserId, convProject, "user", lastUser.content);
+        }
+        if (cleanText) {
+          // Persist only user-visible assistant text; never store internal control tags in memory logs.
+          appendConversationTurn(convUserId, convProject, "assistant", cleanText);
+        }
+      } catch (logErr) {
+        console.error("Conversation memory append failed:", logErr);
       }
 
       // We return the full responseText to the frontend so it can maintain state.
@@ -504,19 +569,22 @@ try {
     });
   }
 
-  const httpServer = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-  httpServer.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(
-        `[nebula] Port ${PORT} is already in use. Quit the other dev server, or run: PORT=${PORT + 1} npm run dev`
-      );
-    } else {
-      console.error(err);
-    }
-    process.exit(1);
-  });
+  // Vercel invokes the Express app per request; binding a port is invalid for serverless.
+  if (!process.env.VERCEL) {
+    const httpServer = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+    httpServer.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(
+          `[nebula] Port ${PORT} is already in use. Quit the other dev server, or run: PORT=${PORT + 1} npm run dev`
+        );
+      } else {
+        console.error(err);
+      }
+      process.exit(1);
+    });
+  }
 }
 
 startServer().catch(err => {
@@ -557,96 +625,63 @@ async function speak(text: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
-  // Grok B: Silent Master Plan Update Logic
-  async function runGrokB(history: any[], apiKey: string, masterPlanPath: string) {
-    const sections = [
-      "1. The problem we are solving",
-      "2. Target user and context",
-      "3. Core features",
-      "4. User scale and load",
-      "5. Data requirements",
-      "6. Accessibility and inclusivity",
-      "7. Pages and navigation",
-      "8. Market and tech research",
-      "9. Question Tab"
-    ];
+const MASTER_PLAN_SECTION_TITLES = [
+  "1. The problem we are solving",
+  "2. Target user and context",
+  "3. Core features",
+  "4. User scale and load",
+  "5. Data requirements",
+  "6. Accessibility and inclusivity",
+  "7. Pages and navigation",
+  "8. Market and tech research",
+  "9. Question Tab",
+] as const;
 
-  const grokBSystemPrompt = `You are Grok B, the silent Master Plan Architect. 
-Your sole purpose is to fill out the Master Plan based on the provided conversation history.
-You must be thorough and use the information discussed to populate every single section.
+function extractGrokBSummaries(responseText: string): Partial<Record<number, string>> {
+  const out: Partial<Record<number, string>> = {};
+  const re = /<GROK_B_SUMMARY_Q([1-9])>([\s\S]*?)<\/GROK_B_SUMMARY_Q\1>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(responseText)) !== null) {
+    const tabIndex = parseInt(m[1], 10);
+    const summary = m[2].trim();
+    if (summary) out[tabIndex] = summary;
+  }
+  return out;
+}
 
-STRICT OUTPUT FORMAT:
-Wrap your entire update in <START_MASTERPLAN> and <END_MASTERPLAN> tags.
-Use ### for section titles.
-
-Sections for you to populate:
-${sections.join('\n')}
-
-Example format:
-<START_MASTERPLAN>
-### 1. The problem we are solving
-Detailed description based on conversation...
-...
-<END_MASTERPLAN>
-
-Stay completely silent. No text outside the tags. Analyze the history carefully.`;
+/** Grok B — writer. Copies Grok 4 summaries into mapped Master Plan sections. */
+async function runGrokB(
+  masterPlanPath: string,
+  entries: { tabIndex: number; summary: string }[]
+) {
+  if (entries.length === 0) return;
 
   try {
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'grok-4-1-fast-reasoning',
-        messages: [
-          { role: 'system', content: grokBSystemPrompt },
-          ...history
-        ],
-        stream: false
-      }),
-    });
+    let plan: Record<string, string> = {};
 
-    if (!response.ok) {
-       console.error(`Grok B error: ${response.status}`);
-       return;
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    
-    // Process Grok B's architectural output
-    const masterPlanMatch = content.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
-    if (masterPlanMatch) {
-      const newPlanContent = masterPlanMatch[1].trim();
-      let plan: Record<string, string> = {};
-      
-      if (fs.existsSync(masterPlanPath)) {
-        try {
-          plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
-        } catch (e) { plan = {}; }
+    if (fs.existsSync(masterPlanPath)) {
+      try {
+        plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
+      } catch {
+        plan = {};
       }
-
-      sections.forEach((title, i) => {
-        const nextTitle = sections[i + 1];
-        const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
-        
-        const regex = new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}[\\s\\S]*?(?=(?:###\\s*|\\*\\*|\\b)${escapedNextTitle || '$'})`, 'i');
-        const match = newPlanContent.match(regex);
-        
-        if (match) {
-          let sectionContent = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, 'i'), '').trim();
-          sectionContent = sectionContent.replace(/^[:\-\s]+/, '');
-          if (sectionContent) {
-            plan[title] = sectionContent;
-          }
-        }
-      });
-
-      fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
     }
+
+    for (const entry of entries) {
+      if (entry.tabIndex < 1 || entry.tabIndex > MASTER_PLAN_SECTION_TITLES.length) continue;
+      const title = MASTER_PLAN_SECTION_TITLES[entry.tabIndex - 1];
+      const summary = entry.summary.trim();
+      if (summary) {
+        plan[title] = summary;
+      }
+    }
+
+    fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
+    console.log(
+      `[GROK B] Master plan updated from Grok 4 summaries (tabs: ${entries
+        .map((e) => e.tabIndex)
+        .join(",")}).`
+    );
   } catch (err) {
     console.error("Grok B processing failed:", err);
   }

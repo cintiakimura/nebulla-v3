@@ -5,7 +5,18 @@ import { Logo } from './Logo';
 import { fetchJson, readResponseJson } from '../lib/apiFetch';
 import { getStoredGrokApiKey } from '../lib/grokKey';
 
-export function AssistantSidebar({ width = 320 }: { width?: number }) {
+/** Delay after Grok 4 finishes before TTS plays (Grok A), so audio does not start while "thought" is still settling. */
+const NEBULA_TTS_DELAY_MS = 450;
+
+export function AssistantSidebar({
+  width = 320,
+  userId = 'anonymous',
+  projectName = 'Untitled Project',
+}: {
+  width?: number;
+  userId?: string;
+  projectName?: string;
+}) {
   const [isLive, setIsLive] = useState(false);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [messages, setMessages] = useState<{role: string, text: string, fullText?: string, reasoning?: string}[]>([
@@ -94,6 +105,32 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
     }
 
     try {
+      const storedGrok = getStoredGrokApiKey();
+      let hasServerKey = serverHasGrokKey;
+      if (hasServerKey === null) {
+        try {
+          const r = await fetch('/api/config');
+          const cfg = (await r.json()) as { hasGrokApiKey?: boolean };
+          hasServerKey = Boolean(cfg.hasGrokApiKey);
+          setServerHasGrokKey(hasServerKey);
+        } catch {
+          hasServerKey = false;
+          setServerHasGrokKey(false);
+        }
+      }
+      if (!storedGrok && !hasServerKey) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'system',
+            text:
+              'Grok API key is missing. Add GROK_API_KEY to your .env file and restart the server, or save your key under Dashboard → Secrets (this browser only).',
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
       // Fetch latest master plan before sending
       let latestMP = {};
       try {
@@ -104,8 +141,16 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
         console.warn('Master plan not loaded for prompt:', e);
       }
       
-      const systemPrompt = `You are Nebula, an expert AI dev partner in BRAINSTORMING MODE.
-Your primary goal is to help the user build a master plan effectively and collaboratively.
+      const systemPrompt = `You are Nebula (Grok 4 — the brain): voice-first IDE partner. You listen, reason, answer in writing, and produce code when the workflow reaches implementation.
+
+ARCHITECTURE (do not contradict):
+- **Grok 4 (you):** The only reasoning model the user talks to. Conversation, planning, and coding orchestration.
+- **Grok A (TTS):** Not an LLM here—text-to-speech only. The runtime reads your text aloud. You do not "become" Grok A.
+- **Grok B (writer):** Separate writer service. It does NOT decide when to run. It ONLY runs when you emit explicit silent commands (below).
+
+NEUBULA PLATFORM RULES:
+- Never push external vendors or hosted stacks (Firebase, Supabase, Vercel, AWS, GCP, MongoDB Atlas, etc.) unless the user explicitly says they already use one. Default: describe persistence, auth, sync, build, and deploy as **handled inside Nebula** by the IDE/runtime.
+- **Coding vs conversation:** You cannot chat with the user and "talk through" code in the same turn as implementation. When you are outputting repo code (after START_CODING or when the message is primarily implementation), output **only** code and minimal comments—no preamble, no recap, no questions in that same message.
 
 BEHAVIOR RULES:
 - Be casual and concise. Don't over-explain or repeat yourself.
@@ -113,7 +158,6 @@ BEHAVIOR RULES:
 - Never repeat or summarize the Master Plan.
 - Never list out everything again. Stay in short, natural conversation mode.
 - Never interrupt the user. Always let the user finish speaking completely.
-- Only summarize at the very end of a section to trigger Grok B.
 - Always respond with warmth, encouragement, and a collaborative spirit.
 - After encouraging, gently offer to bring value: research, ideas, or data when it fits the context.
 
@@ -125,31 +169,29 @@ PHRASES TO ROTATE (Use these naturally):
 - "Would you like to add something else, or should I share some ideas?"
 - "Want me to add or change anything?"
 
-WHEN USER IS SATISFIED / COMPLETING A SECTION:
-- Say: "That's perfect. I love where this is going." or variations of this.
-- Send the silent command: "Already fill up the question tab." This informs Grok B (The Architect) to finalize the current section.
-- Then, proactively ask the next question to keep the momentum.
+WHEN USER GIVES POSITIVE CONFIRMATION (examples: "okay", "good", "yes", "I'm happy", "perfect", "approved"):
+- First, write a clean concise summary of the last topic in a hidden summary block for the matched question:
+  - <GROK_B_SUMMARY_Q1>summary text</GROK_B_SUMMARY_Q1>
+  - <GROK_B_SUMMARY_Q2>summary text</GROK_B_SUMMARY_Q2>
+  - ... up to Q9
+- Then emit the exact silent trigger token on its own line:
+  - ANSWER_Q1
+  - ANSWER_Q2
+  - ... etc.
+- You may emit multiple summary blocks + triggers when several questions were confirmed.
+- Grok B only writes when it receives ANSWER_Qn, and it must only copy the provided summary into that tab.
 
-ROLES:
-1. Grok A (Conversational Agent):
-   - You are the one speaking now.
-   - Lead the brainstorming session.
-   - Handles the voice chat and overall coordination.
-   - When the user says "approved", "locked in", or "let's go", you MUST output the silent command: START MASTER PLAN.
-   - This trigger activates Grok B (The Architect) who will silently fill out the Master Plan based on our conversation.
-   - Once Grok B is done (internally), you can continue the flow to the Mind Map.
-   - NEVER generates code itself.
-   - Manages the workflow: Master Plan -> Mind Map -> UI/UX -> Coding.
-   - Triggers UI/UX section with <START_UIUX> only after Master Plan and Mind Map are approved.
-   - After user says "UI locked" or "UI/UX approved", summarize the complete plan (Master Plan + Mind Map + chosen UI design).
-   - Ask for final confirmation: "Everything looks good? Can I start coding now?"
-   - ONLY when user says "yes" or "start coding", output the exact tag: START_CODING.
+WORKFLOW (you lead):
+- Brainstorming / Master Plan → Mind Map → UI/UX → Coding.
+- When the user says "approved", "locked in", or "let's go", emit the appropriate \`ANSWER_Qn\` trigger(s) with matching summary block(s).
+- Triggers UI/UX with <START_UIUX> only after Master Plan and Mind Map are approved.
+- After user says "UI locked" or "UI/UX approved", summarize the complete plan (Master Plan + Mind Map + chosen UI design).
+- Ask for final confirmation: "Everything looks good? Can I start coding now?"
+- ONLY when user says "yes" or "start coding", output the exact tag: START_CODING.
 
-2. Grok B (Silent Master Plan Architect):
-   - Triggered by Grok A's silent message "START MASTER PLAN" or "Already fill up the question tab."
-   - Stays completely silent to the user.
-   - Fills every tab of the Master Plan one by one based on the conversation history.
-   - When finished, he stops and keeps waiting for the next silent command.
+Grok B (writer) — reminder:
+- Triggered ONLY by your explicit \`ANSWER_Q1\`–\`ANSWER_Q9\`.
+- It never decides content itself; it only copies your <GROK_B_SUMMARY_Qn> text into Master Plan.
 
 DEBUGGING (VETR Loop - Follow every time after coding, no shortcuts):
 1. Phase 0: Guardrails – syntax, types, lint. Fix obvious crap first.
@@ -189,7 +231,6 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
       const grokHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-      const storedGrok = getStoredGrokApiKey();
       if (storedGrok) grokHeaders['X-Grok-Api-Key'] = storedGrok;
 
       const data = await fetchJson<{
@@ -198,6 +239,8 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         method: 'POST',
         headers: grokHeaders,
         body: JSON.stringify({
+          userId,
+          projectName,
           messages: [
             { role: 'system', content: systemPrompt },
             ...messages.slice(-10).map((m) => ({
@@ -290,15 +333,19 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         .replace(/Already fill up the question tab\./g, '')
         .trim();
 
-      // VOICE CHAT FLOW: Speak the cleaned text
-      if (cleanText) {
+      // VOICE (Grok A / TTS): speak after a short delay; skip when this turn is coding-only (Grok 4 must not narrate while shipping code)
+      const isCodingTurn = /<\s*START_CODING\s*>|\bSTART_CODING\b/.test(fullResponse);
+
+      if (cleanText && !isCodingTurn) {
         try {
           // Stop any currently playing audio
           if ((window as any).nebula_currentAudio) {
             (window as any).nebula_currentAudio.pause();
             (window as any).nebula_currentAudio.currentTime = 0;
           }
-          
+
+          await new Promise((r) => setTimeout(r, NEBULA_TTS_DELAY_MS));
+
           const audioUrl = `/api/speak?text=${encodeURIComponent(cleanText)}`;
           const audio = new Audio(audioUrl);
           (window as any).nebula_currentAudio = audio;
@@ -516,7 +563,7 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
   };
 
   const showGrokSetupHint =
-    serverHasGrokKey === false && !getStoredGrokApiKey();
+    !getStoredGrokApiKey() && serverHasGrokKey === false;
 
   return (
     <aside className="flex flex-col border-l border-white/5 bg-[#040f1a]/40 backdrop-blur-md shrink-0" style={{ width }}>

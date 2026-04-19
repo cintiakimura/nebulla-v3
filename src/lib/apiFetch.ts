@@ -12,6 +12,14 @@ export async function readResponseJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   const trimmed = text.trim();
   if (!trimmed) {
+    if (!response.ok) {
+      if (response.status === 405) {
+        throw new Error(
+          "API route returned 405 (Method Not Allowed). This usually means the app is not running on the Nebula full-stack server. Run `npm run dev` on port 3000 (or `npm run preview` after `npm run build`)."
+        );
+      }
+      throw new Error(`Request failed (${response.status}) with empty response body`);
+    }
     throw new Error("Empty response from server");
   }
   if (isProbablyHtml(trimmed)) {
