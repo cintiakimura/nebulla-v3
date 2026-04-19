@@ -20,12 +20,12 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }) as any);
   app.use(express.urlencoded({ extended: true, limit: '50mb' }) as any);
 
-  // Vercel rewrites /api/:path* → this function; the incoming path is often /foo, not /api/foo.
+  // Vercel rewrites to `/api` can leave `req.url` stripped (e.g. `/config` not `/api/config`) or odd.
+  // Prefer `originalUrl` so `GET /api/health`, `GET /auth/callback`, etc. match registered routes.
   if (process.env.VERCEL) {
     app.use((req, _res, next) => {
-      const u = req.url || "";
-      if (u.startsWith("/") && !u.startsWith("/api") && !u.startsWith("/auth")) {
-        req.url = "/api" + u;
+      if (typeof req.originalUrl === "string" && req.originalUrl.length > 0) {
+        req.url = req.originalUrl;
       }
       next();
     });
@@ -577,8 +577,9 @@ try {
     }
   });
 
-  // 404 API CATCH-ALL (returns JSON instead of HTML)
-  app.use('/api/*', (req, res) => {
+  // 404 for unknown /api/* only (avoid Express 4 `app.use('/api/*')` quirks with `*`)
+  app.use((req, res, next) => {
+    if (!req.path.startsWith("/api/")) return next();
     res.status(404).json({ error: `Path ${req.originalUrl} not found on this server` });
   });
 
