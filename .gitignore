@@ -9,3 +9,4 @@ coverage/
 
 # Local conversation history (per user / project)
 conversation-logs/**/*.md
+.vercel

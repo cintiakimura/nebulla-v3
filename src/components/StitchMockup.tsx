@@ -137,7 +137,7 @@ export function StitchMockup({ onLock, pagesText }: { onLock: () => void, pagesT
       <div className="h-14 border-b border-white/5 bg-white/5 flex items-center px-8 justify-between shrink-0">
         <div className="flex items-center gap-3">
           <Palette className="w-5 h-5 text-cyan-400" />
-          <h2 className="text-lg font-headline text-cyan-100">Pencil UI Studio</h2>
+          <h2 className="text-lg font-headline text-cyan-100">Nebulla UI Studio</h2>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">

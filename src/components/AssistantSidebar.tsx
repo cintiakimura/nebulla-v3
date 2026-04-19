@@ -27,7 +27,7 @@ export function AssistantSidebar({
 
   useEffect(() => {
     fetch('/api/config')
-      .then((r) => r.json())
+      .then(async (r) => readResponseJson(r))
       .then((cfg: { hasGrokApiKey?: boolean }) =>
         setServerHasGrokKey(Boolean(cfg.hasGrokApiKey))
       )
@@ -110,7 +110,7 @@ export function AssistantSidebar({
       if (hasServerKey === null) {
         try {
           const r = await fetch('/api/config');
-          const cfg = (await r.json()) as { hasGrokApiKey?: boolean };
+          const cfg = (await readResponseJson(r)) as { hasGrokApiKey?: boolean };
           hasServerKey = Boolean(cfg.hasGrokApiKey);
           setServerHasGrokKey(hasServerKey);
         } catch {
@@ -565,6 +565,14 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
   const showGrokSetupHint =
     !getStoredGrokApiKey() && serverHasGrokKey === false;
 
+  const handleRevertMessage = (idx: number) => {
+    if (isLoading) return;
+    const target = messages[idx];
+    if (!target || target.role !== 'user') return;
+    setInputText(target.text);
+    setMessages((prev) => prev.slice(0, idx));
+  };
+
   return (
     <aside className="flex flex-col border-l border-white/5 bg-[#040f1a]/40 backdrop-blur-md shrink-0" style={{ width }}>
       <div className="p-4 border-b border-white/5 flex items-center justify-between">
@@ -606,6 +614,18 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
                     </div>
                   </details>
                 )}
+              </div>
+            ) : msg.role === 'user' ? (
+              <div className="flex flex-col gap-2 items-end">
+                <p className="text-13 no-bold whitespace-pre-wrap w-full">{msg.text}</p>
+                <button
+                  onClick={() => handleRevertMessage(idx)}
+                  disabled={isLoading}
+                  className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Revert to this message"
+                >
+                  Revert
+                </button>
               </div>
             ) : (
               <p className="text-13 no-bold whitespace-pre-wrap">{msg.text}</p>
