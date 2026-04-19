@@ -80,10 +80,36 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
       const mpRes = await fetch('/api/master-plan/read');
       const latestMP = await mpRes.json();
       
-      const systemPrompt = `You are Nebula, an expert AI dev partner.
+      const systemPrompt = `You are Nebula, an expert AI dev partner in BRAINSTORMING MODE.
+Your primary goal is to help the user build a master plan effectively and collaboratively.
+
+BEHAVIOR RULES:
+- Be casual and concise. Don't over-explain or repeat yourself.
+- Always ask exactly ONE question at a time. Never ask multiple things in one response.
+- Never repeat or summarize the Master Plan.
+- Never list out everything again. Stay in short, natural conversation mode.
+- Never interrupt the user. Always let the user finish speaking completely.
+- Only summarize at the very end of a section to trigger Grok B.
+- Always respond with warmth, encouragement, and a collaborative spirit.
+- After encouraging, gently offer to bring value: research, ideas, or data when it fits the context.
+
+PHRASES TO ROTATE (Use these naturally):
+- "That's a great idea. I really like that direction."
+- "Got it. Anything else you'd like to add?"
+- "Interesting. Want me to pull some research on this?"
+- "This is really cool. Want me to look up some data around this?"
+- "Would you like to add something else, or should I share some ideas?"
+- "Want me to add or change anything?"
+
+WHEN USER IS SATISFIED / COMPLETING A SECTION:
+- Say: "That's perfect. I love where this is going." or variations of this.
+- Send the silent command: "Already fill up the question tab." This informs Grok B (The Architect) to finalize the current section.
+- Then, proactively ask the next question to keep the momentum.
+
 ROLES:
 1. Grok A (Conversational Agent):
-   - Stays helpful, clear, and calm.
+   - You are the one speaking now.
+   - Lead the brainstorming session.
    - Handles the voice chat and overall coordination.
    - When the user says "approved", "locked in", or "let's go", you MUST output the silent command: START MASTER PLAN.
    - This trigger activates Grok B (The Architect) who will silently fill out the Master Plan based on our conversation.
@@ -96,10 +122,10 @@ ROLES:
    - ONLY when user says "yes" or "start coding", output the exact tag: START_CODING.
 
 2. Grok B (Silent Master Plan Architect):
-   - Triggered by Grok A's silent message "START MASTER PLAN".
+   - Triggered by Grok A's silent message "START MASTER PLAN" or "Already fill up the question tab."
    - Stays completely silent to the user.
    - Fills every tab of the Master Plan one by one based on the conversation history.
-   - When finished, Grok A (you) will recognize the transition and can eventually send "FINISH MASTER PLAN" if needed to wrap up the architectural phase.
+   - When finished, he stops and keeps waiting for the next silent command.
 
 DEBUGGING (VETR Loop - Follow every time after coding, no shortcuts):
 1. Phase 0: Guardrails – syntax, types, lint. Fix obvious crap first.
@@ -172,7 +198,8 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
           "5. Data requirements",
           "6. Accessibility and inclusivity",
           "7. Pages and navigation",
-          "8. Market and tech research"
+          "8. Market and tech research",
+          "9. Question Tab"
         ];
 
         // Use a for...of loop to handle async updates sequentially or Promise.all for parallel
@@ -236,6 +263,7 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
         .replace(/<APPROVE_MASTERPLAN>/g, '')
         .replace(/<APPROVE_MINDMAP>/g, '')
         .replace(/<APPROVE_UI>/g, '')
+        .replace(/Already fill up the question tab\./g, '')
         .trim();
 
       // VOICE CHAT FLOW: Speak the cleaned text
@@ -390,13 +418,13 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
           setInputText(prev => prev + (prev ? ' ' : '') + finalTranscript);
         }
 
-        // Set a new timer to auto-send after 3.5 seconds of silence
+        // Set a new timer to auto-send after 2.9 seconds of silence
         autoSendTimerRef.current = setTimeout(() => {
           const currentText = (document.getElementById('assistant-input') as HTMLTextAreaElement)?.value;
           if (currentText && currentText.trim()) {
             handleSendText(currentText);
           }
-        }, 3500);
+        }, 2900);
       };
 
       recognition.onend = () => {
@@ -450,6 +478,17 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
     if (sessionRef.current) { sessionRef.current.close(); sessionRef.current = null; }
     setIsLive(false);
     stopAudioCapture();
+  };
+
+  const interruptAiSpeech = () => {
+    if ((window as any).nebula_currentAudio) {
+      (window as any).nebula_currentAudio.pause();
+      (window as any).nebula_currentAudio.currentTime = 0;
+    }
+    setIsAiSpeaking(false);
+    if (!isLive) {
+      connectLive();
+    }
   };
 
   return (
@@ -549,6 +588,13 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
               title={isLive ? "End Talk" : "Start Talk"}
             >
               <VoiceLinesIcon className="w-4 h-4" active={isLive || isAiSpeaking} />
+            </button>
+            <button 
+              onClick={interruptAiSpeech}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/5 text-slate-500 hover:text-yellow-300 transition-all"
+              title="Interrupt & Listen"
+            >
+              <span className="material-symbols-outlined text-18">front_hand</span>
             </button>
             <button 
               onClick={toggleTextRecording}

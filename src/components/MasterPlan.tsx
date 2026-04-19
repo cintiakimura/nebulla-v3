@@ -13,7 +13,8 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     '5. Data requirements',
     '6. Accessibility and inclusivity',
     '7. Pages and navigation',
-    '8. Market and tech research'
+    '8. Market and tech research',
+    '9. Question Tab'
   ]);
 
   const fetchPlan = async () => {
