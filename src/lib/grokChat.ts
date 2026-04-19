@@ -17,26 +17,26 @@ export enum Modality {
   VIDEO = "VIDEO",
 }
 
+import { fetchJson } from './apiFetch';
+import { getStoredGrokApiKey } from './grokKey';
+
 /**
  * Simple GROK client
  */
 export async function sendToGrok(message: string) {
   try {
-    const response = await fetch('/api/grok/chat', {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const stored = getStoredGrokApiKey();
+    if (stored) headers['X-Grok-Api-Key'] = stored;
+
+    const data = await fetchJson<{ text?: string; message?: string }>('/api/grok/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ message }),
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
     return data.text || data.message || data;
-
   } catch (error) {
     console.error('Error calling Grok API:', error);
     throw error;

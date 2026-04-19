@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { VoiceLinesIcon } from './VoiceLinesIcon';
 import { Logo } from './Logo';
+import { fetchJson, readResponseJson } from '../lib/apiFetch';
+import { getStoredGrokApiKey } from '../lib/grokKey';
 
 export function AssistantSidebar({ width = 320 }: { width?: number }) {
   const [isLive, setIsLive] = useState(false);
@@ -10,11 +12,27 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
     { role: 'model', text: 'System initialized. Ready to collaborate.', fullText: 'System initialized. Ready to collaborate.' }
   ]);
   const [masterPlan, setMasterPlan] = useState<any>(null);
+  const [serverHasGrokKey, setServerHasGrokKey] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg: { hasGrokApiKey?: boolean }) =>
+        setServerHasGrokKey(Boolean(cfg.hasGrokApiKey))
+      )
+      .catch(() => setServerHasGrokKey(false));
+  }, []);
 
   useEffect(() => {
     fetch('/api/master-plan/read')
-      .then(res => res.json())
-      .then(data => setMasterPlan(data))
+      .then(async (res) => {
+        try {
+          const data = await readResponseJson(res);
+          if (res.ok) setMasterPlan(data);
+        } catch (e) {
+          console.warn('Master plan load skipped:', e);
+        }
+      })
       .catch(console.error);
   }, []);
   const [inputText, setInputText] = useState('');
@@ -80,13 +98,10 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
       let latestMP = {};
       try {
         const mpRes = await fetch('/api/master-plan/read');
-        if (mpRes.ok) {
-          latestMP = await mpRes.json();
-        } else {
-          console.warn("Failed to fetch master plan, status:", mpRes.status);
-        }
+        const data = await readResponseJson(mpRes);
+        if (mpRes.ok) latestMP = data;
       } catch (e) {
-        console.error("Error fetching master plan:", e);
+        console.warn('Master plan not loaded for prompt:', e);
       }
       
       const systemPrompt = `You are Nebula, an expert AI dev partner in BRAINSTORMING MODE.
@@ -170,46 +185,31 @@ RULES:
 
 CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
 
-      // Connect to GROK via Backend Proxy
-      const response = await fetch('/api/grok/chat', {
+      // Connect to GROK via Backend Proxy (single body read via fetchJson)
+      const grokHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      const storedGrok = getStoredGrokApiKey();
+      if (storedGrok) grokHeaders['X-Grok-Api-Key'] = storedGrok;
+
+      const data = await fetchJson<{
+        choices?: { message?: { content?: string } }[];
+      }>('/api/grok/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: grokHeaders,
         body: JSON.stringify({
-          messages: [{ 
-            role: 'system', 
-            content: systemPrompt
-          }, ...messages.slice(-10).map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.text })), { 
-            role: 'user', 
-            content: textToSend 
-          }],
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.slice(-10).map((m) => ({
+              role: m.role === 'model' ? 'assistant' : m.role,
+              content: m.text,
+            })),
+            { role: 'user', content: textToSend },
+          ],
         }),
       });
-
-      if (!response.ok) {
-        let errorMsg = `GROK API Error: ${response.status}`;
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.error || errorMsg;
-        } catch (e) {
-          // Fallback if not JSON
-          const text = await response.text();
-          console.error("Non-JSON error from GROK API:", text.substring(0, 200));
-        }
-        throw new Error(errorMsg);
-      }
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        const text = await response.text();
-        console.error("Response is not valid JSON:", text.substring(0, 200));
-        throw new Error("Received an invalid response from the server. Check logs.");
-      }
       const fullResponse = data.choices?.[0]?.message?.content || '';
-      
+
       // GROK 4.1 Behavior: Immediate Frontend Master Plan Update
       const masterPlanMatch = fullResponse.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
       if (masterPlanMatch && (window as any).updateMasterPlanSection) {
@@ -515,6 +515,9 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
     }
   };
 
+  const showGrokSetupHint =
+    serverHasGrokKey === false && !getStoredGrokApiKey();
+
   return (
     <aside className="flex flex-col border-l border-white/5 bg-[#040f1a]/40 backdrop-blur-md shrink-0" style={{ width }}>
       <div className="p-4 border-b border-white/5 flex items-center justify-between">
@@ -581,6 +584,13 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
       </div>
 
       <div className="p-4 border-t border-white/5 flex flex-col gap-3">
+        {showGrokSetupHint && (
+          <p className="text-[10px] text-amber-400/95 leading-snug border border-amber-500/20 bg-amber-500/5 rounded-lg px-2 py-1.5">
+            Grok key missing: add <span className="font-mono text-amber-300">GROK_API_KEY</span> to{' '}
+            <span className="font-mono text-amber-300">.env</span> and restart the server, or save it under{' '}
+            <span className="font-mono text-amber-300">Dashboard → Secrets</span> (this browser only).
+          </p>
+        )}
         <div className="relative flex flex-col gap-2">
           <textarea 
             id="assistant-input"

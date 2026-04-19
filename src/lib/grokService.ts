@@ -3,6 +3,9 @@
  * Handles communication with GROK 4.1 (The unified reasoning model)
  */
 
+import { fetchJson } from './apiFetch';
+import { getStoredGrokApiKey } from './grokKey';
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -13,23 +16,23 @@ export interface ChatMessage {
  */
 export async function sendToGROK(messages: ChatMessage[]): Promise<string> {
   try {
-    const response = await fetch('/api/grok/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages,
-        model: 'grok-4-1-fast-reasoning'
-      }),
-    });
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const stored = getStoredGrokApiKey();
+    if (stored) headers['X-Grok-Api-Key'] = stored;
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'Failed to call GROK 4.1 API');
-    }
-
-    const data = await response.json();
+    const data = await fetchJson<{ choices?: { message?: { content?: string } }[] }>(
+      '/api/grok/chat',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          messages,
+          model: 'grok-4-1-fast-reasoning',
+        }),
+      }
+    );
     return data.choices?.[0]?.message?.content || '';
   } catch (error) {
     console.error('Error calling GROK 4.1:', error);

@@ -11,7 +11,8 @@ import { StitchMockup } from './components/StitchMockup';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
 import { Logo } from './components/Logo';
-import { supabase } from './lib/supabase';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { readResponseJson } from './lib/apiFetch';
 import { 
   Folder, 
   FileCode, 
@@ -186,6 +187,25 @@ export default function App() {
   }, [terminalHistory]);
 
   useEffect(() => {
+    const loadGuestProject = () => {
+      const savedProject = localStorage.getItem('nebula_project_default');
+      if (savedProject) {
+        try {
+          const data = JSON.parse(savedProject);
+          if (data.pages) setPages(data.pages);
+          if (data.edges) setEdges(data.edges);
+          if (data.projectName) setProjectName(data.projectName);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    if (!isSupabaseConfigured) {
+      loadGuestProject();
+      return;
+    }
+
     // Real Supabase authentication check
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -248,14 +268,7 @@ export default function App() {
           if (data.name) setProjectName(data.name);
         }
       } else {
-        // Fallback to localStorage for guest users
-        const savedProject = localStorage.getItem('nebula_project_default');
-        if (savedProject) {
-          const data = JSON.parse(savedProject);
-          if (data.pages) setPages(data.pages);
-          if (data.edges) setEdges(data.edges);
-          if (data.projectName) setProjectName(data.projectName);
-        }
+        loadGuestProject();
       }
     };
 
@@ -376,7 +389,8 @@ export default function App() {
     (window as any).syncMindMapFromMasterPlan = async () => {
       try {
         const res = await fetch('/api/master-plan/read');
-        const plan = await res.json();
+        if (!res.ok) return;
+        const plan = await readResponseJson<Record<string, string>>(res);
         const section7 = plan["7. Pages and navigation"];
         
         if (!section7) return;
@@ -456,6 +470,10 @@ export default function App() {
   };
 
   const handleGithubLogin = async () => {
+    if (!isSupabaseConfigured) {
+      console.warn('Supabase is not configured; add SUPABASE_URL and SUPABASE_ANON_KEY to .env');
+      return;
+    }
     const redirectUrl = `${window.location.origin}/auth/callback`;
     console.log("[AUTH] Initiating GitHub login with redirect:", redirectUrl);
     const { data, error } = await supabase.auth.signInWithOAuth({
@@ -498,6 +516,11 @@ export default function App() {
   };
   
   const handleLogout = async () => {
+    if (!isSupabaseConfigured) {
+      setUser(null);
+      localStorage.removeItem('nebula_user');
+      return;
+    }
     await supabase.auth.signOut();
     setUser(null);
     localStorage.removeItem('nebula_user');

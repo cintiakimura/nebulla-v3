@@ -29,7 +29,7 @@
 ## 4. Error Management & UX
 | Feature | Status | Details |
 | :--- | :--- | :--- |
-| **WebSocket Suppression** | ✅ Active | Aggressive suppression of Vite HMR errors via custom Vite plugin. |
+
 | **Deprecation Filtering** | ✅ Active | `ScriptProcessorNode` code removed; residual environment warnings are silenced. |
 | **Service Worker Fix** | ✅ Active | `_service-worker.js` fetch errors are silenced. |
 | **Accessibility Fix** | ✅ Active | `id` and `name` attributes added to main input fields. |

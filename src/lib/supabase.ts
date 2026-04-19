@@ -1,10 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || 'placeholder';
+const supabaseUrl = process.env.SUPABASE_URL?.trim() || '';
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() || '';
 
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-  console.warn('Supabase credentials missing. Please set SUPABASE_URL and SUPABASE_ANON_KEY in your environment.');
+const configured = Boolean(supabaseUrl && supabaseAnonKey);
+
+if (import.meta.env.DEV && !configured) {
+  console.warn(
+    'Supabase: optional. Add SUPABASE_URL and SUPABASE_ANON_KEY to .env (see .env.example), then restart the dev server. OAuth/auth stays off until set.'
+  );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(
+  configured ? supabaseUrl : 'https://placeholder.supabase.co',
+  configured ? supabaseAnonKey : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder'
+);
+
+export const isSupabaseConfigured = configured;

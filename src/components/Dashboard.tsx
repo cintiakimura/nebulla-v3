@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { PlusCircle, Handshake, Github, Save } from 'lucide-react';
+import { NEBULLA_GROK_KEY_STORAGE } from '../lib/grokKey';
 
 export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | 'secrets';
 
@@ -126,6 +127,28 @@ function ProjectSettingsTab() {
 }
 
 function SecretsTab() {
+  const [grokKeyInput, setGrokKeyInput] = useState('');
+  const [grokSavedFlash, setGrokSavedFlash] = useState(false);
+
+  useEffect(() => {
+    try {
+      setGrokKeyInput(localStorage.getItem(NEBULLA_GROK_KEY_STORAGE) || '');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const saveGrokKey = () => {
+    const v = grokKeyInput.trim();
+    if (v) {
+      localStorage.setItem(NEBULLA_GROK_KEY_STORAGE, v);
+    } else {
+      localStorage.removeItem(NEBULLA_GROK_KEY_STORAGE);
+    }
+    setGrokSavedFlash(true);
+    window.setTimeout(() => setGrokSavedFlash(false), 2000);
+  };
+
   return (
     <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
       <div>
@@ -133,36 +156,47 @@ function SecretsTab() {
         <p className="text-sm text-slate-500 mb-6">Manage API keys, environment variables, and third-party connections.</p>
       </div>
 
+      <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-6">
+        <h4 className="text-sm font-headline text-cyan-200 mb-1">Grok (xAI) API key</h4>
+        <p className="text-xs text-slate-500 mb-4">
+          Used for the assistant chat. Prefer setting <code className="text-cyan-400/90">GROK_API_KEY</code> in{' '}
+          <code className="text-cyan-400/90">.env</code> and restarting the server. If you cannot use{' '}
+          <code className="text-cyan-400/90">.env</code>, save your key here (stored only in this browser).
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="password"
+            autoComplete="off"
+            value={grokKeyInput}
+            onChange={(e) => setGrokKeyInput(e.target.value)}
+            placeholder="xai-..."
+            className="bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-sm flex-1 text-slate-300 focus:border-cyan-500/50 outline-none font-mono"
+          />
+          <button
+            type="button"
+            onClick={saveGrokKey}
+            className="px-5 py-2 bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 rounded-lg hover:bg-cyan-500/25 transition-colors text-sm font-headline shrink-0 flex items-center justify-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {grokSavedFlash ? 'Saved' : 'Save key'}
+          </button>
+        </div>
+      </div>
+
       {/* Environment Variables */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
         <h4 className="text-sm font-headline text-slate-200 mb-2">Environment Variables</h4>
-        <p className="text-xs text-slate-500 mb-4">Securely store secrets. These are encrypted at rest and injected at runtime.</p>
-        
-        <div className="flex gap-3 mb-6">
-          <input 
-            type="text" 
-            placeholder="Key (e.g. STRIPE_SECRET_KEY)" 
-            className="bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-sm w-1/3 text-slate-300 focus:border-cyan-500/50 outline-none font-mono" 
-          />
-          <input 
-            type="password" 
-            placeholder="Value" 
-            className="bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-sm flex-1 text-slate-300 focus:border-cyan-500/50 outline-none font-mono" 
-          />
-          <button className="px-5 py-2 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/20 transition-colors text-sm font-headline">
-            Add
-          </button>
-        </div>
+        <p className="text-xs text-slate-500 mb-4">For production and CLI, configure <code className="text-slate-400">.env</code> (see <code className="text-slate-400">.env.example</code>). The list below is illustrative.</p>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
-              <span className="text-sm text-slate-300 font-mono">GROK_API_NEBULLA</span>
+              <span className="text-sm text-slate-300 font-mono">GROK_API_KEY</span>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+              <span className="text-xs text-slate-500">.env</span>
+              <button type="button" className="text-slate-600 cursor-default" aria-hidden><span className="material-symbols-outlined text-[18px]">edit</span></button>
             </div>
           </div>
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">

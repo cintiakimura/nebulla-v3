@@ -1,24 +1,23 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(({mode}) => {
+export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [
-      react(), 
+      react(),
       tailwindcss(),
       {
         name: 'html-transform',
         transformIndexHtml(html) {
           const script = `
     <script>
-      // Aggressively silence Vite WebSocket/HMR errors in AI Studio
       (function() {
-        const isViteError = (msg) => 
+        const isViteError = (msg) =>
           msg && (
-            msg.includes('WebSocket') || 
+            msg.includes('WebSocket') ||
             msg.includes('vite') ||
             msg.includes('hmr') ||
             msg.includes('ScriptProcessorNode') ||
@@ -26,7 +25,6 @@ export default defineConfig(({mode}) => {
             msg.includes('Service Worker') ||
             msg.includes('Failed to fetch') ||
             msg.includes('WebSocketInterceptor') ||
-            msg.includes('message channel closed') ||
             msg.includes('Global WebSocket constructor') ||
             msg.includes('ScriptProcessorNode is deprecated') ||
             msg.includes('listener indicated an asynchronous response') ||
@@ -37,13 +35,11 @@ export default defineConfig(({mode}) => {
             msg.includes('makersuite')
           );
 
-        // 1. Monkey-patch WebSocket to block Vite HMR attempts
         const OriginalWebSocket = window.WebSocket;
         window.WebSocket = function(url, protocols) {
           if (typeof url === 'string' && (url.includes('vite') || url.includes('hmr') || url.includes('token='))) {
-            // Return a mock object that fails silently
             return {
-              readyState: 3, // CLOSED
+              readyState: 3,
               close: function() {},
               send: function() {},
               addEventListener: function() {},
@@ -57,12 +53,11 @@ export default defineConfig(({mode}) => {
           try {
             return new OriginalWebSocket(url, protocols);
           } catch (e) {
-            return {}; // Fallback for invalid URLs
+            return {};
           }
         };
         window.WebSocket.prototype = OriginalWebSocket.prototype;
 
-        // 2. Global rejection handler
         window.addEventListener('unhandledrejection', (event) => {
           const reason = event.reason;
           const msg = (reason && (reason.message || reason.stack || String(reason))) || '';
@@ -72,7 +67,6 @@ export default defineConfig(({mode}) => {
           }
         }, true);
 
-        // 3. Global error handler
         window.addEventListener('error', (event) => {
           const msg = event.message || '';
           if (isViteError(msg)) {
@@ -81,7 +75,6 @@ export default defineConfig(({mode}) => {
           }
         }, true);
 
-        // 4. Silence console errors, warnings, and logs from Vite/Deprecations
         const originalConsoleError = console.error;
         console.error = function() {
           const args = Array.from(arguments);
@@ -108,8 +101,8 @@ export default defineConfig(({mode}) => {
       })();
     </script>`;
           return html.replace('<head>', '<head>' + script);
-        }
-      }
+        },
+      },
     ],
     resolve: {
       alias: {
@@ -117,14 +110,10 @@ export default defineConfig(({mode}) => {
       },
     },
     define: {
-      'process.env': {
-        SUPABASE_URL: env.SUPABASE_URL,
-        SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY,
-      }
+      'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL ?? ''),
+      'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY ?? ''),
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: {
         overlay: false,
       },

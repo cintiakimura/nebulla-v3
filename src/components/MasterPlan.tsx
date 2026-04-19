@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Lock, Save, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { readResponseJson } from '../lib/apiFetch';
 
 export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesText: string }) {
   const [planData, setPlanData] = useState<Record<string, string>>({});
@@ -21,7 +22,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     try {
       const res = await fetch('/api/master-plan/read');
       if (res.ok) {
-        const data = await res.json();
+        const data = await readResponseJson<Record<string, string>>(res);
         setPlanData(data);
       } else {
         console.warn("Failed to fetch master plan, status:", res.status);

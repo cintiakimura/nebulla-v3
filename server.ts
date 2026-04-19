@@ -1,13 +1,15 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import path from "path";
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
-import { WebSocketServer, WebSocket } from 'ws';
+
+
+dotenv.config({ path: path.join(process.cwd(), ".env") });
 
 export const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   app.use(express.json({ limit: '50mb' }) as any);
@@ -23,12 +25,14 @@ async function startServer() {
   });
 
   app.get("/api/config", (req, res) => {
+    const grok = process.env.GROK_API_KEY?.trim() ?? "";
     res.json({
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
       googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.google_client_id || '150218202075669-9cbr2fnxh8ilh0ih1k2cs8phrmkf43eq.apps.googleusercontent.com',
       githubClientId: process.env.GITHUB_CLIENT_ID || process.env.github_client_id || '0v231lrj4n4star njb wz1h update',
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
+      hasGrokApiKey: grok.length >= 20,
     });
   });
 
@@ -355,12 +359,23 @@ Requirements:
   });
 
 app.post("/api/grok/chat", async (req, res) => {
-const { messages } = req.body;
-const apiKey = process.env.GROK_API_KEY;
+const { messages, grokApiKey: bodyGrokKey } = req.body || {};
+const headerKey =
+  typeof req.headers["x-grok-api-key"] === "string"
+    ? req.headers["x-grok-api-key"].trim()
+    : "";
+const apiKey =
+  headerKey ||
+  (typeof bodyGrokKey === "string" ? bodyGrokKey.trim() : "") ||
+  process.env.GROK_API_KEY ||
+  "";
 
 if (!apiKey) {
-  console.error("GROK_API_KEY is not set in environment");
-  return res.status(500).json({ error: "GROK_API_KEY is not set. Please add it in the Settings menu." });
+  console.error("GROK_API_KEY is not set (env, X-Grok-Api-Key header, or Settings)");
+  return res.status(500).json({
+    error:
+      "Grok API key is missing. Add GROK_API_KEY to your .env file, restart the server, or save your key under Dashboard → Secrets (stored in this browser only).",
+  });
 }
 
 // Basic validation of key format
@@ -466,12 +481,17 @@ try {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const hmrPort = Number(process.env.VITE_HMR_PORT) || 24678;
     const vite = await createViteServer({
-      server: { 
+      server: {
         middlewareMode: true,
-        hmr: {
-          overlay: false,
-        },
+        hmr:
+          process.env.DISABLE_HMR === "true"
+            ? false
+            : {
+                overlay: false,
+                port: hmrPort,
+              },
       },
       appType: "spa",
     });
@@ -484,11 +504,19 @@ try {
     });
   }
 
-  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
-    const server = app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `[nebula] Port ${PORT} is already in use. Quit the other dev server, or run: PORT=${PORT + 1} npm run dev`
+      );
+    } else {
+      console.error(err);
+    }
+    process.exit(1);
+  });
 }
 
 startServer().catch(err => {
