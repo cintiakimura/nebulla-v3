@@ -12,8 +12,16 @@ if (import.meta.env.DEV && !configured) {
 }
 
 export const supabase = createClient(
-  configured ? supabaseUrl : 'https://placeholder.supabase.co',
-  configured ? supabaseAnonKey : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder'
+  configured ? supabaseUrl : "https://placeholder.supabase.co",
+  configured ? supabaseAnonKey : "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder",
+  {
+    auth: {
+      flowType: "pkce",
+      persistSession: true,
+      detectSessionInUrl: true,
+      autoRefreshToken: true,
+    },
+  }
 );
 
 export const isSupabaseConfigured = configured;

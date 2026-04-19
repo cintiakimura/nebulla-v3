@@ -34,11 +34,17 @@ async function startServer() {
     const grok = process.env.GROK_API_KEY?.trim() ?? "";
     const tts = process.env.GROK_TTS_API_KEY?.trim() ?? "";
     const writer = process.env.GROK_3_API_KEY?.trim() ?? "";
+    const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "") ?? "";
+    /** Google Cloud + GitHub OAuth apps must allow this redirect (not your Vercel URL). */
+    const supabaseOAuthCallbackUrl = supabaseUrl
+      ? `${supabaseUrl}/auth/v1/callback`
+      : undefined;
     res.json({
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
-      googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.google_client_id || '150218202075669-9cbr2fnxh8ilh0ih1k2cs8phrmkf43eq.apps.googleusercontent.com',
-      githubClientId: process.env.GITHUB_CLIENT_ID || process.env.github_client_id || '0v231lrj4n4star njb wz1h update',
+      supabaseOAuthCallbackUrl,
+      googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.google_client_id,
+      githubClientId: process.env.GITHUB_CLIENT_ID || process.env.github_client_id,
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
       hasGrokApiKey: grok.length >= 20,
       hasGrokTtsKey: tts.length >= 20,
@@ -243,28 +249,41 @@ async function startServer() {
                   throw new Error('Supabase configuration missing');
                 }
                 
-                const supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-                
-                // Ensure auth state is fully synchronized before closing
-                supabase.auth.onAuthStateChange((event, session) => {
+                const supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
+                  auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
+                });
+
+                supabase.auth.onAuthStateChange(function (event, session) {
                   if (session) {
                     console.log('Auth event:', event);
                     if (window.opener) {
                       window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                      
+
                       document.getElementById('status-icon').style.display = 'none';
                       document.getElementById('status-title').innerText = 'Success!';
                       document.getElementById('status-text').innerText = 'You are now logged in. This window will close automatically.';
-                      
-                      setTimeout(() => window.close(), 1000);
+
+                      setTimeout(function () { window.close(); }, 1000);
                     } else {
                       window.location.href = '/';
                     }
                   }
                 });
 
-                // Fallback timeout in case onAuthStateChange doesn't fire immediately
-                setTimeout(() => {
+                (async function () {
+                  try {
+                    var href = window.location.href;
+                    if (href.indexOf('code=') !== -1 && supabase.auth.exchangeCodeForSession) {
+                      await supabase.auth.exchangeCodeForSession(href);
+                    } else {
+                      await supabase.auth.getSession();
+                    }
+                  } catch (e) {
+                    console.error('Auth session exchange:', e);
+                  }
+                })();
+
+                setTimeout(function () {
                   if (window.opener) {
                     window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
                     document.getElementById('status-text').innerText = 'Taking a bit longer... you can close this window if the main app is logged in.';
