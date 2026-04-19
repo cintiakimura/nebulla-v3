@@ -10,10 +10,14 @@ export const app = express();
 const PORT = 3000;
 
 async function startServer() {
-  app.use(express.json() as any);
+  app.use(express.json({ limit: '50mb' }) as any);
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }) as any);
 
-
-  // API routes FIRST
+  // LOGGING MIDDLEWARE
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
@@ -59,7 +63,8 @@ async function startServer() {
       5: "5. Data requirements",
       6: "6. Accessibility and inclusivity",
       7: "7. Pages and navigation",
-      8: "8. Market and tech research"
+      8: "8. Market and tech research",
+      9: "9. Question Tab"
     };
 
     const tabName = tabNames[tabIndex as number];
@@ -436,6 +441,29 @@ try {
     }
   });
 
+  app.get("/api/speak", async (req, res) => {
+    const text = req.query.text as string;
+    if (!text) return res.status(400).json({ error: "Text is required" });
+    
+    try {
+      const audio = await speak(text);
+      res.set({
+        "Content-Type": "audio/mpeg",
+        "Content-Length": audio.length.toString(),
+        "Cache-Control": "public, max-age=3600"
+      });
+      res.send(audio);
+    } catch (error) {
+      console.error("TTS endpoint failed:", error);
+      res.status(500).json({ error: "TTS failed" });
+    }
+  });
+
+  // 404 API CATCH-ALL (returns JSON instead of HTML)
+  app.use('/api/*', (req, res) => {
+    res.status(404).json({ error: `Path ${req.originalUrl} not found on this server` });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -463,29 +491,11 @@ try {
   }
 }
 
-app.get("/api/speak", async (req, res) => {
-  const text = req.query.text as string;
-  if (!text) return res.status(400).json({ error: "Text is required" });
-  
-  try {
-    const audio = await speak(text);
-    res.set({
-      "Content-Type": "audio/mpeg",
-      "Content-Length": audio.length.toString(),
-      "Cache-Control": "public, max-age=3600"
-    });
-    res.send(audio);
-  } catch (error) {
-    console.error("TTS endpoint failed:", error);
-    res.status(500).json({ error: "TTS failed" });
-  }
-});
-
 startServer().catch(err => {
   console.error("Failed to start server:", err);
 });
 
-export async function speak(text: string): Promise<Buffer> {
+async function speak(text: string): Promise<Buffer> {
   // Use GROK_TTS_API_KEY for TTS
   const apiKey = process.env.GROK_TTS_API_KEY;
   
@@ -519,17 +529,19 @@ export async function speak(text: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function runGrokB(history: any[], apiKey: string, masterPlanPath: string) {
-  const sections = [
-    "1. The problem we are solving",
-    "2. Target user and context",
-    "3. Core features",
-    "4. User scale and load",
-    "5. Data requirements",
-    "6. Accessibility and inclusivity",
-    "7. Pages and navigation",
-    "8. Market and tech research"
-  ];
+  // Grok B: Silent Master Plan Update Logic
+  async function runGrokB(history: any[], apiKey: string, masterPlanPath: string) {
+    const sections = [
+      "1. The problem we are solving",
+      "2. Target user and context",
+      "3. Core features",
+      "4. User scale and load",
+      "5. Data requirements",
+      "6. Accessibility and inclusivity",
+      "7. Pages and navigation",
+      "8. Market and tech research",
+      "9. Question Tab"
+    ];
 
   const grokBSystemPrompt = `You are Grok B, the silent Master Plan Architect. 
 Your sole purpose is to fill out the Master Plan based on the provided conversation history.

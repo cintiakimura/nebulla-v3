@@ -20,28 +20,25 @@ export enum Modality {
 /**
  * Simple GROK client
  */
-export async function sendToGROK(message: string): Promise<string> {
+export async function sendToGrok(message: string) {
   try {
-    // Connect to GROK 4.1 via Backend Proxy
     const response = await fetch('/api/grok/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: message }],
-      }),
+      body: JSON.stringify({ message }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`GROK API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
+    return data.text || data.message || data;
+
   } catch (error) {
-    console.error('Error calling GROK:', error);
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    console.error('Error calling Grok API:', error);
+    throw error;
   }
 }

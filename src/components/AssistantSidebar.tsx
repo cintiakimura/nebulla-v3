@@ -77,8 +77,17 @@ export function AssistantSidebar({ width = 320 }: { width?: number }) {
 
     try {
       // Fetch latest master plan before sending
-      const mpRes = await fetch('/api/master-plan/read');
-      const latestMP = await mpRes.json();
+      let latestMP = {};
+      try {
+        const mpRes = await fetch('/api/master-plan/read');
+        if (mpRes.ok) {
+          latestMP = await mpRes.json();
+        } else {
+          console.warn("Failed to fetch master plan, status:", mpRes.status);
+        }
+      } catch (e) {
+        console.error("Error fetching master plan:", e);
+      }
       
       const systemPrompt = `You are Nebula, an expert AI dev partner in BRAINSTORMING MODE.
 Your primary goal is to help the user build a master plan effectively and collaboratively.
@@ -179,11 +188,26 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}`;
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `GROK API Error: ${response.status}`);
+        let errorMsg = `GROK API Error: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch (e) {
+          // Fallback if not JSON
+          const text = await response.text();
+          console.error("Non-JSON error from GROK API:", text.substring(0, 200));
+        }
+        throw new Error(errorMsg);
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        const text = await response.text();
+        console.error("Response is not valid JSON:", text.substring(0, 200));
+        throw new Error("Received an invalid response from the server. Check logs.");
+      }
       const fullResponse = data.choices?.[0]?.message?.content || '';
       
       // GROK 4.1 Behavior: Immediate Frontend Master Plan Update

@@ -20,8 +20,12 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
   const fetchPlan = async () => {
     try {
       const res = await fetch('/api/master-plan/read');
-      const data = await res.json();
-      setPlanData(data);
+      if (res.ok) {
+        const data = await res.json();
+        setPlanData(data);
+      } else {
+        console.warn("Failed to fetch master plan, status:", res.status);
+      }
       setLoading(false);
     } catch (err) {
       console.error("Error fetching master plan:", err);
