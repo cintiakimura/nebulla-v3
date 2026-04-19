@@ -20,12 +20,20 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }) as any);
   app.use(express.urlencoded({ extended: true, limit: '50mb' }) as any);
 
-  // Vercel rewrites to `/api` can leave `req.url` stripped (e.g. `/config` not `/api/config`) or odd.
-  // Prefer `originalUrl` so `GET /api/health`, `GET /auth/callback`, etc. match registered routes.
+  // Vercel: `req.url` may be stripped; `originalUrl` may be a full URL (`https://host/api/...`).
+  // Express must see pathname + query only (e.g. `/api/health`) — a full URL here crashes routing → 500.
   if (process.env.VERCEL) {
     app.use((req, _res, next) => {
-      if (typeof req.originalUrl === "string" && req.originalUrl.length > 0) {
-        req.url = req.originalUrl;
+      const raw = (req.originalUrl ?? req.url ?? "/").trim() || "/";
+      if (/^https?:\/\//i.test(raw)) {
+        try {
+          const u = new URL(raw);
+          req.url = u.pathname + u.search;
+        } catch {
+          req.url = raw;
+        }
+      } else {
+        req.url = raw;
       }
       next();
     });
