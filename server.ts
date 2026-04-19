@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
 import path from "path";
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import { exec } from "child_process";
 import {
@@ -272,9 +271,18 @@ async function startServer() {
 
                 (async function () {
                   try {
-                    var href = window.location.href;
-                    if (href.indexOf('code=') !== -1 && supabase.auth.exchangeCodeForSession) {
-                      await supabase.auth.exchangeCodeForSession(href);
+                    var qs = new URLSearchParams(window.location.search);
+                    var oauthError = qs.get('error');
+                    if (oauthError) {
+                      throw new Error(qs.get('error_description') || oauthError);
+                    }
+                    var code = qs.get('code');
+                    if (!code && window.location.hash.length > 1) {
+                      code = new URLSearchParams(window.location.hash.slice(1)).get('code');
+                    }
+                    // exchangeCodeForSession expects the auth code string only (PKCE), not the full URL — see Supabase GoTrueClient API.
+                    if (code && supabase.auth.exchangeCodeForSession) {
+                      await supabase.auth.exchangeCodeForSession(code);
                     } else {
                       await supabase.auth.getSession();
                     }
@@ -563,9 +571,10 @@ try {
     res.status(404).json({ error: `Path ${req.originalUrl} not found on this server` });
   });
 
-  // Vite middleware for development
+  // Vite middleware for development (dynamic import keeps Vite out of Vercel serverless bundle)
   if (process.env.NODE_ENV !== "production") {
     const hmrPort = Number(process.env.VITE_HMR_PORT) || 24678;
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -580,11 +589,13 @@ try {
       appType: "spa",
     });
     app.use((vite.middlewares) as any);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
+  } else if (!process.env.VERCEL) {
+    // Production: serve built SPA from Node (local `npm run start` / Docker).
+    // On Vercel, static assets come from the static-build output; the serverless app only handles /api/* and /auth/callback.
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath) as any);
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
