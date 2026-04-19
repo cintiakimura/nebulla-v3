@@ -20,6 +20,17 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }) as any);
   app.use(express.urlencoded({ extended: true, limit: '50mb' }) as any);
 
+  // Vercel rewrites /api/:path* → this function; the incoming path is often /foo, not /api/foo.
+  if (process.env.VERCEL) {
+    app.use((req, _res, next) => {
+      const u = req.url || "";
+      if (u.startsWith("/") && !u.startsWith("/api") && !u.startsWith("/auth")) {
+        req.url = "/api" + u;
+      }
+      next();
+    });
+  }
+
   // LOGGING MIDDLEWARE
   app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
