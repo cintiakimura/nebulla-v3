@@ -17,6 +17,11 @@ export const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
+  // Behind Railway / Render / Fly / nginx so `req.ip` and secure cookies behave correctly.
+  if (!process.env.VERCEL) {
+    app.set("trust proxy", 1);
+  }
+
   app.use(express.json({ limit: '50mb' }) as any);
   app.use(express.urlencoded({ extended: true, limit: '50mb' }) as any);
 

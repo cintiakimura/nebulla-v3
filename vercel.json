@@ -4,6 +4,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "/api/health"
+    },
+    {
+      "source": "/api/config",
+      "destination": "/api/config"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api"
     },
@@ -20,6 +28,14 @@
     "api/index.ts": {
       "memory": 1024,
       "maxDuration": 60
+    },
+    "api/health.ts": {
+      "memory": 256,
+      "maxDuration": 10
+    },
+    "api/config.ts": {
+      "memory": 256,
+      "maxDuration": 10
     }
   }
 }
