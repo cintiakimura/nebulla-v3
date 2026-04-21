@@ -7,7 +7,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { AssistantSidebar } from './components/AssistantSidebar';
 import { MasterPlan } from './components/MasterPlan';
 import { MindMap } from './components/MindMap';
-import { StitchMockup } from './components/StitchMockup';
+import { PencilStudio } from './components/PencilStudio';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
 import { LoginOAuthHints } from './components/LoginOAuthHints';
@@ -15,6 +15,20 @@ import { Logo } from './components/Logo';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { getAppOAuthCallbackUrl } from './lib/authRedirect';
 import { readResponseJson } from './lib/apiFetch';
+import { installNebulaGuardianClient } from './lib/nebulaGuardianClient';
+import {
+  migrateLegacyGuestProject,
+  readGuestIndex,
+  readGuestProjectData,
+  readActiveGuestProjectId,
+  writeGuestProjectData,
+  writeActiveGuestProjectId,
+  createGuestProject,
+  updateGuestIndexMeta,
+  removeGuestProject,
+} from './lib/nebulaProjectStore';
+
+const ACTIVE_CLOUD_PROJECT_NAME_KEY = 'nebula_active_cloud_project_name';
 import { 
   Folder, 
   FileCode, 
@@ -63,6 +77,14 @@ interface MockUser {
   role?: 'user' | 'admin';
 }
 
+function isLocalhostHost(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1'
+  );
+}
+
 const getFileIconInfo = (filename: string, isDirectory: boolean) => {
   if (isDirectory) return { Icon: Folder, color: 'text-cyan-400' };
   
@@ -107,18 +129,35 @@ const initialEdges = [
   { id: 'e3-4', source: '3', target: '4', animated: true, style: { stroke: '#00ffff' } },
 ];
 
+/** Fresh mind map + edges (no shared references with other projects or React Flow mutations). */
+function deepCloneInitialCanvas() {
+  return {
+    pages: JSON.parse(JSON.stringify(initialPages)) as typeof initialPages,
+    edges: JSON.parse(JSON.stringify(initialEdges)) as typeof initialEdges,
+  };
+}
+
 export default function App() {
   const [showLanding, setShowLanding] = useState(true);
   const [showMasterPlan, setShowMasterPlan] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
   const [showAuthGuide, setShowAuthGuide] = useState(false);
-  const [showStitchMockup, setShowStitchMockup] = useState(false);
+  const [showPencilStudio, setShowPencilStudio] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(false);
-  const [dashboardTab, setDashboardTab] = useState<DashboardTab | null>('projects');
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab | null>(null);
   
   const [pages, setPages] = useState(initialPages);
   const [edges, setEdges] = useState(initialEdges);
   const [projectName, setProjectName] = useState('Untitled Project');
+
+  const [showSaveSuccessToast, setShowSaveSuccessToast] = useState(false);
+  const [sidebarSearchOpen, setSidebarSearchOpen] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
+
+  type ProjectRowUi = { key: string; name: string; updatedAt: string };
+  const [projectListUi, setProjectListUi] = useState<ProjectRowUi[]>([]);
+  const [activeGuestProjectId, setActiveGuestProjectId] = useState<string | null>(null);
+  const [projectsSource, setProjectsSource] = useState<'guest' | 'cloud'>('guest');
 
   const [leftWidth, setLeftWidth] = useState(240);
   const [rightWidth, setRightWidth] = useState(320);
@@ -130,6 +169,22 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   const [user, setUser] = useState<MockUser | null>(null);
+  const isLocalDevAuthEnabled =
+    import.meta.env.DEV &&
+    typeof window !== 'undefined' &&
+    isLocalhostHost(window.location.hostname) &&
+    String(process.env.DEV_LOCAL_AUTH || '').toLowerCase() === 'true';
+  const localDevUser: MockUser | null = isLocalDevAuthEnabled
+    ? {
+        uid: process.env.DEV_LOCAL_GITHUB_UID?.trim() || 'github-local-dev',
+        displayName: process.env.DEV_LOCAL_GITHUB_NAME?.trim() || 'GitHub Local Dev',
+        email: process.env.DEV_LOCAL_GITHUB_EMAIL?.trim() || 'local-dev@github.local',
+        photoURL:
+          process.env.DEV_LOCAL_GITHUB_AVATAR?.trim() ||
+          'https://avatars.githubusercontent.com/u/9919?v=4',
+        role: 'user',
+      }
+    : null;
   const [deviceUserId] = useState(() => {
     if (typeof window === 'undefined') return 'anonymous';
     try {
@@ -176,7 +231,7 @@ export default function App() {
     setSelectedFile(filename);
     getFileContent(filename);
     setShowCodePreview(true);
-    setShowStitchMockup(false);
+    setShowPencilStudio(false);
     setShowMasterPlan(false);
     setShowMindMap(false);
     setDashboardTab(null);
@@ -192,6 +247,18 @@ export default function App() {
   const [terminalInput, setTerminalInput] = useState('');
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
+  /** Clear file tree selection, editor buffer, terminal — repo files are shared, but UI must not show the previous project's context. */
+  const resetIdeStateForProjectChange = () => {
+    setSelectedFile(null);
+    setFileContent('');
+    setCurrentPath('.');
+    setShowCodePreview(false);
+    setFileSearchQuery('');
+    setSidebarSearchOpen(false);
+    setTerminalHistory([]);
+    setTerminalInput('');
+  };
+
   const [config, setConfig] = useState<any>(null);
 
   useEffect(() => {
@@ -202,102 +269,121 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    installNebulaGuardianClient();
+  }, []);
+
+  useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [terminalHistory]);
 
-  useEffect(() => {
-    const loadGuestProject = () => {
-      const savedProject = localStorage.getItem('nebula_project_default');
-      if (savedProject) {
-        try {
-          const data = JSON.parse(savedProject);
-          if (data.pages) setPages(data.pages);
-          if (data.edges) setEdges(data.edges);
-          if (data.projectName) setProjectName(data.projectName);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
+  const hydrateGuestWorkspace = () => {
+    const { pages: seedPages, edges: seedEdges } = deepCloneInitialCanvas();
+    const { index, activeId } = migrateLegacyGuestProject('Untitled Project', {
+      pages: seedPages,
+      edges: seedEdges,
+      projectName: 'Untitled Project',
+    });
+    setActiveGuestProjectId(activeId);
+    setProjectsSource('guest');
+    setProjectListUi(index.map((e) => ({ key: e.id, name: e.name, updatedAt: e.updatedAt })));
+    const d = readGuestProjectData(activeId);
+    if (d?.pages) setPages(d.pages as typeof initialPages);
+    if (d?.edges) setEdges(d.edges as typeof initialEdges);
+    if (d?.projectName) setProjectName(d.projectName);
+  };
 
-    if (!isSupabaseConfigured) {
-      loadGuestProject();
+  useEffect(() => {
+    if (localDevUser) {
+      setUser(localDevUser);
+      hydrateGuestWorkspace();
       return;
     }
 
-    // Real Supabase authentication check
+    if (!isSupabaseConfigured) {
+      hydrateGuestWorkspace();
+      return;
+    }
+
+    const mapSessionUser = (sessionUser: {
+      id: string;
+      email?: string | null;
+      user_metadata: Record<string, unknown>;
+    }) => {
+      const meta = sessionUser.user_metadata || {};
+      const dn =
+        (typeof meta.full_name === 'string' && meta.full_name) ||
+        sessionUser.email?.split('@')[0] ||
+        'User';
+      const av = meta.avatar_url;
+      setUser({
+        uid: sessionUser.id,
+        displayName: dn,
+        email: sessionUser.email || null,
+        photoURL: typeof av === 'string' ? av : null,
+        role: 'user',
+      });
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser({
-          uid: session.user.id,
-          displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
-          email: session.user.email || null,
-          photoURL: session.user.user_metadata.avatar_url || null,
-          role: 'user'
-        });
-      }
+      if (session?.user) mapSessionUser(session.user);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser({
-          uid: session.user.id,
-          displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
-          email: session.user.email || null,
-          photoURL: session.user.user_metadata.avatar_url || null,
-          role: 'user'
-        });
-      } else {
-        setUser(null);
-      }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) mapSessionUser(session.user);
+      else setUser(null);
     });
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
         supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session?.user) {
-            setUser({
-              uid: session.user.id,
-              displayName: session.user.user_metadata.full_name || session.user.email?.split('@')[0] || 'User',
-              email: session.user.email || null,
-              photoURL: session.user.user_metadata.avatar_url || null,
-              role: 'user'
-            });
-          }
+          if (session?.user) mapSessionUser(session.user);
         });
       }
     };
     window.addEventListener('message', handleMessage);
 
-    // Load project from Supabase if user is logged in
-    const loadProject = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data, error } = await supabase
-          .from('projects')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (data && !error) {
-          if (data.pages) setPages(data.pages);
-          if (data.edges) setEdges(data.edges);
-          if (data.name) setProjectName(data.name);
-        }
-      } else {
-        loadGuestProject();
+    const loadCloudOrGuest = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) {
+        hydrateGuestWorkspace();
+        return;
       }
+
+      const { data: rows, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('updated_at', { ascending: false });
+
+      if (error || !rows?.length) {
+        hydrateGuestWorkspace();
+        return;
+      }
+
+      setProjectsSource('cloud');
+      setProjectListUi(
+        rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
+      );
+      const activeName =
+        localStorage.getItem(ACTIVE_CLOUD_PROJECT_NAME_KEY) || rows[0].name;
+      const row = rows.find((r) => r.name === activeName) || rows[0];
+      localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, row.name);
+      if (row.pages) setPages(row.pages as typeof initialPages);
+      if (row.edges) setEdges(row.edges as typeof initialEdges);
+      if (row.name) setProjectName(row.name);
     };
 
-    loadProject();
+    void loadCloudOrGuest();
 
     return () => {
       subscription.unsubscribe();
       window.removeEventListener('message', handleMessage);
     };
-  }, []);
+  }, [localDevUser, isSupabaseConfigured]);
 
   useEffect(() => {
     fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
@@ -332,40 +418,272 @@ export default function App() {
 
   // Generate dynamic text for Master Plan
   const pagesText = useMemo(() => {
-    // Sort pages by X position to represent visual flow left-to-right
-    const sortedPages = [...pages].sort((a, b) => a.position.x - b.position.x);
-    return `PAGES & NAVIGATION\n\nRULE: Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.\n\n` + sortedPages.map((p, i) => `${i + 1}. ${p.data.label}: ${p.data.description}`).join('\n');
+    const sortedPages = [...pages].sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0));
+    const lines = sortedPages.map((p, i) => {
+      const d = (p.data || {}) as { label?: string; description?: string };
+      const label = typeof d.label === 'string' ? d.label : 'Page';
+      const desc = typeof d.description === 'string' ? d.description : '';
+      return `${i + 1}. ${label}: ${desc}`;
+    });
+    return `PAGES & NAVIGATION\n\nRULE: Pages and Navigation must stay automatically synchronized with the Mind Map. Any change in Pages & Navigation should update the Mind Map, and any change in the Mind Map should update Pages & Navigation.\n\n${lines.join('\n')}`;
   }, [pages]);
+
+  useEffect(() => {
+    if (!showSaveSuccessToast) return;
+    const t = window.setTimeout(() => setShowSaveSuccessToast(false), 2800);
+    return () => window.clearTimeout(t);
+  }, [showSaveSuccessToast]);
+
+  const showProjectSavedToast = () => setShowSaveSuccessToast(true);
 
   const handleSaveToMasterPlan = async () => {
     const projectData = { pages, edges, projectName };
-    
-    if (!user) {
-      setShowLoginModal(true);
-      localStorage.setItem('nebula_project_default', JSON.stringify(projectData));
-      console.log("Saved project state locally (Guest)");
+    localStorage.setItem('nebula_project_default', JSON.stringify(projectData));
+
+    const useGuestStore = localDevUser || !user || projectsSource === 'guest';
+
+    if (useGuestStore) {
+      let gid = activeGuestProjectId || readActiveGuestProjectId();
+      if (!gid) {
+        const { index, activeId } = migrateLegacyGuestProject('Untitled Project', {
+          pages,
+          edges,
+          projectName,
+        });
+        gid = activeId;
+        setActiveGuestProjectId(gid);
+        setProjectListUi(index.map((e) => ({ key: e.id, name: e.name, updatedAt: e.updatedAt })));
+      }
+      writeGuestProjectData(gid, projectData);
+      updateGuestIndexMeta(gid, projectName);
+      writeActiveGuestProjectId(gid);
+      setProjectListUi(readGuestIndex().map((e) => ({ key: e.id, name: e.name, updatedAt: e.updatedAt })));
+      showProjectSavedToast();
+      if (!user && !localDevUser) setShowLoginModal(true);
       return;
     }
-    
-    const { error } = await supabase
-      .from('projects')
-      .upsert({
+
+    if (!user) {
+      showProjectSavedToast();
+      return;
+    }
+
+    const { error } = await supabase.from('projects').upsert(
+      {
         user_id: user.uid,
         name: projectName,
-        pages: pages,
-        edges: edges,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id, name' });
+        pages,
+        edges,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,name' }
+    );
 
     if (error) {
-      console.error("Error saving to Supabase:", error);
-      alert('Failed to save project to cloud. Saving locally instead.');
+      console.error('Error saving to Supabase:', error);
+      alert('Failed to save project to cloud. A copy is still in this browser.');
     } else {
-      console.log("Saved project to Supabase");
+      localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, projectName);
+      const { data: rows } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('user_id', user.uid)
+        .order('updated_at', { ascending: false });
+      if (rows) {
+        setProjectListUi(
+          rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
+        );
+      }
     }
-    
-    localStorage.setItem('nebula_project_default', JSON.stringify(projectData));
-    console.log("Saved project state locally");
+
+    showProjectSavedToast();
+  };
+
+  const createBlankProjectWorkspace = async () => {
+    const newName = `Untitled ${new Date().toLocaleDateString()} · ${Math.random().toString(36).slice(2, 6)}`;
+    const { pages: blankPages, edges: blankEdges } = deepCloneInitialCanvas();
+
+    if (localDevUser || !user || projectsSource === 'guest') {
+      const entry = createGuestProject({
+        pages: blankPages,
+        edges: blankEdges,
+        projectName: newName,
+      });
+      setActiveGuestProjectId(entry.id);
+      setPages(blankPages);
+      setEdges(blankEdges);
+      setProjectName(newName);
+      setProjectsSource('guest');
+      setProjectListUi(readGuestIndex().map((e) => ({ key: e.id, name: e.name, updatedAt: e.updatedAt })));
+      localStorage.setItem(
+        'nebula_project_default',
+        JSON.stringify({ pages: blankPages, edges: blankEdges, projectName: newName })
+      );
+      resetIdeStateForProjectChange();
+      setDashboardTab(null);
+      setShowMasterPlan(false);
+      setShowMindMap(false);
+      setShowPencilStudio(false);
+      showProjectSavedToast();
+      return;
+    }
+
+    if (!user) return;
+
+    const { error } = await supabase.from('projects').upsert(
+      {
+        user_id: user.uid,
+        name: newName,
+        pages: blankPages,
+        edges: blankEdges,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,name' }
+    );
+    if (error) {
+      console.error(error);
+      alert('Could not create a new cloud project. Try again after checking Supabase.');
+      return;
+    }
+    localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, newName);
+    const { data: rows } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', user.uid)
+      .order('updated_at', { ascending: false });
+    if (rows) {
+      setProjectListUi(
+        rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
+      );
+    }
+    setPages(blankPages);
+    setEdges(blankEdges);
+    setProjectName(newName);
+    localStorage.setItem(
+      'nebula_project_default',
+      JSON.stringify({ pages: blankPages, edges: blankEdges, projectName: newName })
+    );
+    resetIdeStateForProjectChange();
+    setDashboardTab(null);
+    setShowMasterPlan(false);
+    setShowMindMap(false);
+    setShowPencilStudio(false);
+    showProjectSavedToast();
+  };
+
+  const openProjectByKey = async (key: string) => {
+    if (projectsSource === 'guest' || localDevUser || !user) {
+      let gid = activeGuestProjectId || readActiveGuestProjectId();
+      if (gid && gid !== key) {
+        writeGuestProjectData(gid, { pages, edges, projectName });
+        updateGuestIndexMeta(gid, projectName);
+      }
+      const d = readGuestProjectData(key);
+      if (!d?.pages) return;
+      setActiveGuestProjectId(key);
+      writeActiveGuestProjectId(key);
+      setPages(d.pages as typeof initialPages);
+      setEdges(d.edges as typeof initialEdges);
+      setProjectName(d.projectName);
+      localStorage.setItem('nebula_project_default', JSON.stringify(d));
+      resetIdeStateForProjectChange();
+      setDashboardTab(null);
+      return;
+    }
+
+    if (!user) return;
+
+    await supabase.from('projects').upsert(
+      {
+        user_id: user.uid,
+        name: projectName,
+        pages,
+        edges,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,name' }
+    );
+
+    localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, key);
+    const { data: row } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', user.uid)
+      .eq('name', key)
+      .maybeSingle();
+
+    if (row?.pages) setPages(row.pages as typeof initialPages);
+    if (row?.edges) setEdges(row.edges as typeof initialEdges);
+    if (row?.name) setProjectName(row.name);
+    localStorage.setItem(
+      'nebula_project_default',
+      JSON.stringify({ pages: row?.pages ?? pages, edges: row?.edges ?? edges, projectName: row?.name ?? projectName })
+    );
+    resetIdeStateForProjectChange();
+    setDashboardTab(null);
+  };
+
+  const deleteProjectByKey = (key: string) => {
+    if (!window.confirm('Delete this project from this browser? This cannot be undone.')) return;
+    if (projectsSource === 'guest' || localDevUser || !user) {
+      const next = removeGuestProject(key);
+      setProjectListUi(next.map((e) => ({ key: e.id, name: e.name, updatedAt: e.updatedAt })));
+      const fallback = next[0];
+      if (fallback) {
+        const d = readGuestProjectData(fallback.id);
+        if (d?.pages) {
+          setActiveGuestProjectId(fallback.id);
+          setPages(d.pages as typeof initialPages);
+          setEdges(d.edges as typeof initialEdges);
+          setProjectName(d.projectName);
+        }
+      } else {
+        void createBlankProjectWorkspace();
+      }
+      return;
+    }
+    void (async () => {
+      if (!user) return;
+      await supabase.from('projects').delete().eq('user_id', user.uid).eq('name', key);
+      const { data: rows } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('user_id', user.uid)
+        .order('updated_at', { ascending: false });
+      if (rows?.length) {
+        setProjectListUi(
+          rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
+        );
+        const r0 = rows[0];
+        localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, r0.name);
+        if (r0.pages) setPages(r0.pages as typeof initialPages);
+        if (r0.edges) setEdges(r0.edges as typeof initialEdges);
+        setProjectName(r0.name);
+      } else {
+        hydrateGuestWorkspace();
+      }
+    })();
+  };
+
+  const startNewProjectFlow = async (kind: 'prompt' | 'github' | 'brainstorm') => {
+    await createBlankProjectWorkspace();
+    if (kind === 'prompt') {
+      const prompt = window.prompt('Paste your written prompt:');
+      if (prompt && (window as any).nebula_handleSendText) {
+        (window as any).nebula_handleSendText(prompt);
+      }
+      return;
+    }
+    if (kind === 'github') {
+      const repo = window.prompt('Paste GitHub repository link:');
+      if (repo && (window as any).nebula_handleSendText) {
+        (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
+      }
+      return;
+    }
+    if ((window as any).nebula_toggleLive) {
+      (window as any).nebula_toggleLive();
+    }
   };
 
   const handleAction = (actionName: string) => {
@@ -373,10 +691,24 @@ export default function App() {
   };
 
   useEffect(() => {
+    (window as any).openMasterPlanTab = (tabNumber: number) => {
+      try {
+        localStorage.setItem('nebula_master_plan_open_tab', String(tabNumber));
+      } catch {
+        /* ignore */
+      }
+      setShowMasterPlan(true);
+      setShowMindMap(false);
+      setShowPencilStudio(false);
+      setDashboardTab(null);
+      setShowCodePreview(false);
+      window.dispatchEvent(new CustomEvent('nebula-open-master-plan-tab', { detail: { tabNumber } }));
+    };
+
     (window as any).openMasterPlan = () => {
       setShowMasterPlan(true);
       setShowMindMap(false);
-      setShowStitchMockup(false);
+      setShowPencilStudio(false);
       setDashboardTab(null);
       setShowCodePreview(false);
     };
@@ -384,13 +716,13 @@ export default function App() {
     (window as any).openMindMap = () => {
       setShowMindMap(true);
       setShowMasterPlan(false);
-      setShowStitchMockup(false);
+      setShowPencilStudio(false);
       setDashboardTab(null);
       setShowCodePreview(false);
     };
 
     (window as any).openUIUX = () => {
-      setShowStitchMockup(true);
+      setShowPencilStudio(true);
       setShowMindMap(false);
       setShowMasterPlan(false);
       setDashboardTab(null);
@@ -399,7 +731,7 @@ export default function App() {
 
     (window as any).openPreview = () => {
       setShowCodePreview(false);
-      setShowStitchMockup(false);
+      setShowPencilStudio(false);
       setShowMindMap(false);
       setShowMasterPlan(false);
       setDashboardTab(null);
@@ -410,13 +742,13 @@ export default function App() {
         const res = await fetch('/api/master-plan/read');
         if (!res.ok) return;
         const plan = await readResponseJson<Record<string, string>>(res);
-        const section7 = plan["7. Pages and navigation"];
+        const sectionPages = plan["4. Pages and navigation"];
         
-        if (!section7) return;
+        if (!sectionPages) return;
 
         // Flexible parser for Section 7
         // Handles "1. Page", "- Page", "* Page", or just "Page"
-        const lines = section7.split('\n')
+        const lines = sectionPages.split('\n')
           .map((l: string) => l.trim())
           .filter((l: string) => l.length > 0 && !l.startsWith('#')); // Skip empty lines and headers
         
@@ -461,6 +793,7 @@ export default function App() {
     };
 
     return () => {
+      delete (window as any).openMasterPlanTab;
       delete (window as any).openMasterPlan;
       delete (window as any).openMindMap;
       delete (window as any).openUIUX;
@@ -472,7 +805,7 @@ export default function App() {
   useEffect(() => {
     (window as any).startUIUXWorkflow = () => {
       console.log("Starting UI/UX Workflow...");
-      setShowStitchMockup(true);
+      setShowPencilStudio(true);
       setShowMindMap(false);
       setShowMasterPlan(false);
       setDashboardTab(null);
@@ -484,8 +817,11 @@ export default function App() {
   }, []);
 
   const handleLockDesign = () => {
-    setShowStitchMockup(false);
-    // Return to default view or mind map
+    setShowPencilStudio(false);
+    setShowMasterPlan(true);
+    setShowMindMap(false);
+    setDashboardTab(null);
+    setShowCodePreview(false);
   };
 
   const handleGithubLogin = async (): Promise<boolean> => {
@@ -547,6 +883,11 @@ export default function App() {
   };
   
   const handleLogout = async () => {
+    if (localDevUser) {
+      console.log('Local Dev Auth is enabled on localhost; logout is disabled in this mode.');
+      return;
+    }
+
     if (!isSupabaseConfigured) {
       setUser(null);
       localStorage.removeItem('nebula_user');
@@ -590,7 +931,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
       {/* TopAppBar */}
       <header className="h-16 w-full z-50 flex justify-between items-center px-8 bg-[#040f1a]/60 backdrop-blur-xl border-b border-white/5 shadow-[0_0_20px_rgba(96,0,159,0.05)]">
         <div className="flex items-center gap-4">
@@ -628,7 +969,7 @@ export default function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex overflow-hidden relative">
+      <main className="flex-1 flex overflow-hidden relative min-h-0">
         {/* Resizing Overlay */}
         {isResizing && (
           <div 
@@ -646,27 +987,35 @@ export default function App() {
           >
             <Folder className="w-5 h-5" />
           </button>
-          <button className="text-slate-500 hover:text-cyan-300 transition-all">
+          <button
+            type="button"
+            onClick={() => {
+              setSidebarSearchOpen(true);
+              setIsLeftOpen(true);
+            }}
+            className={`transition-all ${sidebarSearchOpen ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
+            title="Search files"
+          >
             <Search className="w-5 h-5" />
           </button>
           
           <div className="w-8 h-[1px] bg-white/10 my-1"></div>
           <button 
-            onClick={() => { setShowStitchMockup(true); setShowMindMap(false); setShowMasterPlan(false); setDashboardTab(null); }}
-            className={`transition-all ${showStitchMockup ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
+            onClick={() => { setShowPencilStudio(true); setShowMindMap(false); setShowMasterPlan(false); setDashboardTab(null); }}
+            className={`transition-all ${showPencilStudio ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
             title="Nebulla UI Studio"
           >
             <Palette className="w-5 h-5" />
           </button>
           <button 
-            onClick={() => { setShowMindMap(true); setShowMasterPlan(false); setShowStitchMockup(false); setDashboardTab(null); }}
+            onClick={() => { setShowMindMap(true); setShowMasterPlan(false); setShowPencilStudio(false); setDashboardTab(null); }}
             className={`transition-all ${showMindMap ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
             title="Mind Map"
           >
             <Network className="w-5 h-5" />
           </button>
           <button 
-            onClick={() => { setShowMasterPlan(true); setShowMindMap(false); setShowStitchMockup(false); setDashboardTab(null); }}
+            onClick={() => { setShowMasterPlan(true); setShowMindMap(false); setShowPencilStudio(false); setDashboardTab(null); }}
             className={`transition-all ${showMasterPlan ? 'text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]' : 'text-slate-500 hover:text-yellow-400 hover:drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]'}`}
             title="Master Plan"
           >
@@ -684,7 +1033,7 @@ export default function App() {
           <div className="w-8 h-[1px] bg-white/10 my-1"></div>
           
           <button 
-            onClick={() => { setDashboardTab('projects'); setShowStitchMockup(false); setShowMindMap(false); setShowMasterPlan(false); }}
+            onClick={() => { setDashboardTab('projects'); setShowPencilStudio(false); setShowMindMap(false); setShowMasterPlan(false); }}
             className={`transition-all ${dashboardTab === 'projects' ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
             title="User Projects"
           >
@@ -692,14 +1041,14 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => { setDashboardTab('project-settings'); setShowStitchMockup(false); setShowMindMap(false); setShowMasterPlan(false); }}
+            onClick={() => { setDashboardTab('project-settings'); setShowPencilStudio(false); setShowMindMap(false); setShowMasterPlan(false); }}
             className={`transition-all ${dashboardTab === 'project-settings' ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
             title="Project Settings"
           >
             <Server className="w-5 h-5" />
           </button>
           <button 
-            onClick={() => { setDashboardTab('secrets'); setShowStitchMockup(false); setShowMindMap(false); setShowMasterPlan(false); }}
+            onClick={() => { setDashboardTab('secrets'); setShowPencilStudio(false); setShowMindMap(false); setShowMasterPlan(false); }}
             className={`transition-all ${dashboardTab === 'secrets' ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
             title="Secrets & Integrations"
           >
@@ -708,7 +1057,7 @@ export default function App() {
 
           <div className="mt-auto flex flex-col gap-6 mb-4">
             <button 
-              onClick={() => { setDashboardTab('user-settings'); setShowStitchMockup(false); setShowMindMap(false); setShowMasterPlan(false); }}
+              onClick={() => { setDashboardTab('user-settings'); setShowPencilStudio(false); setShowMindMap(false); setShowMasterPlan(false); }}
               className={`transition-all ${dashboardTab === 'user-settings' ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
               title="User Settings"
             >
@@ -720,8 +1069,9 @@ export default function App() {
         {/* 2. Navigation Pane (File Tree) */}
         {isLeftOpen && (
           <>
-            <aside className="flex flex-col border-r border-white/5 bg-[#040f1a]/30 shrink-0" style={{ width: leftWidth }}>
-              <div className="p-4 border-b border-white/5 flex justify-between items-center">
+            <aside className="flex flex-col min-h-0 border-r border-white/5 bg-[#040f1a]/30 shrink-0" style={{ width: leftWidth }}>
+              <div className="p-4 border-b border-white/5 flex flex-col gap-3">
+                <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   {currentPath !== '.' && (
                     <button onClick={handleGoBack} className="text-slate-500 hover:text-cyan-300 transition-colors">
@@ -754,9 +1104,38 @@ export default function App() {
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                 </div>
+                </div>
+                {(sidebarSearchOpen || fileSearchQuery.trim()) && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="search"
+                      autoFocus
+                      placeholder="Filter files…"
+                      value={fileSearchQuery}
+                      onChange={(e) => setFileSearchQuery(e.target.value)}
+                      className="flex-1 bg-black/40 border border-white/10 rounded-md px-2 py-1.5 text-13 text-slate-200 placeholder:text-slate-600 outline-none focus:border-cyan-500/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFileSearchQuery('');
+                        setSidebarSearchOpen(false);
+                      }}
+                      className="text-slate-500 hover:text-slate-300 text-xs font-headline shrink-0"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
-              <nav className="flex-1 py-2 flex flex-col px-1 overflow-y-auto font-mono text-13">
-                {files.map((file, i) => {
+              <nav className="flex-1 py-2 flex flex-col px-1 overflow-y-auto font-mono text-13 min-h-0">
+                {files
+                  .filter(
+                    (file) =>
+                      !fileSearchQuery.trim() ||
+                      file.name.toLowerCase().includes(fileSearchQuery.trim().toLowerCase())
+                  )
+                  .map((file, i) => {
                   const { Icon, color } = getFileIconInfo(file.name, file.isDirectory);
                   const isSelected = selectedFile === file.name;
                   return (
@@ -826,7 +1205,7 @@ export default function App() {
         )}
 
         {/* 3. Central Preview Area (Tabs + Editor) */}
-        <section className="flex flex-col overflow-hidden flex-1">
+        <section className="flex flex-col overflow-hidden flex-1 min-h-0">
           {/* Tabs */}
           <div className="h-10 border-b border-white/5 bg-white/5 flex items-center px-2">
             <div className="flex items-center gap-2 px-4 py-1.5 bg-background border-t border-x border-white/5 rounded-t-lg text-13 text-cyan-300">
@@ -841,7 +1220,7 @@ export default function App() {
                      dashboardTab === 'secrets' ? 'Secrets & Integrations' : 'User Settings'}
                   </span>
                 </>
-              ) : showStitchMockup ? (
+              ) : showPencilStudio ? (
                 <>
                   <Palette className="w-3.5 h-3.5" />
                   <span className="no-bold">Nebulla UI Studio</span>
@@ -864,7 +1243,7 @@ export default function App() {
               )}
               <X className="w-3.5 h-3.5 hover:text-red-400 cursor-pointer" onClick={() => {
                 setDashboardTab(null);
-                setShowStitchMockup(false);
+                setShowPencilStudio(false);
                 setShowMasterPlan(false);
                 setShowMindMap(false);
               }} />
@@ -872,10 +1251,10 @@ export default function App() {
           </div>
 
           {/* Canvas */}
-          <div className="flex-1 p-6 overflow-y-auto bg-black/20 relative flex flex-col">
-            <div className="flex-1 flex flex-col gap-6">
+          <div className="flex-1 p-6 overflow-y-auto bg-black/20 relative flex flex-col min-h-0">
+            <div className="flex-1 flex flex-col gap-6 min-h-0">
               {dashboardTab ? (
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-h-0">
                   <Dashboard 
                     activeTab={dashboardTab} 
                     onTabChange={setDashboardTab} 
@@ -884,18 +1263,28 @@ export default function App() {
                       setProjectName(name);
                       localStorage.setItem('nebula_project_default', JSON.stringify({ pages, edges, projectName: name }));
                     }}
+                    projects={projectListUi}
+                    activeProjectKey={
+                      projectsSource === 'guest'
+                        ? activeGuestProjectId || ''
+                        : projectName
+                    }
+                    onOpenProject={(key) => void openProjectByKey(key)}
+                    onDeleteProject={deleteProjectByKey}
+                    onCreateBlankProject={() => void createBlankProjectWorkspace()}
+                    onStartFlow={startNewProjectFlow}
                   />
                 </div>
-              ) : showStitchMockup ? (
-                <div className="flex-1 flex flex-col">
-                  <StitchMockup onLock={handleLockDesign} pagesText={pagesText} />
+              ) : showPencilStudio ? (
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                  <PencilStudio onLock={handleLockDesign} pagesText={pagesText} />
                 </div>
               ) : showMasterPlan ? (
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-h-0">
                   <MasterPlan onClose={() => setShowMasterPlan(false)} pagesText={pagesText} />
                 </div>
               ) : showMindMap ? (
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                   <MindMap 
                     pages={pages} 
                     setPages={setPages} 
@@ -975,12 +1364,8 @@ export function NebulaInterface() {
                               
                               <div className="flex flex-wrap justify-center gap-3">
                                 <button 
-                                  onClick={() => {
-                                    const prompt = window.prompt('Paste your written prompt:');
-                                    if (prompt && (window as any).nebula_handleSendText) {
-                                      (window as any).nebula_handleSendText(prompt);
-                                    }
-                                  }}
+                                  type="button"
+                                  onClick={() => void startNewProjectFlow('prompt')}
                                   className="flex items-center gap-2 px-5 py-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl hover:bg-cyan-500/20 transition-all text-sm text-cyan-300 font-headline"
                                 >
                                   <PlusCircle className="w-4 h-4" />
@@ -988,12 +1373,8 @@ export function NebulaInterface() {
                                 </button>
                                 
                                 <button 
-                                  onClick={() => {
-                                    const repo = window.prompt('Paste GitHub repository link:');
-                                    if (repo && (window as any).nebula_handleSendText) {
-                                      (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
-                                    }
-                                  }}
+                                  type="button"
+                                  onClick={() => void startNewProjectFlow('github')}
                                   className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-sm text-slate-300 font-headline"
                                 >
                                   <Save className="w-4 h-4 text-slate-400" />
@@ -1001,11 +1382,8 @@ export function NebulaInterface() {
                                 </button>
 
                                 <button 
-                                  onClick={() => {
-                                    if ((window as any).nebula_toggleLive) {
-                                      (window as any).nebula_toggleLive();
-                                    }
-                                  }}
+                                  type="button"
+                                  onClick={() => void startNewProjectFlow('brainstorm')}
                                   className="flex items-center gap-2 px-5 py-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl hover:bg-purple-500/20 transition-all text-sm text-purple-300 font-headline"
                                 >
                                   <Handshake className="w-4 h-4" />
@@ -1101,11 +1479,21 @@ export function NebulaInterface() {
 
         {/* 4. Right Sidebar (Kyn Assistant) */}
         <AssistantSidebar
+          key={`asst-${projectsSource}-${activeGuestProjectId ?? projectName}`}
           width={rightWidth}
           userId={conversationUserId}
           projectName={projectName}
         />
       </main>
+
+      {showSaveSuccessToast && (
+        <div
+          className="fixed bottom-20 left-1/2 z-[200] -translate-x-1/2 px-6 py-3 rounded-xl bg-emerald-950/95 border border-emerald-500/35 text-emerald-100 text-sm font-headline shadow-[0_8px_32px_rgba(0,0,0,0.45)] animate-in fade-in zoom-in-95 duration-200"
+          role="status"
+        >
+          Project saved successfully
+        </div>
+      )}
 
       {/* BottomNavBar */}
       <footer className="h-10 w-full flex justify-center items-center gap-8 z-50 bg-[#040f1a]/80 backdrop-blur-md border-t border-white/5">
@@ -1182,7 +1570,7 @@ export function NebulaInterface() {
 
       {/* Auth Guide Modal */}
       <AuthGuideModal isOpen={showAuthGuide} onClose={() => setShowAuthGuide(false)} />
-    </>
+    </div>
   );
 }
 

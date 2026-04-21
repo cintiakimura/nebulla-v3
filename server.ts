@@ -9,7 +9,12 @@ import {
   buildMemorySystemContent,
   injectMemoryIntoMessages,
 } from "./conversationLog";
-
+import {
+  initGuardianProcessHandlers,
+  registerGuardianRoutes,
+  guardianExpressErrorHandler,
+  captureError,
+} from "./guardian/nebulaGuardian";
 
 dotenv.config({ path: path.join(process.cwd(), ".env") });
 
@@ -17,6 +22,8 @@ export const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
+  initGuardianProcessHandlers();
+
   // Behind Railway / Render / Fly / nginx so `req.ip` and secure cookies behave correctly.
   if (!process.env.VERCEL) {
     app.set("trust proxy", 1);
@@ -77,7 +84,50 @@ async function startServer() {
 
   // Master Plan Update Logic (Clean JSON-based storage)
   const masterPlanPath = path.join(process.cwd(), "master-plan.json");
+  const nebulaUiStudioPath = path.join(process.cwd(), "nebula-sysh-ui-sysh-studio.md");
   const SUPER_ADMIN_EMAIL = 'cintiakimura20@gmail.com';
+
+  const ensureNebulaUiStudioFile = () => {
+    if (!fs.existsSync(nebulaUiStudioPath)) {
+      fs.writeFileSync(
+        nebulaUiStudioPath,
+        `<!--
+NEBULA_UI_STUDIO_PROMPT
+No prompt generated yet.
+-->
+
+<!--
+NEBULA_UI_STUDIO_CODE
+No approved UI code yet.
+-->
+`,
+        "utf8"
+      );
+    }
+  };
+
+  const extractNebulaCommentSection = (
+    content: string,
+    key: "NEBULA_UI_STUDIO_PROMPT" | "NEBULA_UI_STUDIO_CODE"
+  ): string => {
+    const re = new RegExp(`<!--\\s*${key}\\n([\\s\\S]*?)-->`, "m");
+    const match = content.match(re);
+    return match?.[1]?.trim() || "";
+  };
+
+  const upsertNebulaCommentSection = (
+    content: string,
+    key: "NEBULA_UI_STUDIO_PROMPT" | "NEBULA_UI_STUDIO_CODE",
+    value: string
+  ): string => {
+    const normalized = value.trim() || (key === "NEBULA_UI_STUDIO_PROMPT" ? "No prompt generated yet." : "No approved UI code yet.");
+    const section = `<!--\n${key}\n${normalized}\n-->`;
+    const re = new RegExp(`<!--\\s*${key}[\\s\\S]*?-->`, "m");
+    if (re.test(content)) return content.replace(re, section);
+    return `${section}\n\n${content}`;
+  };
+
+  ensureNebulaUiStudioFile();
 
   app.get("/api/master-plan/read", (req, res) => {
     try {
@@ -99,20 +149,17 @@ async function startServer() {
     }
 
     const tabNames: Record<number, string> = {
-      1: "1. The problem we are solving",
-      2: "2. Target user and context",
-      3: "3. Core features",
-      4: "4. User scale and load",
-      5: "5. Data requirements",
-      6: "6. Accessibility and inclusivity",
-      7: "7. Pages and navigation",
-      8: "8. Market and tech research",
-      9: "9. Question Tab"
+      1: "1. Goal of the app",
+      2: "2. Tech Research",
+      3: "3. Features and KPIs",
+      4: "4. Pages and navigation",
+      5: "5. UI/UX design",
+      6: "6. Development Plan (MVP)"
     };
 
     const tabName = tabNames[tabIndex as number];
     if (!tabName) {
-      return res.status(400).json({ error: "Invalid tabIndex. Must be 1-9." });
+      return res.status(400).json({ error: "Invalid tabIndex. Must be 1-6." });
     }
 
     try {
@@ -167,7 +214,7 @@ async function startServer() {
         'metadata.json', 'server.ts', '.env.example', 'firebase-applet-config.json',
         'master-plan.json', 'Nebula Architecture Spec.md', 'index.html', 'src', 'public',
         'firebase-blueprint.json', 'firestore.rules', 'DRAFT_firestore.rules',
-        'api', 'vercel.json', 'Audit_Report.md', '.gitignore'
+        'api', 'vercel.json', 'Audit_Report.md', '.gitignore', 'nebula-ui-studio.md', 'nebula-sysh-ui-sysh-studio.md'
       ]);
 
       const items = fs.readdirSync(targetDir, { withFileTypes: true });
@@ -352,16 +399,39 @@ async function startServer() {
     });
   });
 
-  app.post("/api/stitch/mockup", async (req, res) => {
+  app.post("/api/nebula-ui-studio/prompt", (req, res) => {
+    const { prompt } = req.body || {};
+    if (typeof prompt !== "string" || !prompt.trim()) {
+      return res.status(400).json({ error: "prompt is required" });
+    }
+    try {
+      ensureNebulaUiStudioFile();
+      const existing = fs.readFileSync(nebulaUiStudioPath, "utf8");
+      const withPrompt = upsertNebulaCommentSection(existing, "NEBULA_UI_STUDIO_PROMPT", prompt);
+      const existingCode = extractNebulaCommentSection(withPrompt, "NEBULA_UI_STUDIO_CODE");
+      const finalContent = upsertNebulaCommentSection(withPrompt, "NEBULA_UI_STUDIO_CODE", existingCode || "No approved UI code yet.");
+      fs.writeFileSync(nebulaUiStudioPath, finalContent, "utf8");
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Failed to save Nebula UI Studio prompt:", err);
+      res.status(500).json({ error: "Failed to save prompt" });
+    }
+  });
+
+  app.post("/api/nebula-ui-studio/generate", async (req, res) => {
     const { pagesText, branding } = req.body;
-    const apiKey = process.env.STITCH_API_KEY || process.env.GROK_API_KEY;
+    const apiKey = process.env.PENCIL_API_KEY;
+    const apiUrl = process.env.PENCIL_API_URL || "https://api.pencil.dev/v1/mockups/generate";
     
     if (!apiKey) {
-      console.error("Stitch API Key not set (tried STITCH_API_KEY and GROK_API_KEY)");
-      return res.status(500).json({ error: "Stitch API Key is not set. Please add STITCH_API_KEY in the Settings menu." });
+      console.error("Nebula UI Studio key not set (PENCIL_API_KEY)");
+      return res.status(500).json({ error: "Nebula UI Studio key is missing. Add PENCIL_API_KEY to .env." });
     }
 
     try {
+      ensureNebulaUiStudioFile();
+      const uiStudioFile = fs.readFileSync(nebulaUiStudioPath, "utf8");
+      const storedPrompt = extractNebulaCommentSection(uiStudioFile, "NEBULA_UI_STUDIO_PROMPT");
       const brandingPrompt = branding ? `
 Branding Context:
 - App Name: ${branding.appName}
@@ -370,38 +440,32 @@ Branding Context:
 - Style: ${branding.style}
 ` : '';
 
-      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'grok-beta',
-          messages: [{ 
-            role: 'user', 
-            content: `You are a world-class UI designer. Generate a high-fidelity, modern, and professional SVG mockup for a mobile application.
-
+          prompt: `${storedPrompt && storedPrompt !== "No prompt generated yet." ? storedPrompt : `Generate a high-fidelity mobile/web app SVG UI from the product plan.`}
 Master Plan Data:
-${pagesText || 'No pages defined yet.'}
+${pagesText || "No pages defined yet."}
 ${brandingPrompt}
 
 Requirements:
-1. Return ONLY valid SVG code.
-2. No markdown formatting (no \`\`\`svg blocks).
-3. No explanations or text outside the <svg> tag.
-4. The SVG should be standalone and render a complete screen or dashboard.
-5. Use the provided branding colors if available.
-6. Ensure all text is readable and components are well-spaced.` 
-          }],
-          stream: false
+1. Return valid SVG only.
+2. No markdown fences.
+3. Use provided brand colors and style.
+4. Ensure readable text and realistic spacing.
+5. Include modern production-ready component structure.`,
+          branding,
         }),
       });
 
       if (!response.ok) {
         const errBody = await response.text();
-        console.error("Stitch Engine Error Response:", errBody);
-        let errorMessage = `Stitch Engine Error: ${response.status}`;
+        console.error("Nebula UI Studio Engine Error Response:", errBody);
+        let errorMessage = `Nebula UI Studio Engine Error: ${response.status}`;
         try {
           const parsedErr = JSON.parse(errBody);
           if (parsedErr.error?.message) errorMessage += ` - ${parsedErr.error.message}`;
@@ -412,10 +476,51 @@ Requirements:
       }
 
       const data = await response.json();
-      res.json(data);
+      const svg =
+        data.svg ||
+        data.output?.svg ||
+        data.result?.svg ||
+        data.choices?.[0]?.message?.content ||
+        "";
+      res.json({ ...data, svg, usedPrompt: storedPrompt || "" });
     } catch (error) {
-      console.error("Error calling Stitch API:", error);
-      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to call Stitch API" });
+      console.error("Error calling Nebula UI Studio engine:", error);
+      captureError(error instanceof Error ? error : new Error(String(error)), {
+        source: "server",
+        route: "/api/nebula-ui-studio/generate",
+      });
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to call Nebula UI Studio engine" });
+    }
+  });
+
+  app.post("/api/nebula-ui-studio/approve", (req, res) => {
+    const { code } = req.body || {};
+    if (typeof code !== "string" || !code.trim()) {
+      return res.status(400).json({ error: "code is required" });
+    }
+    try {
+      ensureNebulaUiStudioFile();
+      const existing = fs.readFileSync(nebulaUiStudioPath, "utf8");
+      const promptText = extractNebulaCommentSection(existing, "NEBULA_UI_STUDIO_PROMPT") || "No prompt generated yet.";
+      const withPrompt = upsertNebulaCommentSection(existing, "NEBULA_UI_STUDIO_PROMPT", promptText);
+      const withCode = upsertNebulaCommentSection(withPrompt, "NEBULA_UI_STUDIO_CODE", code);
+      fs.writeFileSync(nebulaUiStudioPath, withCode, "utf8");
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Failed to save Nebula UI Studio code:", err);
+      res.status(500).json({ error: "Failed to save approved code" });
+    }
+  });
+
+  app.get("/api/nebula-ui-studio/code", (_req, res) => {
+    try {
+      ensureNebulaUiStudioFile();
+      const existing = fs.readFileSync(nebulaUiStudioPath, "utf8");
+      const code = extractNebulaCommentSection(existing, "NEBULA_UI_STUDIO_CODE");
+      res.json({ code: code || "" });
+    } catch (err) {
+      console.error("Failed to read Nebula UI Studio code:", err);
+      res.status(500).json({ error: "Failed to read Nebula UI Studio code" });
     }
   });
 
@@ -494,15 +599,21 @@ try {
   const data = await response.json();
   let responseText = data.choices?.[0]?.message?.content || '';
 
-  // Grok B (writer): standby until explicit ANSWER_Qn triggers from Grok 4
-  const answerTabMatches = [...responseText.matchAll(/\bANSWER_Q([1-9])\b/gi)];
+  // Grok B (writer): run as soon as meaningful summary content appears.
+  // ANSWER_Qn still works, but summaries alone are enough to start writing immediately.
+  const answerTabMatches = [...responseText.matchAll(/\bANSWER_Q([1-6])\b/gi)];
   const answerTabs = [...new Set(answerTabMatches.map((m) => parseInt(m[1], 10)))].sort(
     (a, b) => a - b
   );
-  const shouldRunWriter = answerTabs.length > 0;
+  const summaries = extractGrokBSummaries(responseText);
+  const summaryTabs = Object.keys(summaries)
+    .map((k) => parseInt(k, 10))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 6)
+    .sort((a, b) => a - b);
+  const shouldRunWriter = answerTabs.length > 0 || summaryTabs.length > 0;
   if (shouldRunWriter) {
-    const summaries = extractGrokBSummaries(responseText);
-    const summaryEntries = answerTabs
+    const targetTabs = answerTabs.length > 0 ? answerTabs : summaryTabs;
+    const summaryEntries = targetTabs
       .map((idx) => {
         const summary = summaries[idx];
         return summary ? ({ tabIndex: idx, summary } as const) : null;
@@ -539,8 +650,8 @@ try {
         .replace(/<APPROVE_MASTERPLAN>/g, '')
         .replace(/<APPROVE_MINDMAP>/g, '')
         .replace(/<APPROVE_UI>/g, '')
-        .replace(/<GROK_B_SUMMARY_Q([1-9])>[\s\S]*?<\/GROK_B_SUMMARY_Q\1>/g, '')
-        .replace(/\bANSWER_Q[1-9]\b/g, '')
+        .replace(/<GROK_B_SUMMARY_Q([1-6])>[\s\S]*?<\/GROK_B_SUMMARY_Q\1>/g, '')
+        .replace(/\bANSWER_Q[1-6]\b/g, '')
         .trim();
 
       if (cleanText) {
@@ -568,6 +679,10 @@ try {
       res.json(data);
     } catch (error) {
       console.error("Error calling GROK API:", error);
+      captureError(error instanceof Error ? error : new Error(String(error)), {
+        source: "server",
+        route: "/api/grok/chat",
+      });
       res.status(500).json({ error: "Failed to call GROK API", details: error instanceof Error ? error.message : String(error) });
     }
   });
@@ -586,9 +701,16 @@ try {
       res.send(audio);
     } catch (error) {
       console.error("TTS endpoint failed:", error);
+      captureError(error instanceof Error ? error : new Error(String(error)), {
+        source: "server",
+        route: "/api/speak",
+      });
       res.status(500).json({ error: "TTS failed" });
     }
   });
+
+  registerGuardianRoutes(app);
+  app.use(guardianExpressErrorHandler);
 
   // 404 for unknown /api/* only (avoid Express 4 `app.use('/api/*')` quirks with `*`)
   app.use((req, res, next) => {
@@ -630,6 +752,7 @@ try {
       console.log(`Server running on http://localhost:${PORT}`);
     });
     httpServer.on("error", (err: NodeJS.ErrnoException) => {
+      captureError(err, { source: "server", route: `listen:${PORT}`, detail: err.code });
       if (err.code === "EADDRINUSE") {
         console.error(
           `[nebula] Port ${PORT} is already in use. Quit the other dev server, or run: PORT=${PORT + 1} npm run dev`
@@ -642,8 +765,12 @@ try {
   }
 }
 
-startServer().catch(err => {
+startServer().catch((err) => {
   console.error("Failed to start server:", err);
+  captureError(err instanceof Error ? err : new Error(String(err)), {
+    source: "process",
+    detail: "startServer",
+  });
 });
 
 async function speak(text: string): Promise<Buffer> {
@@ -681,20 +808,17 @@ async function speak(text: string): Promise<Buffer> {
 }
 
 const MASTER_PLAN_SECTION_TITLES = [
-  "1. The problem we are solving",
-  "2. Target user and context",
-  "3. Core features",
-  "4. User scale and load",
-  "5. Data requirements",
-  "6. Accessibility and inclusivity",
-  "7. Pages and navigation",
-  "8. Market and tech research",
-  "9. Question Tab",
+  "1. Goal of the app",
+  "2. Tech Research",
+  "3. Features and KPIs",
+  "4. Pages and navigation",
+  "5. UI/UX design",
+  "6. Development Plan (MVP)",
 ] as const;
 
 function extractGrokBSummaries(responseText: string): Partial<Record<number, string>> {
   const out: Partial<Record<number, string>> = {};
-  const re = /<GROK_B_SUMMARY_Q([1-9])>([\s\S]*?)<\/GROK_B_SUMMARY_Q\1>/gi;
+  const re = /<GROK_B_SUMMARY_Q([1-6])>([\s\S]*?)<\/GROK_B_SUMMARY_Q\1>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(responseText)) !== null) {
     const tabIndex = parseInt(m[1], 10);

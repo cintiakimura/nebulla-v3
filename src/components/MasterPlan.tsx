@@ -7,16 +7,27 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
   const [planData, setPlanData] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [titles, setTitles] = useState<string[]>([
-    '1. The problem we are solving',
-    '2. Target user and context',
-    '3. Core features',
-    '4. User scale and load',
-    '5. Data requirements',
-    '6. Accessibility and inclusivity',
-    '7. Pages and navigation',
-    '8. Market and tech research',
-    '9. Question Tab'
+    '1. Goal of the app',
+    '2. Tech Research',
+    '3. Features and KPIs',
+    '4. Pages and navigation',
+    '5. UI/UX design',
+    '6. Development Plan (MVP)'
   ]);
+  const tabDescriptions: Record<string, string> = {
+    '1. Goal of the app':
+      'Tell me what this app is supposed to do. The more detail you give, the better I can help you.',
+    '2. Tech Research':
+      "I'll show you similar tools that already exist, what features they use, and features that are validated and backed by science, real studies or data. This helps us choose the smartest features for your app strategically.",
+    '3. Features and KPIs':
+      "From the research, we'll pick the best features and for each feature, we'll define clear success criteria (KPIs), so we can test the MVP per phase before moving to the next development phase.",
+    '4. Pages and navigation':
+      "This page defines roles, divides features per role, and captures your expectations from landing page to checkout. We'll map everything in the Mind Map so every page has its own interactive node and clearly shows which user type uses each page.",
+    '5. UI/UX design':
+      "After pages are approved, Nebula UI Studio (Pencil) generates a complete design from previous tabs. You can edit it, regenerate it, and approve the final UI/UX before moving on.",
+    '6. Development Plan (MVP)':
+      "Internal delivery tab: phases cover app build and release. Nebula provisions one Render workspace per client under our main account; that workspace ID is the permanent internal client ID, stored only server-side—never shown here. All services and databases for the client live in that workspace; you only see project name and nebulla.dev-facing context.",
+  };
 
   const fetchPlan = async () => {
     try {
@@ -71,17 +82,47 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     let content = planData[title] || '';
     
     // Special case for Pages and Navigation which is dynamic from Mind Map
-    if (index === 6) {
+    if (index === 3) {
       content = pagesText;
     }
 
-    return { id, title, content };
+    return { id, title, content, helpText: tabDescriptions[title] || '' };
   });
+  const visibleSections = PLAN_SECTIONS.slice(0, 5);
 
-  const [activeTab, setActiveTab] = useState(PLAN_SECTIONS[0].id);
+  const [activeTab, setActiveTab] = useState(visibleSections[0].id);
   const [isSaved, setIsSaved] = useState(true);
 
-  const activeSection = PLAN_SECTIONS.find(s => s.id === activeTab);
+  useEffect(() => {
+    const openTabFromNumber = (tabNumber: number) => {
+      const section = visibleSections[tabNumber - 1];
+      if (section) setActiveTab(section.id);
+    };
+
+    try {
+      const pending = localStorage.getItem('nebula_master_plan_open_tab');
+      if (pending) {
+        const tabNumber = Number(pending);
+        if (Number.isInteger(tabNumber)) openTabFromNumber(tabNumber);
+        localStorage.removeItem('nebula_master_plan_open_tab');
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const handleOpenTab = (event: Event) => {
+      const customEvent = event as CustomEvent<{ tabNumber?: number }>;
+      const tabNumber = customEvent?.detail?.tabNumber;
+      if (typeof tabNumber === 'number') openTabFromNumber(tabNumber);
+    };
+
+    window.addEventListener('nebula-open-master-plan-tab', handleOpenTab as EventListener);
+    return () => {
+      window.removeEventListener('nebula-open-master-plan-tab', handleOpenTab as EventListener);
+    };
+  }, [visibleSections]);
+
+  const activeSection = visibleSections.find(s => s.id === activeTab);
   const activeContent = activeSection?.content || (loading ? 'Loading...' : 'No content generated yet by GROK B.');
 
   const handleSave = async () => {
@@ -121,7 +162,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar Tabs */}
         <div className="w-64 border-r border-white/5 bg-black/20 p-3 flex flex-col gap-1 overflow-y-auto">
-          {PLAN_SECTIONS.map(section => (
+          {visibleSections.map(section => (
             <button
               key={section.id}
               onClick={() => setActiveTab(section.id)}
@@ -139,6 +180,11 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
         {/* Content Area (Read-only Doc) */}
         <div className="flex-1 bg-[#020810] p-8 overflow-y-auto">
           <div className="max-w-3xl mx-auto bg-white/[0.02] border border-white/5 rounded-xl p-8 min-h-full shadow-lg prose prose-invert prose-sm max-w-none prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 prose-pre:p-2 prose-pre:rounded-md prose-table:border prose-table:border-white/10 prose-th:bg-white/5 prose-th:p-2 prose-td:p-2 prose-td:border-t prose-td:border-white/10">
+            {activeSection?.helpText ? (
+              <p style={{ color: '#00c600' }} className="text-sm leading-relaxed mb-4">
+                {activeSection.helpText}
+              </p>
+            ) : null}
             <ReactMarkdown>
               {activeContent || ''}
             </ReactMarkdown>

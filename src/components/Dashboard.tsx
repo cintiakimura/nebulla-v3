@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PlusCircle, Handshake, Github, Save } from 'lucide-react';
+import { PlusCircle, Handshake, Github, Save, FolderOpen, Trash2 } from 'lucide-react';
 import { NEBULLA_GROK_KEY_STORAGE } from '../lib/grokKey';
 
 export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | 'secrets';
@@ -9,9 +9,26 @@ interface DashboardProps {
   onTabChange: (tab: DashboardTab) => void;
   projectName: string;
   onProjectNameChange: (name: string) => void;
+  projects: { key: string; name: string; updatedAt: string }[];
+  activeProjectKey: string;
+  onOpenProject: (key: string) => void;
+  onDeleteProject: (key: string) => void;
+  onCreateBlankProject: () => void;
+  onStartFlow: (kind: 'prompt' | 'github' | 'brainstorm') => void;
 }
 
-export function Dashboard({ activeTab, onTabChange, projectName, onProjectNameChange }: DashboardProps) {
+export function Dashboard({
+  activeTab,
+  onTabChange,
+  projectName,
+  onProjectNameChange,
+  projects,
+  activeProjectKey,
+  onOpenProject,
+  onDeleteProject,
+  onCreateBlankProject,
+  onStartFlow,
+}: DashboardProps) {
   return (
     <div className="flex-1 flex flex-col h-full bg-[#040f1a]/40 backdrop-blur-sm border border-white/5 rounded-lg overflow-hidden">
       {/* Dashboard Header */}
@@ -32,9 +49,15 @@ export function Dashboard({ activeTab, onTabChange, projectName, onProjectNameCh
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto">
           {activeTab === 'projects' && (
-            <ProjectsTab 
-              projectName={projectName} 
-              onProjectNameChange={onProjectNameChange} 
+            <ProjectsTab
+              projectName={projectName}
+              onProjectNameChange={onProjectNameChange}
+              projects={projects}
+              activeProjectKey={activeProjectKey}
+              onOpenProject={onOpenProject}
+              onDeleteProject={onDeleteProject}
+              onCreateBlankProject={onCreateBlankProject}
+              onStartFlow={onStartFlow}
             />
           )}
           {activeTab === 'project-settings' && <ProjectSettingsTab />}
@@ -46,64 +69,158 @@ export function Dashboard({ activeTab, onTabChange, projectName, onProjectNameCh
   );
 }
 
-function ProjectsTab({ projectName, onProjectNameChange }: { projectName: string, onProjectNameChange: (name: string) => void }) {
+function ProjectsTab({
+  projectName,
+  onProjectNameChange,
+  projects,
+  activeProjectKey,
+  onOpenProject,
+  onDeleteProject,
+  onCreateBlankProject,
+  onStartFlow,
+}: {
+  projectName: string;
+  onProjectNameChange: (name: string) => void;
+  projects: { key: string; name: string; updatedAt: string }[];
+  activeProjectKey: string;
+  onOpenProject: (key: string) => void;
+  onDeleteProject: (key: string) => void;
+  onCreateBlankProject: () => void;
+  onStartFlow: (kind: 'prompt' | 'github' | 'brainstorm') => void;
+}) {
+  const formatWhen = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch {
+      return iso;
+    }
+  };
+
   return (
-    <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+    <div className="space-y-10 animate-in slide-in-from-right-4 duration-300">
       <div>
-        <h3 className="text-xl font-headline text-cyan-300 mb-1">Create New Project</h3>
-        <p className="text-sm text-slate-500 mb-6">Choose a starting point for your next architecture.</p>
+        <h3 className="text-xl font-headline text-cyan-300 mb-1">Your projects</h3>
+        <p className="text-sm text-slate-500 mb-4">
+          Open a saved workspace, rename the active one below, or remove a project you no longer need.
+        </p>
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="flex-1">
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 font-headline">Active project name</label>
+            <input
+              type="text"
+              value={projectName}
+              onChange={(e) => onProjectNameChange(e.target.value)}
+              className="mt-1 w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+            />
+          </div>
+        </div>
+        {projects.length === 0 ? (
+          <p className="text-sm text-slate-500 border border-dashed border-white/10 rounded-xl p-6 text-center">
+            No saved projects yet. Create one below.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {projects.map((p) => {
+              const isActive = p.key === activeProjectKey;
+              return (
+                <li
+                  key={p.key}
+                  className={`flex flex-wrap items-center gap-2 justify-between rounded-xl border px-4 py-3 ${
+                    isActive ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-white/10 bg-white/5'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm text-slate-100 font-headline truncate">{p.name}</div>
+                    <div className="text-[11px] text-slate-500">Updated {formatWhen(p.updatedAt)}</div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!isActive && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenProject(p.key)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-headline bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 hover:bg-cyan-500/25"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        Open
+                      </button>
+                    )}
+                    {isActive && (
+                      <span className="text-[10px] uppercase tracking-wider text-cyan-400/90 font-headline">Active</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onDeleteProject(p.key)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20"
+                      title="Delete project"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* New Project Starters */}
-        <div className="p-6 border border-cyan-500/30 rounded-xl bg-cyan-500/5 hover:bg-cyan-500/10 transition-all cursor-pointer group flex flex-col items-center text-center gap-4"
-          onClick={() => {
-            const prompt = window.prompt('Paste your written prompt:');
-            if (prompt && (window as any).nebula_handleSendText) {
-              (window as any).nebula_handleSendText(prompt);
-            }
-          }}
-        >
-          <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
-            <PlusCircle className="w-6 h-6" />
-          </div>
-          <div>
-            <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Written Prompt</h4>
-            <p className="text-xs text-slate-500">Generate from a description</p>
-          </div>
+
+      <div>
+        <h3 className="text-xl font-headline text-cyan-300 mb-1">Create new project</h3>
+        <p className="text-sm text-slate-500 mb-6">Starts a fresh mind map and workspace, then runs your chosen flow.</p>
+
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={onCreateBlankProject}
+            className="px-4 py-2 rounded-lg text-sm font-headline bg-white/10 text-slate-200 border border-white/15 hover:bg-white/15"
+          >
+            New blank project
+          </button>
         </div>
 
-        <div className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all cursor-pointer group flex flex-col items-center text-center gap-4"
-          onClick={() => {
-            const repo = window.prompt('Paste GitHub repository link:');
-            if (repo && (window as any).nebula_handleSendText) {
-              (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
-            }
-          }}
-        >
-          <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-slate-400 group-hover:text-white transition-colors">
-            <Github className="w-6 h-6" />
-          </div>
-          <div>
-            <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Clone GitHub</h4>
-            <p className="text-xs text-slate-500">Import existing repository</p>
-          </div>
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <button
+            type="button"
+            onClick={() => void onStartFlow('prompt')}
+            className="p-6 border border-cyan-500/30 rounded-xl bg-cyan-500/5 hover:bg-cyan-500/10 transition-all flex flex-col items-center text-center gap-4 text-left"
+          >
+            <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <PlusCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-slate-200 font-headline mb-1">Written prompt</h4>
+              <p className="text-xs text-slate-500">New project, then send a description to the assistant</p>
+            </div>
+          </button>
 
-        <div className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all cursor-pointer group flex flex-col items-center text-center gap-4"
-          onClick={() => {
-            if ((window as any).nebula_toggleLive) {
-              (window as any).nebula_toggleLive();
-            }
-          }}
-        >
-          <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-400 group-hover:scale-110 transition-transform">
-            <Handshake className="w-6 h-6" />
-          </div>
-          <div>
-            <h4 className="text-slate-200 font-headline mb-1 group-hover:text-cyan-300 transition-colors">Brainstorm</h4>
-            <p className="text-xs text-slate-500">Collaborate with AI partner</p>
-          </div>
+          <button
+            type="button"
+            onClick={() => void onStartFlow('github')}
+            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left"
+          >
+            <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-slate-400">
+              <Github className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-slate-200 font-headline mb-1">Clone GitHub</h4>
+              <p className="text-xs text-slate-500">New project, then analyze a repository</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void onStartFlow('brainstorm')}
+            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left"
+          >
+            <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-400">
+              <Handshake className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-slate-200 font-headline mb-1">Brainstorm</h4>
+              <p className="text-xs text-slate-500">New project, then open voice session</p>
+            </div>
+          </button>
         </div>
       </div>
     </div>
@@ -212,7 +329,7 @@ function SecretsTab() {
           <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-slate-500 text-lg">api</span>
-              <span className="text-sm text-slate-300 font-mono">STITCH_API_KEY</span>
+              <span className="text-sm text-slate-300 font-mono">PENCIL_API_KEY</span>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-xs text-slate-500">Active</span>

@@ -5,9 +5,6 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
 ENV NODE_ENV=production
-# Render passes Dashboard env vars as Docker build-args (same name). Required for Vite to bake public client config.
-ARG VITE_PUBLIC_SITE_URL
-ENV VITE_PUBLIC_SITE_URL=$VITE_PUBLIC_SITE_URL
 RUN npm run build
 RUN npm prune --omit=dev
 

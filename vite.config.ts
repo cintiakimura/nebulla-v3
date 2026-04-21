@@ -89,6 +89,11 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL ?? ''),
       'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY ?? ''),
+      'process.env.DEV_LOCAL_AUTH': JSON.stringify(env.DEV_LOCAL_AUTH ?? ''),
+      'process.env.DEV_LOCAL_GITHUB_UID': JSON.stringify(env.DEV_LOCAL_GITHUB_UID ?? ''),
+      'process.env.DEV_LOCAL_GITHUB_NAME': JSON.stringify(env.DEV_LOCAL_GITHUB_NAME ?? ''),
+      'process.env.DEV_LOCAL_GITHUB_EMAIL': JSON.stringify(env.DEV_LOCAL_GITHUB_EMAIL ?? ''),
+      'process.env.DEV_LOCAL_GITHUB_AVATAR': JSON.stringify(env.DEV_LOCAL_GITHUB_AVATAR ?? ''),
     },
     server: {
       hmr: {

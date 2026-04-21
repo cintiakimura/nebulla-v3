@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   ReactFlow,
+  ReactFlowProvider,
   Controls,
   Background,
   applyNodeChanges,
@@ -210,18 +211,18 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
   const nodeToDeleteData = pages.find((n: Node) => n.id === nodeToDelete);
 
   return (
-    <div className="w-full h-full relative bg-[#020810] rounded-md overflow-hidden border border-white/5 shadow-2xl">
-      <ReactFlow
-        nodes={nodesWithCallbacks}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        fitView
-        className="bg-transparent"
-        colorMode="dark"
-      >
+    <div className="w-full min-h-0 h-[min(70vh,720px)] min-h-[320px] relative bg-[#020810] rounded-md overflow-hidden border border-white/5 shadow-2xl">
+      <ReactFlowProvider>
+        <ReactFlow
+          nodes={nodesWithCallbacks}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+          className="bg-transparent"
+        >
         <Background color="#00ffff" gap={16} size={1} />
         <Controls className="bg-[#040f1a] border border-white/10 fill-cyan-300 text-cyan-300" />
         <Panel position="top-left" className="m-4 flex gap-2">
@@ -264,7 +265,8 @@ Please review this architecture and ensure the implementation is up to date.`);
             Push to AI
           </button>
         </Panel>
-      </ReactFlow>
+        </ReactFlow>
+      </ReactFlowProvider>
 
       {/* Connect Edge Confirm Modal */}
       {showConnectConfirm && (
