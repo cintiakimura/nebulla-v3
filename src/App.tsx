@@ -12,8 +12,15 @@ import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
 import { LoginOAuthHints } from './components/LoginOAuthHints';
 import { Logo } from './components/Logo';
-import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { getAppOAuthCallbackUrl } from './lib/authRedirect';
+import {
+  fetchSessionUser,
+  logoutNebula,
+  listCloudProjects,
+  getCloudProject,
+  upsertCloudProject,
+  deleteCloudProject,
+} from './lib/nebulaCloud';
+import { getGithubOAuthCallbackUrl, getGoogleOAuthCallbackUrl } from './lib/authRedirect';
 import { readResponseJson } from './lib/apiFetch';
 import { installNebulaGuardianClient } from './lib/nebulaGuardianClient';
 import {
@@ -237,6 +244,28 @@ export default function App() {
     setDashboardTab(null);
   };
 
+  /** While Nebula UI Studio runs generation, surface the prompt manifest in the editor. */
+  const openNebulaUiStudioMarkdownForStudio = () => {
+    setCurrentPath('.');
+    setSelectedFile('nebula-sysh-ui-sysh-studio.md');
+    setShowCodePreview(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/files/content?path=${encodeURIComponent('nebula-sysh-ui-sysh-studio.md')}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setFileContent(data.content);
+        } else {
+          setFileContent('// Could not load nebula-sysh-ui-sysh-studio.md');
+        }
+      } catch {
+        setFileContent('// Could not load nebula-sysh-ui-sysh-studio.md');
+      }
+    })();
+  };
+
   const handleGoBack = () => {
     if (currentPath === '.') return;
     const parts = currentPath.split('/');
@@ -299,77 +328,49 @@ export default function App() {
       return;
     }
 
-    if (!isSupabaseConfigured) {
+    if (config === null) {
       hydrateGuestWorkspace();
       return;
     }
 
-    const mapSessionUser = (sessionUser: {
-      id: string;
-      email?: string | null;
-      user_metadata: Record<string, unknown>;
-    }) => {
-      const meta = sessionUser.user_metadata || {};
-      const dn =
-        (typeof meta.full_name === 'string' && meta.full_name) ||
-        sessionUser.email?.split('@')[0] ||
-        'User';
-      const av = meta.avatar_url;
+    if (!config.cloudStorageReady) {
+      hydrateGuestWorkspace();
+      return;
+    }
+
+    const mapNebulaUser = (u: { uid: string; displayName: string | null; email: string | null; photoURL: string | null }) =>
       setUser({
-        uid: sessionUser.id,
-        displayName: dn,
-        email: sessionUser.email || null,
-        photoURL: typeof av === 'string' ? av : null,
+        uid: u.uid,
+        displayName: u.displayName,
+        email: u.email,
+        photoURL: u.photoURL,
         role: 'user',
       });
-    };
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) mapSessionUser(session.user);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) mapSessionUser(session.user);
-      else setUser(null);
-    });
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session?.user) mapSessionUser(session.user);
-        });
-      }
-    };
-    window.addEventListener('message', handleMessage);
 
     const loadCloudOrGuest = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.user) {
+      const sessionUser = await fetchSessionUser();
+      if (!sessionUser) {
+        setUser(null);
         hydrateGuestWorkspace();
         return;
       }
 
-      const { data: rows, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('updated_at', { ascending: false });
-
-      if (error || !rows?.length) {
+      mapNebulaUser(sessionUser);
+      const rows = await listCloudProjects();
+      if (!rows.length) {
         hydrateGuestWorkspace();
         return;
       }
 
       setProjectsSource('cloud');
       setProjectListUi(
-        rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
+        rows.map((r) => ({
+          key: r.name,
+          name: r.name,
+          updatedAt: r.updated_at || new Date().toISOString(),
+        }))
       );
-      const activeName =
-        localStorage.getItem(ACTIVE_CLOUD_PROJECT_NAME_KEY) || rows[0].name;
+      const activeName = localStorage.getItem(ACTIVE_CLOUD_PROJECT_NAME_KEY) || rows[0].name;
       const row = rows.find((r) => r.name === activeName) || rows[0];
       localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, row.name);
       if (row.pages) setPages(row.pages as typeof initialPages);
@@ -377,13 +378,19 @@ export default function App() {
       if (row.name) setProjectName(row.name);
     };
 
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        void loadCloudOrGuest();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+
     void loadCloudOrGuest();
 
     return () => {
-      subscription.unsubscribe();
       window.removeEventListener('message', handleMessage);
     };
-  }, [localDevUser, isSupabaseConfigured]);
+  }, [localDevUser, config]);
 
   useEffect(() => {
     fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
@@ -468,28 +475,15 @@ export default function App() {
       return;
     }
 
-    const { error } = await supabase.from('projects').upsert(
-      {
-        user_id: user.uid,
-        name: projectName,
-        pages,
-        edges,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,name' }
-    );
+    const ok = await upsertCloudProject({ name: projectName, pages, edges });
 
-    if (error) {
-      console.error('Error saving to Supabase:', error);
+    if (!ok) {
+      console.error('Error saving project to Render PostgreSQL');
       alert('Failed to save project to cloud. A copy is still in this browser.');
     } else {
       localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, projectName);
-      const { data: rows } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('user_id', user.uid)
-        .order('updated_at', { ascending: false });
-      if (rows) {
+      const rows = await listCloudProjects();
+      if (rows.length) {
         setProjectListUi(
           rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
         );
@@ -530,28 +524,15 @@ export default function App() {
 
     if (!user) return;
 
-    const { error } = await supabase.from('projects').upsert(
-      {
-        user_id: user.uid,
-        name: newName,
-        pages: blankPages,
-        edges: blankEdges,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,name' }
-    );
-    if (error) {
-      console.error(error);
-      alert('Could not create a new cloud project. Try again after checking Supabase.');
+    const created = await upsertCloudProject({ name: newName, pages: blankPages, edges: blankEdges });
+    if (!created) {
+      console.error('Cloud project create failed');
+      alert('Could not create a new cloud project. Check DATABASE_URL and session, then try again.');
       return;
     }
     localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, newName);
-    const { data: rows } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('user_id', user.uid)
-      .order('updated_at', { ascending: false });
-    if (rows) {
+    const rows = await listCloudProjects();
+    if (rows.length) {
       setProjectListUi(
         rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
       );
@@ -593,24 +574,10 @@ export default function App() {
 
     if (!user) return;
 
-    await supabase.from('projects').upsert(
-      {
-        user_id: user.uid,
-        name: projectName,
-        pages,
-        edges,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,name' }
-    );
+    await upsertCloudProject({ name: projectName, pages, edges });
 
     localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, key);
-    const { data: row } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('user_id', user.uid)
-      .eq('name', key)
-      .maybeSingle();
+    const row = await getCloudProject(key);
 
     if (row?.pages) setPages(row.pages as typeof initialPages);
     if (row?.edges) setEdges(row.edges as typeof initialEdges);
@@ -644,13 +611,9 @@ export default function App() {
     }
     void (async () => {
       if (!user) return;
-      await supabase.from('projects').delete().eq('user_id', user.uid).eq('name', key);
-      const { data: rows } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('user_id', user.uid)
-        .order('updated_at', { ascending: false });
-      if (rows?.length) {
+      await deleteCloudProject(key);
+      const rows = await listCloudProjects();
+      if (rows.length) {
         setProjectListUi(
           rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
         );
@@ -825,77 +788,43 @@ export default function App() {
   };
 
   const handleGithubLogin = async (): Promise<boolean> => {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase is not configured; add SUPABASE_URL and SUPABASE_ANON_KEY to .env');
-      alert('Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.');
+    if (!config?.cloudStorageReady) {
+      alert('Cloud database is not configured on the server (set DATABASE_URL on Render).');
       return false;
     }
-    const redirectUrl = getAppOAuthCallbackUrl();
-    console.log("[AUTH] Initiating GitHub login with redirect:", redirectUrl);
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: {
-        redirectTo: redirectUrl,
-        skipBrowserRedirect: true,
-      },
-    });
-
-    if (error) {
-      console.error("GitHub Login Error:", error.message);
-      alert(`GitHub login failed: ${error.message}`);
+    if (!config?.githubOAuthReady) {
+      alert('GitHub OAuth is not configured (GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on the server).');
       return false;
     }
-
-    if (data?.url) {
-      window.open(data.url, 'nebula_auth_popup', 'width=600,height=700');
-      return true;
-    }
-    return false;
+    console.log('[AUTH] GitHub OAuth callback must be:', getGithubOAuthCallbackUrl());
+    window.open('/api/auth/github', 'nebula_auth_popup', 'width=600,height=700');
+    return true;
   };
 
   const handleGoogleLogin = async (): Promise<boolean> => {
-    if (!isSupabaseConfigured) {
-      console.warn('Supabase is not configured; add SUPABASE_URL and SUPABASE_ANON_KEY to .env');
-      alert('Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.');
+    if (!config?.cloudStorageReady) {
+      alert('Cloud database is not configured on the server (set DATABASE_URL on Render).');
       return false;
     }
-    const redirectUrl = getAppOAuthCallbackUrl();
-    console.log("[AUTH] Initiating Google login with redirect:", redirectUrl);
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl,
-        skipBrowserRedirect: true,
-      },
-    });
-
-    if (error) {
-      console.error("Google Login Error:", error.message);
-      alert(`Google login failed: ${error.message}`);
+    if (!config?.googleOAuthReady) {
+      alert('Google OAuth is not configured (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server).');
       return false;
     }
-
-    if (data?.url) {
-      window.open(data.url, 'nebula_auth_popup', 'width=600,height=700');
-      return true;
-    }
-    return false;
+    console.log('[AUTH] Google OAuth redirect must be:', getGoogleOAuthCallbackUrl());
+    window.open('/api/auth/google', 'nebula_auth_popup', 'width=600,height=700');
+    return true;
   };
-  
+
   const handleLogout = async () => {
     if (localDevUser) {
       console.log('Local Dev Auth is enabled on localhost; logout is disabled in this mode.');
       return;
     }
 
-    if (!isSupabaseConfigured) {
-      setUser(null);
-      localStorage.removeItem('nebula_user');
-      return;
-    }
-    await supabase.auth.signOut();
+    await logoutNebula();
     setUser(null);
     localStorage.removeItem('nebula_user');
+    hydrateGuestWorkspace();
   };
 
   const handleTerminalSubmit = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1277,7 +1206,11 @@ export default function App() {
                 </div>
               ) : showPencilStudio ? (
                 <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                  <PencilStudio onLock={handleLockDesign} pagesText={pagesText} />
+                  <PencilStudio
+                    onLock={handleLockDesign}
+                    pagesText={pagesText}
+                    onBeforeGenerate={openNebulaUiStudioMarkdownForStudio}
+                  />
                 </div>
               ) : showMasterPlan ? (
                 <div className="flex-1 flex flex-col min-h-0">
@@ -1522,7 +1455,7 @@ export function NebulaInterface() {
             <div className="flex justify-between items-start">
               <div className="flex flex-col gap-1">
                 <h2 className="text-2xl font-headline text-slate-100">Login / Sign up & Sync</h2>
-                <p className="text-slate-400 text-sm">You will see your Supabase project URL first, then Google or GitHub — that is expected. After login, this window returns to Nebulla.</p>
+                <p className="text-slate-400 text-sm">A small window opens for Google or GitHub. After you approve access, it closes and Nebulla syncs your session with the Render-hosted API.</p>
               </div>
               <button 
                 onClick={() => setShowLoginModal(false)}
@@ -1575,15 +1508,29 @@ export function NebulaInterface() {
 }
 
 function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-  const [status, setStatus] = useState<{ url: boolean, key: boolean }>({ url: false, key: false });
+  const [status, setStatus] = useState<{
+    cloud: boolean;
+    github: boolean;
+    google: boolean;
+    publicSiteUrl: string;
+  }>({ cloud: false, github: false, google: false, publicSiteUrl: '' });
 
   useEffect(() => {
     fetch('/api/config')
-      .then(async (res) => readResponseJson<{ supabaseUrl?: string; supabaseAnonKey?: string }>(res))
-      .then(config => {
+      .then(async (res) =>
+        readResponseJson<{
+          cloudStorageReady?: boolean;
+          githubOAuthReady?: boolean;
+          googleOAuthReady?: boolean;
+          publicSiteUrl?: string;
+        }>(res)
+      )
+      .then((c) => {
         setStatus({
-          url: !!config.supabaseUrl,
-          key: !!config.supabaseAnonKey
+          cloud: !!c.cloudStorageReady,
+          github: !!c.githubOAuthReady,
+          google: !!c.googleOAuthReady,
+          publicSiteUrl: (c.publicSiteUrl || '').trim(),
         });
       })
       .catch(console.error);
@@ -1591,8 +1538,9 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
 
   if (!isOpen) return null;
 
-  const callbackUrl = getAppOAuthCallbackUrl();
-  
+  const gh = getGithubOAuthCallbackUrl();
+  const ggl = getGoogleOAuthCallbackUrl();
+
   return (
     <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-[#0b1219] border border-white/10 rounded-2xl p-6 max-w-2xl w-full shadow-2xl flex flex-col gap-6 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
@@ -1600,18 +1548,27 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 text-cyan-300">
               <Key className="w-5 h-5" />
-              <h2 className="text-xl font-headline font-normal">OAuth Setup Guide</h2>
+              <h2 className="text-xl font-headline font-normal">OAuth (Render)</h2>
             </div>
-            <div className="flex gap-4 mt-1">
-              <span className={`text-[10px] flex items-center gap-1 ${status.url ? 'text-green-400' : 'text-red-400'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${status.url ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                SUPABASE_URL
+            <div className="flex flex-wrap gap-3 mt-1">
+              <span className={`text-[10px] flex items-center gap-1 ${status.cloud ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${status.cloud ? 'bg-green-400' : 'bg-red-400'}`}></span>
+                DATABASE_URL
               </span>
-              <span className={`text-[10px] flex items-center gap-1 ${status.key ? 'text-green-400' : 'text-red-400'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${status.key ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                SUPABASE_ANON_KEY
+              <span className={`text-[10px] flex items-center gap-1 ${status.github ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${status.github ? 'bg-green-400' : 'bg-red-400'}`}></span>
+                GitHub OAuth
+              </span>
+              <span className={`text-[10px] flex items-center gap-1 ${status.google ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${status.google ? 'bg-green-400' : 'bg-red-400'}`}></span>
+                Google OAuth
               </span>
             </div>
+            {status.publicSiteUrl ? (
+              <p className="text-[10px] text-slate-500">
+                PUBLIC_SITE_URL (server): <code className="text-cyan-500/90">{status.publicSiteUrl}</code>
+              </p>
+            ) : null}
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 transition-colors">
             <X className="w-5 h-5" />
@@ -1622,16 +1579,23 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
           <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
             <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">1</span>
-              Configure Supabase (Critical)
+              GitHub OAuth App
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              Supabase needs to know this specific preview environment is allowed. 
-              Go to your <a href="https://supabase.com/dashboard/project/_/auth/url-configuration" target="_blank" className="text-cyan-400 hover:underline">Supabase Dashboard</a> &gt; <b>Auth</b> &gt; <b>URL Configuration</b> and add this exactly to <b>"Additional Redirect URIs"</b>:
+              In{' '}
+              <a href="https://github.com/settings/developers" target="_blank" className="text-cyan-400 hover:underline" rel="noreferrer">
+                GitHub → Settings → Developer settings → OAuth Apps
+              </a>
+              , set <b>Authorization callback URL</b> to exactly:
             </p>
             <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
-              <code className="text-[10px] text-cyan-500 font-mono break-all">{callbackUrl}</code>
-              <button 
-                onClick={() => { navigator.clipboard.writeText(callbackUrl); alert('Copied!'); }}
+              <code className="text-[10px] text-cyan-500 font-mono break-all">{gh}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(gh);
+                  alert('Copied!');
+                }}
                 className="p-1 px-2 text-[10px] bg-white/5 hover:bg-white/10 text-slate-400 rounded transition-all"
               >
                 Copy
@@ -1642,33 +1606,50 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
           <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
             <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">2</span>
-              Configure Google Cloud (Fixes "Access Blocked")
+              Google Cloud OAuth client
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              If Google says "Blocked" or "Redirect URI mismatch", you must whitelist your unique <b>Supabase Auth URL</b> in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-cyan-400 hover:underline">Google Cloud Console</a>.
+              In{' '}
+              <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-cyan-400 hover:underline" rel="noreferrer">
+                Google Cloud → APIs &amp; Services → Credentials
+              </a>
+              , add this under <b>Authorized redirect URIs</b> (must match your Render Web Service URL):
             </p>
-            <p className="text-[10px] text-slate-500 pl-7 italic">
-              Find this URL in Supabase under Auth &gt; Providers &gt; Google (it's labeled as "Callback URL"). 
-              <b> It will look like: <code>https://[your-id].supabase.co/auth/v1/callback</code></b>
-            </p>
+            <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
+              <code className="text-[10px] text-cyan-500 font-mono break-all">{ggl}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(ggl);
+                  alert('Copied!');
+                }}
+                className="p-1 px-2 text-[10px] bg-white/5 hover:bg-white/10 text-slate-400 rounded transition-all"
+              >
+                Copy
+              </button>
+            </div>
           </section>
 
           <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
             <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">3</span>
-              Fix GitHub Redirects
+              Render environment
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              If GitHub opens your website instead of the IDE, it's because Step 1 wasn't completed properly. GitHub defaults to your main "Site URL" if the redirect URI isn't exactly matched in your Supabase whitelist.
+              On your Render Web Service, set <code className="text-cyan-500/80">DATABASE_URL</code> from your Render
+              PostgreSQL instance, <code className="text-cyan-500/80">SESSION_SECRET</code> (strong random), provider
+              secrets, and <code className="text-cyan-500/80">PUBLIC_SITE_URL</code> to the public HTTPS URL of this
+              service so OAuth redirects stay stable behind proxies.
             </p>
           </section>
         </div>
 
-        <button 
+        <button
+          type="button"
           onClick={onClose}
           className="w-full py-3 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 rounded-xl hover:bg-cyan-500/30 transition-all font-headline text-sm"
         >
-          I've updated my settings
+          I&apos;ve updated my settings
         </button>
       </div>
     </div>

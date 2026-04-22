@@ -15,6 +15,7 @@ import {
   guardianExpressErrorHandler,
   captureError,
 } from "./guardian/nebulaGuardian";
+import { mountRenderStack, getRenderPublicConfig } from "./renderStack";
 
 dotenv.config({ path: path.join(process.cwd(), ".env") });
 
@@ -24,32 +25,13 @@ const PORT = Number(process.env.PORT) || 3000;
 async function startServer() {
   initGuardianProcessHandlers();
 
-  // Behind Railway / Render / Fly / nginx so `req.ip` and secure cookies behave correctly.
-  if (!process.env.VERCEL) {
-    app.set("trust proxy", 1);
-  }
+  // Behind Railway / Render / Fly / nginx / Docker — correct client IPs and secure cookies.
+  app.set("trust proxy", 1);
 
   app.use(express.json({ limit: '50mb' }) as any);
   app.use(express.urlencoded({ extended: true, limit: '50mb' }) as any);
 
-  // Vercel: `req.url` may be stripped; `originalUrl` may be a full URL (`https://host/api/...`).
-  // Express must see pathname + query only (e.g. `/api/health`) — a full URL here crashes routing → 500.
-  if (process.env.VERCEL) {
-    app.use((req, _res, next) => {
-      const raw = (req.originalUrl ?? req.url ?? "/").trim() || "/";
-      if (/^https?:\/\//i.test(raw)) {
-        try {
-          const u = new URL(raw);
-          req.url = u.pathname + u.search;
-        } catch {
-          req.url = raw;
-        }
-      } else {
-        req.url = raw;
-      }
-      next();
-    });
-  }
+  await mountRenderStack(app);
 
   // LOGGING MIDDLEWARE
   app.use((req, res, next) => {
@@ -64,15 +46,11 @@ async function startServer() {
     const grok = process.env.GROK_API_KEY?.trim() ?? "";
     const tts = process.env.GROK_TTS_API_KEY?.trim() ?? "";
     const writer = process.env.GROK_3_API_KEY?.trim() ?? "";
-    const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "") ?? "";
-    /** Google Cloud + GitHub OAuth apps must allow this redirect (not your Vercel URL). */
-    const supabaseOAuthCallbackUrl = supabaseUrl
-      ? `${supabaseUrl}/auth/v1/callback`
-      : undefined;
+    const render = getRenderPublicConfig();
+    const publicSiteUrl = process.env.PUBLIC_SITE_URL?.trim() || "";
     res.json({
-      supabaseUrl: process.env.SUPABASE_URL,
-      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
-      supabaseOAuthCallbackUrl,
+      ...render,
+      publicSiteUrl,
       googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.google_client_id,
       githubClientId: process.env.GITHUB_CLIENT_ID || process.env.github_client_id,
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
@@ -85,7 +63,21 @@ async function startServer() {
   // Master Plan Update Logic (Clean JSON-based storage)
   const masterPlanPath = path.join(process.cwd(), "master-plan.json");
   const nebulaUiStudioPath = path.join(process.cwd(), "nebula-sysh-ui-sysh-studio.md");
+  /** On-disk folder for approved UI exports (alongside the markdown manifest). */
+  const nebulaUiStudioOutputDir = path.join(process.cwd(), "nebulla-sysh-ui-sysh-studio");
   const SUPER_ADMIN_EMAIL = 'cintiakimura20@gmail.com';
+
+  const readSkillDesignSystemExcerpt = (): string => {
+    const skillPath = path.join(process.cwd(), "SKILL.md");
+    if (!fs.existsSync(skillPath)) return "";
+    try {
+      let raw = fs.readFileSync(skillPath, "utf8").replace(/^---[\s\S]*?---\s*/m, "").trim();
+      if (raw.length > 14000) raw = `${raw.slice(0, 14000)}\n…`;
+      return raw;
+    } catch {
+      return "";
+    }
+  };
 
   const ensureNebulaUiStudioFile = () => {
     if (!fs.existsSync(nebulaUiStudioPath)) {
@@ -214,7 +206,7 @@ No approved UI code yet.
         'metadata.json', 'server.ts', '.env.example', 'firebase-applet-config.json',
         'master-plan.json', 'Nebula Architecture Spec.md', 'index.html', 'src', 'public',
         'firebase-blueprint.json', 'firestore.rules', 'DRAFT_firestore.rules',
-        'api', 'vercel.json', 'Audit_Report.md', '.gitignore', 'nebula-ui-studio.md', 'nebula-sysh-ui-sysh-studio.md'
+        'Audit_Report.md', '.gitignore', 'nebula-ui-studio.md', 'nebula-sysh-ui-sysh-studio.md', 'guardian'
       ]);
 
       const items = fs.readdirSync(targetDir, { withFileTypes: true });
@@ -288,98 +280,8 @@ No approved UI code yet.
     });
   });
 
-  app.get("/auth/callback", (req, res) => {
-    res.send(`
-      <html>
-        <head>
-          <title>Authentication Successful</title>
-          <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #040f1a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-            .card { background: rgba(255,255,255,0.05); padding: 2rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.1); text-align: center; max-width: 400px; }
-            h2 { color: #00ffff; margin-top: 0; }
-            p { color: #94a3b8; line-height: 1.5; }
-            .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #00ffff; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 1rem auto; }
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <div id="status-icon" class="spinner"></div>
-            <h2 id="status-title">Authenticating...</h2>
-            <p id="status-text">Completing the secure connection to your account.</p>
-          </div>
-          <script>
-            // We need the Supabase config to initialize the client in the popup
-            // so it can capture the session from the URL hash/query
-            fetch('/api/config')
-              .then(res => res.json())
-              .then(config => {
-                if (!config.supabaseUrl || !config.supabaseAnonKey) {
-                  throw new Error('Supabase configuration missing');
-                }
-                
-                const supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
-                  auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
-                });
-
-                supabase.auth.onAuthStateChange(function (event, session) {
-                  if (session) {
-                    console.log('Auth event:', event);
-                    if (window.opener) {
-                      window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-
-                      document.getElementById('status-icon').style.display = 'none';
-                      document.getElementById('status-title').innerText = 'Success!';
-                      document.getElementById('status-text').innerText = 'You are now logged in. This window will close automatically.';
-
-                      setTimeout(function () { window.close(); }, 1000);
-                    } else {
-                      window.location.href = '/';
-                    }
-                  }
-                });
-
-                (async function () {
-                  try {
-                    var qs = new URLSearchParams(window.location.search);
-                    var oauthError = qs.get('error');
-                    if (oauthError) {
-                      throw new Error(qs.get('error_description') || oauthError);
-                    }
-                    var code = qs.get('code');
-                    if (!code && window.location.hash.length > 1) {
-                      code = new URLSearchParams(window.location.hash.slice(1)).get('code');
-                    }
-                    // exchangeCodeForSession expects the auth code string only (PKCE), not the full URL — see Supabase GoTrueClient API.
-                    if (code && supabase.auth.exchangeCodeForSession) {
-                      await supabase.auth.exchangeCodeForSession(code);
-                    } else {
-                      await supabase.auth.getSession();
-                    }
-                  } catch (e) {
-                    console.error('Auth session exchange:', e);
-                  }
-                })();
-
-                setTimeout(function () {
-                  if (window.opener) {
-                    window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                    document.getElementById('status-text').innerText = 'Taking a bit longer... you can close this window if the main app is logged in.';
-                  }
-                }, 5000);
-              })
-              .catch(err => {
-                console.error('Auth Callback Error:', err);
-                document.getElementById('status-icon').style.display = 'none';
-                document.getElementById('status-title').innerText = 'Authentication Error';
-                document.getElementById('status-title').style.color = '#ff4444';
-                document.getElementById('status-text').innerText = 'There was a problem completing your login. Please try again.';
-              });
-          </script>
-        </body>
-      </html>
-    `);
+  app.get("/auth/callback", (_req, res) => {
+    res.redirect(302, "/");
   });
 
   app.post("/api/leads", (req, res) => {
@@ -432,6 +334,7 @@ No approved UI code yet.
       ensureNebulaUiStudioFile();
       const uiStudioFile = fs.readFileSync(nebulaUiStudioPath, "utf8");
       const storedPrompt = extractNebulaCommentSection(uiStudioFile, "NEBULA_UI_STUDIO_PROMPT");
+      const skillExcerpt = readSkillDesignSystemExcerpt();
       const brandingPrompt = branding ? `
 Branding Context:
 - App Name: ${branding.appName}
@@ -439,6 +342,13 @@ Branding Context:
 - Secondary Color: ${branding.secondaryColor}
 - Style: ${branding.style}
 ` : '';
+
+      const designSystemBlock = skillExcerpt
+        ? `
+Design system (Nebula SKILL.md — Pencil CLI / visual design conventions; follow for layout, hierarchy, export discipline):
+${skillExcerpt}
+`
+        : "";
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -448,14 +358,15 @@ Branding Context:
         },
         body: JSON.stringify({
           prompt: `${storedPrompt && storedPrompt !== "No prompt generated yet." ? storedPrompt : `Generate a high-fidelity mobile/web app SVG UI from the product plan.`}
-Master Plan Data:
+${designSystemBlock}
+Master Plan — Pages and Navigation (must cover every listed screen):
 ${pagesText || "No pages defined yet."}
 ${brandingPrompt}
 
 Requirements:
-1. Return valid SVG only.
+1. Return valid SVG only (UI codebook-style single canvas or multi-section SVG representing all pages from Pages and Navigation).
 2. No markdown fences.
-3. Use provided brand colors and style.
+3. Apply SKILL.md design-system discipline above together with brand colors and style.
 4. Ensure readable text and realistic spacing.
 5. Include modern production-ready component structure.`,
           branding,
@@ -505,6 +416,8 @@ Requirements:
       const withPrompt = upsertNebulaCommentSection(existing, "NEBULA_UI_STUDIO_PROMPT", promptText);
       const withCode = upsertNebulaCommentSection(withPrompt, "NEBULA_UI_STUDIO_CODE", code);
       fs.writeFileSync(nebulaUiStudioPath, withCode, "utf8");
+      fs.mkdirSync(path.join(nebulaUiStudioOutputDir, "approved"), { recursive: true });
+      fs.writeFileSync(path.join(nebulaUiStudioOutputDir, "approved", "approved-ui.svg"), code.trim(), "utf8");
       res.json({ success: true });
     } catch (err) {
       console.error("Failed to save Nebula UI Studio code:", err);
@@ -718,8 +631,8 @@ try {
     res.status(404).json({ error: `Path ${req.originalUrl} not found on this server` });
   });
 
-  // Vite only for local `npm run dev`. Never on Vercel: NODE_ENV may be unset there; loading Vite in serverless crashes (500).
-  if (!process.env.VERCEL && process.env.NODE_ENV !== "production") {
+  // Development: Vite middleware (HMR). Production: serve `dist/` SPA from the same process.
+  if (process.env.NODE_ENV !== "production") {
     const hmrPort = Number(process.env.VITE_HMR_PORT) || 24678;
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
@@ -736,9 +649,7 @@ try {
       appType: "spa",
     });
     app.use((vite.middlewares) as any);
-  } else if (!process.env.VERCEL) {
-    // Production: serve built SPA from Node (local `npm run start` / Docker).
-    // On Vercel, static assets come from the static-build output; the serverless app only handles /api/* and /auth/callback.
+  } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath) as any);
     app.get("*", (req, res) => {
@@ -746,23 +657,20 @@ try {
     });
   }
 
-  // Vercel invokes the Express app per request; binding a port is invalid for serverless.
-  if (!process.env.VERCEL) {
-    const httpServer = app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-    httpServer.on("error", (err: NodeJS.ErrnoException) => {
-      captureError(err, { source: "server", route: `listen:${PORT}`, detail: err.code });
-      if (err.code === "EADDRINUSE") {
-        console.error(
-          `[nebula] Port ${PORT} is already in use. Quit the other dev server, or run: PORT=${PORT + 1} npm run dev`
-        );
-      } else {
-        console.error(err);
-      }
-      process.exit(1);
-    });
-  }
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Nebulla server listening on http://0.0.0.0:${PORT} (NODE_ENV=${process.env.NODE_ENV || "development"})`);
+  });
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    captureError(err, { source: "server", route: `listen:${PORT}`, detail: err.code });
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `[nebula] Port ${PORT} is already in use. Quit the other dev server, or run: PORT=${PORT + 1} npm run dev`
+      );
+    } else {
+      console.error(err);
+    }
+    process.exit(1);
+  });
 }
 
 startServer().catch((err) => {

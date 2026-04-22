@@ -371,19 +371,21 @@ function SecretsTab() {
 
       {/* OAuth Integration */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <h4 className="text-sm font-headline text-slate-200 mb-2">OAuth Integration (Supabase)</h4>
-        <p className="text-xs text-slate-500 mb-4">Configure your OAuth providers and redirect URLs in the Supabase Dashboard.</p>
+        <h4 className="text-sm font-headline text-slate-200 mb-2">OAuth (Render Web Service)</h4>
+        <p className="text-xs text-slate-500 mb-4">
+          Register these callback URLs on each provider. They are served by this app&apos;s API on Render, not a separate auth host.
+        </p>
         
         <div className="space-y-6">
           <div className="p-4 border border-cyan-500/20 rounded-lg bg-cyan-500/5">
-            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">Step 1: Required Redirect URL</h5>
+            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">GitHub — Authorization callback URL</h5>
             <div className="flex items-center gap-3 bg-black/40 p-3 rounded-md border border-white/5">
               <code className="text-[11px] text-slate-300 flex-1 break-all">
-                {window.location.origin}/auth/callback
+                {window.location.origin}/api/auth/github/callback
               </code>
               <button 
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/auth/callback`);
+                  navigator.clipboard.writeText(`${window.location.origin}/api/auth/github/callback`);
                   alert('Copied to clipboard!');
                 }}
                 className="text-slate-500 hover:text-cyan-300 transition-colors"
@@ -391,25 +393,41 @@ function SecretsTab() {
                 <span className="material-symbols-outlined text-[18px]">content_copy</span>
               </button>
             </div>
-            <p className="text-[10px] text-slate-400 mt-3 leading-relaxed">
-              <strong>CRITICAL:</strong> You must add this URL to your Supabase project under:<br/>
-              <span className="text-cyan-400">Authentication &gt; URL Configuration &gt; Redirect URLs</span>
-            </p>
+          </div>
+
+          <div className="p-4 border border-cyan-500/20 rounded-lg bg-cyan-500/5">
+            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">Google — Authorized redirect URI</h5>
+            <div className="flex items-center gap-3 bg-black/40 p-3 rounded-md border border-white/5">
+              <code className="text-[11px] text-slate-300 flex-1 break-all">
+                {window.location.origin}/api/auth/google/callback
+              </code>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/api/auth/google/callback`);
+                  alert('Copied to clipboard!');
+                }}
+                className="text-slate-500 hover:text-cyan-300 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">content_copy</span>
+              </button>
+            </div>
           </div>
 
           <div className="p-4 border border-white/10 rounded-lg bg-white/5">
-            <h5 className="text-xs font-headline text-slate-300 mb-2 uppercase tracking-wider">Step 2: Configure Providers</h5>
+            <h5 className="text-xs font-headline text-slate-300 mb-2 uppercase tracking-wider">Server environment</h5>
             <p className="text-[10px] text-slate-500 leading-relaxed">
-              In your Supabase Dashboard, go to <strong>Authentication &gt; Sign In / Providers</strong> and enable Google and GitHub using your Client IDs and Secrets.
+              On Render, set <code className="text-cyan-500/80">DATABASE_URL</code>, <code className="text-cyan-500/80">SESSION_SECRET</code>,{' '}
+              <code className="text-cyan-500/80">GITHUB_CLIENT_ID</code> / <code className="text-cyan-500/80">GITHUB_CLIENT_SECRET</code>,{' '}
+              <code className="text-cyan-500/80">GOOGLE_CLIENT_ID</code> / <code className="text-cyan-500/80">GOOGLE_CLIENT_SECRET</code>, and{' '}
+              <code className="text-cyan-500/80">PUBLIC_SITE_URL</code> to your service&apos;s public HTTPS URL.
             </p>
           </div>
 
           <div className="p-4 border border-yellow-500/20 rounded-lg bg-yellow-500/5">
-            <h5 className="text-xs font-headline text-yellow-400 mb-2 uppercase tracking-wider">Common Issues</h5>
+            <h5 className="text-xs font-headline text-yellow-400 mb-2 uppercase tracking-wider">Common issues</h5>
             <ul className="text-[10px] text-slate-400 space-y-2 list-disc pl-4">
-              <li>Ensure <strong>Site URL</strong> in Supabase matches your App URL.</li>
-              <li>Check that the Redirect URL above is exactly matched in your Google/GitHub console.</li>
-              <li>If using a custom domain on Vercel, update the Redirect URL in Supabase to use your custom domain.</li>
+              <li>Redirect URIs must match the deployed host exactly (including https and path).</li>
+              <li>If you use a custom domain, update both provider consoles and <code className="text-slate-500">PUBLIC_SITE_URL</code>.</li>
             </ul>
           </div>
         </div>

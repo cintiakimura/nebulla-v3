@@ -1,6 +1,6 @@
 /**
  * Guest / local-only multi-project storage (browser).
- * Logged-in Supabase users use the `projects` table in App.tsx; active name is tracked in localStorage.
+ * Logged-in users sync projects via `/api/projects` (Render PostgreSQL); active cloud name is tracked in localStorage.
  */
 
 const INDEX_KEY = 'nebula_projects_index_v1';

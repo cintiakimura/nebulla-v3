@@ -3,6 +3,9 @@ import { Rocket, ArrowRight, CheckCircle, Palette, Check, Type, Image as ImageIc
 
 type Step = 'branding' | 'generating' | 'review' | 'pencil' | 'final';
 
+/** One mockup slot: image URL for preview + raw SVG for approve (no shared mutable state). */
+type GenerationSlot = { dataUrl: string; svg: string };
+
 interface Branding {
   appName: string;
   logo: string | null;
@@ -11,9 +14,18 @@ interface Branding {
   style: string;
 }
 
-export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesText: string }) {
+export function PencilStudio({
+  onLock,
+  pagesText,
+  onBeforeGenerate,
+}: {
+  onLock: () => void;
+  pagesText: string;
+  /** Opens nebula-sysh-ui-sysh-studio.md in the IDE when user starts generation. */
+  onBeforeGenerate?: () => void;
+}) {
   const [step, setStep] = useState<Step>('branding');
-  const [generations, setGenerations] = useState<string[]>([]);
+  const [generations, setGenerations] = useState<GenerationSlot[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [error, setError] = useState('');
   const [branding, setBranding] = useState<Branding>({
@@ -28,7 +40,7 @@ export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesT
   const [generatedCode, setGeneratedCode] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const generateMockup = async () => {
+  const generateMockup = async (): Promise<GenerationSlot> => {
     setError('');
     const response = await fetch('/api/nebula-ui-studio/generate', {
       method: 'POST',
@@ -53,12 +65,12 @@ export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesT
     if (!svgCode || !/<svg/i.test(svgCode)) {
       svgCode = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280" viewBox="0 0 400 280"><rect fill="#0e273d" width="400" height="280"/><text x="50%" y="50%" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13" text-anchor="middle" dominant-baseline="middle">Preview unavailable — check PENCIL_API_KEY and try again.</text></svg>`;
     }
-    setGeneratedCode(svgCode);
     const base64Svg = btoa(unescape(encodeURIComponent(svgCode)));
-    return `data:image/svg+xml;base64,${base64Svg}`;
+    return { dataUrl: `data:image/svg+xml;base64,${base64Svg}`, svg: svgCode };
   };
 
   const startInitialGenerations = async () => {
+    onBeforeGenerate?.();
     setStep('generating');
     try {
       const results = await Promise.all([generateMockup(), generateMockup(), generateMockup()]);
@@ -72,7 +84,10 @@ export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesT
     }
   };
 
-  const handleChooseDesign = () => {
+  const handleChooseDesign = (index: number) => {
+    setCurrentIndex(index);
+    const slot = generations[index];
+    if (slot?.svg) setGeneratedCode(slot.svg);
     setPencilElements([
       { id: '1', x: 100, y: 100, label: 'Header' },
       { id: '2', x: 100, y: 200, label: 'Hero Section' },
@@ -123,6 +138,7 @@ export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesT
         next[currentIndex] = regenerated;
         return next;
       });
+      setGeneratedCode(regenerated.svg);
       setRegenerateCount((v) => v + 1);
     } catch (err: any) {
       setError(err.message || 'Failed to regenerate design');
@@ -144,8 +160,11 @@ export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesT
               <input required value={branding.appName} onChange={(e) => setBranding({ ...branding, appName: e.target.value })} placeholder="App name" className="bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-slate-200" />
               <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept=".png,.jpg,.jpeg" className="hidden" />
               <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs text-cyan-400">{branding.logo ? 'Change Logo' : 'Upload Logo'}</button>
+              <p className="text-xs text-slate-500">
+                Uses the prompt saved in <code className="text-cyan-400/90">nebula-sysh-ui-sysh-studio.md</code> (from Grok after Pages and Navigation), plus <code className="text-cyan-400/90">SKILL.md</code> on the server. Regenerate up to 3× on the chosen variation.
+              </p>
               <button type="submit" className="mt-4 w-full py-4 bg-cyan-500 text-black rounded-xl font-headline flex items-center justify-center gap-2">
-                Generate 3 Nebula UI Studio Variations <ArrowRight className="w-4 h-4" />
+                Generate 3 variations <ArrowRight className="w-4 h-4" />
               </button>
             </form>
           </div>
@@ -169,8 +188,15 @@ export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesT
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {generations.map((gen, idx) => (
                 <div key={idx} className="p-4 rounded-2xl border border-white/5" onClick={() => setCurrentIndex(idx)}>
-                  <img src={gen} alt={`Variation ${idx + 1}`} className="w-full min-h-[160px] object-contain bg-black/20 rounded-lg" />
-                  <button onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); handleChooseDesign(); }} className="w-full mt-3 py-3 rounded-xl font-headline text-sm flex items-center justify-center gap-2 bg-cyan-500 text-black">
+                  <img src={gen.dataUrl} alt={`Variation ${idx + 1}`} className="w-full min-h-[160px] object-contain bg-black/20 rounded-lg" />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleChooseDesign(idx);
+                    }}
+                    className="w-full mt-3 py-3 rounded-xl font-headline text-sm flex items-center justify-center gap-2 bg-cyan-500 text-black"
+                  >
                     <CheckCircle className="w-4 h-4" /> Choose this design
                   </button>
                 </div>
@@ -206,7 +232,7 @@ export function PencilStudio({ onLock, pagesText }: { onLock: () => void; pagesT
               </div>
               <div className="flex-1 bg-black/40 rounded-2xl border border-white/5 overflow-hidden relative min-h-[280px]">
                 {generations[currentIndex] ? (
-                  <img src={generations[currentIndex]} alt="Refining Design" className="w-full h-full object-contain opacity-90" />
+                  <img src={generations[currentIndex].dataUrl} alt="Refining Design" className="w-full h-full object-contain opacity-90" />
                 ) : (
                   <div className="flex items-center justify-center h-full text-slate-500 text-sm p-6">No preview image</div>
                 )}

@@ -1,23 +1,8 @@
-import { useEffect, useState } from "react";
-import { readResponseJson } from "../lib/apiFetch";
-import { getAppOAuthCallbackUrl } from "../lib/authRedirect";
-
-type Config = {
-  supabaseOAuthCallbackUrl?: string;
-};
+import { getGithubOAuthCallbackUrl, getGoogleOAuthCallbackUrl } from "../lib/authRedirect";
 
 export function LoginOAuthHints() {
-  const [supabaseCallback, setSupabaseCallback] = useState<string | null>(null);
-  const appCallback = getAppOAuthCallbackUrl();
-
-  useEffect(() => {
-    fetch("/api/config")
-      .then(async (res) => readResponseJson<Config>(res))
-      .then((c) => setSupabaseCallback(c.supabaseOAuthCallbackUrl ?? null))
-      .catch(() => setSupabaseCallback(null));
-  }, []);
-
-  if (!supabaseCallback) return null;
+  const gh = getGithubOAuthCallbackUrl();
+  const ggl = getGoogleOAuthCallbackUrl();
 
   return (
     <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-left space-y-3">
@@ -31,37 +16,23 @@ export function LoginOAuthHints() {
         >
           Google Cloud → Credentials → your OAuth client
         </a>
-        , under <b>Authorized redirect URIs</b>, add <b>exactly</b> the Supabase URL below (not your Vercel
-        domain). The sign-in window may briefly show <code className="text-slate-300">supabase.co</code> before
-        Google — that is normal.
+        , under <b>Authorized redirect URIs</b>, add <b>exactly</b> the Render callback below (same host as this app).
       </p>
       <div>
-        <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-          Google &amp; GitHub — redirect / callback URL
-        </p>
+        <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Google — redirect URI</p>
         <code className="block text-[10px] text-cyan-200/90 break-all bg-black/30 p-2 rounded border border-white/10">
-          {supabaseCallback}
+          {ggl}
         </code>
       </div>
       <div>
-        <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-          Supabase Dashboard — Additional Redirect URLs
-        </p>
+        <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">GitHub — authorization callback URL</p>
         <code className="block text-[10px] text-cyan-200/90 break-all bg-black/30 p-2 rounded border border-white/10">
-          {appCallback}
+          {gh}
         </code>
       </div>
       <p className="text-[10px] text-slate-500">
-        Supabase:{" "}
-        <a
-          className="text-cyan-400 hover:underline"
-          href="https://supabase.com/dashboard/project/_/auth/url-configuration"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Auth → URL Configuration
-        </a>{" "}
-        — set Site URL to this deployment and whitelist the URL above.
+        These paths are served by the Nebulla Web Service on Render (<code className="text-slate-400">/api/auth/*/callback</code>
+        ), not a third-party auth host.
       </p>
     </div>
   );
