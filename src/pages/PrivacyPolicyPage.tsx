@@ -15,8 +15,9 @@ export function PrivacyPolicyPage() {
         <h2 className="text-lg font-headline text-slate-200 font-normal">Information we collect</h2>
         <ul className="list-disc pl-5 space-y-2 text-slate-400">
           <li>
-            <span className="text-slate-300">Account data:</span> when you sign in with Google or GitHub, we receive
-            identifiers, display name, email, and profile image as provided by that provider.
+            <span className="text-slate-300">Account data:</span> when you create an account with email and password, we
+            store your email and a password hash (never the plain password). When you sign in with GitHub, we receive
+            identifiers, display name, email, and profile image as provided by GitHub.
           </li>
           <li>
             <span className="text-slate-300">Project and usage data:</span> content you create in the product (for

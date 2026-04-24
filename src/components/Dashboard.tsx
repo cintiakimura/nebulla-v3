@@ -384,11 +384,11 @@ function SecretsTab() {
         </div>
       </div>
 
-      {/* OAuth Integration */}
+      {/* Auth integration */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <h4 className="text-sm font-headline text-slate-200 mb-2">OAuth (Render Web Service)</h4>
+        <h4 className="text-sm font-headline text-slate-200 mb-2">Sign-in (Render Web Service)</h4>
         <p className="text-xs text-slate-500 mb-4">
-          Register these callback URLs on each provider. They are served by this app&apos;s API on Render, not a separate auth host.
+          Email and password use your Postgres database; GitHub uses the callback below on this same host.
         </p>
         
         <div className="space-y-6">
@@ -411,21 +411,13 @@ function SecretsTab() {
           </div>
 
           <div className="p-4 border border-cyan-500/20 rounded-lg bg-cyan-500/5">
-            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">Google — Authorized redirect URI</h5>
-            <div className="flex items-center gap-3 bg-black/40 p-3 rounded-md border border-white/5">
-              <code className="text-[11px] text-slate-300 flex-1 break-all">
-                {window.location.origin}/api/auth/google/callback
-              </code>
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/api/auth/google/callback`);
-                  alert('Copied to clipboard!');
-                }}
-                className="text-slate-500 hover:text-cyan-300 transition-colors"
-              >
-                <span className="material-symbols-outlined text-[18px]">content_copy</span>
-              </button>
-            </div>
+            <h5 className="text-xs font-headline text-cyan-300 mb-2 uppercase tracking-wider">Email &amp; password reset</h5>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Users register and sign in against <code className="text-cyan-500/80">DATABASE_URL</code>. For production
+              password reset emails, set optional <code className="text-cyan-500/80">RESEND_API_KEY</code> and{' '}
+              <code className="text-cyan-500/80">RESEND_FROM_EMAIL</code> (verified domain in Resend). Reset links use{' '}
+              <code className="text-cyan-500/80">{window.location.origin}/reset-password?token=…</code>.
+            </p>
           </div>
 
           <div className="p-4 border border-white/10 rounded-lg bg-white/5">
@@ -433,7 +425,7 @@ function SecretsTab() {
             <p className="text-[10px] text-slate-500 leading-relaxed">
               On Render, set <code className="text-cyan-500/80">DATABASE_URL</code>, <code className="text-cyan-500/80">SESSION_SECRET</code>,{' '}
               <code className="text-cyan-500/80">GITHUB_CLIENT_ID</code> / <code className="text-cyan-500/80">GITHUB_CLIENT_SECRET</code>,{' '}
-              <code className="text-cyan-500/80">GOOGLE_CLIENT_ID</code> / <code className="text-cyan-500/80">GOOGLE_CLIENT_SECRET</code>, and{' '}
+              optional <code className="text-cyan-500/80">RESEND_API_KEY</code> / <code className="text-cyan-500/80">RESEND_FROM_EMAIL</code>, and{' '}
               <code className="text-cyan-500/80">PUBLIC_SITE_URL</code> to your service&apos;s public HTTPS URL.
             </p>
           </div>
@@ -444,8 +436,8 @@ function SecretsTab() {
               <li>Redirect URIs must match the deployed host exactly (including https and path).</li>
               <li>If you use a custom domain, update both provider consoles and <code className="text-slate-500">PUBLIC_SITE_URL</code>.</li>
               <li>
-                <b>Google:</b> OAuth consent screen → User type <b>External</b> (Internal = only your Google
-                Workspace). Publish <b>In production</b> for the normal “Sign in with Google” flow for any user.
+                <b>Email:</b> enforce strong passwords in your product messaging; the server rejects weak passwords and
+                hashes them with scrypt.
               </li>
               <li>
                 <b>GitHub:</b> Use a standard OAuth App; keep the app available to all GitHub users (avoid org-only

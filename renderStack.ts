@@ -1,5 +1,5 @@
 /**
- * Render-first backend: PostgreSQL (Render) + cookie sessions + GitHub/Google OAuth.
+ * Render-first backend: PostgreSQL (Render) + cookie sessions + email/password + GitHub OAuth.
  * Mount with mountRenderStack(app) from server.ts.
  */
 
@@ -8,6 +8,84 @@ import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import pg from "pg";
 import crypto from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(crypto.scrypt);
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derived = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `scrypt$${salt}$${derived.toString("hex")}`;
+}
+
+async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
+  if (!stored || typeof stored !== "string") return false;
+  const parts = stored.split("$");
+  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
+  const [, salt, hashHex] = parts;
+  try {
+    const derived = (await scryptAsync(password, salt, 64)) as Buffer;
+    const expected = Buffer.from(hashHex, "hex");
+    if (derived.length !== expected.length) return false;
+    return crypto.timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
+}
+
+function hashResetToken(token: string): string {
+  return crypto.createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(email: unknown): string | null {
+  if (typeof email !== "string") return null;
+  const t = email.trim().toLowerCase();
+  if (!t || t.length > 254 || !EMAIL_RE.test(t)) return null;
+  return t;
+}
+
+function validateNewPassword(password: unknown): string | null {
+  if (typeof password !== "string") return "Password is required.";
+  if (password.length < 10) return "Password must be at least 10 characters.";
+  if (password.length > 128) return "Password is too long.";
+  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+    return "Password must include at least one letter and one number.";
+  }
+  return null;
+}
+
+async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<boolean> {
+  const key = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.RESEND_FROM_EMAIL?.trim() || "onboarding@resend.dev";
+  if (!key) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[nebula] Password reset link (set RESEND_API_KEY to email users in production):", resetUrl);
+    }
+    return false;
+  }
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: "Reset your nebulla password",
+        html: `<p>We received a request to reset your nebulla password.</p><p><a href="${resetUrl.replace(/"/g, "&quot;")}">Set a new password</a> (link expires in one hour).</p><p>If you did not request this, you can ignore this email.</p>`,
+      }),
+    });
+    if (!res.ok) {
+      console.error("[nebula] Resend failed:", await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[nebula] Resend error:", e);
+    return false;
+  }
+}
 
 const SESSION_COOKIE = "nebula_session";
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -29,13 +107,12 @@ function getPool(): pg.Pool | null {
 }
 
 export function getRenderPublicConfig() {
+  const db = Boolean(process.env.DATABASE_URL?.trim());
   return {
-    cloudStorageReady: Boolean(process.env.DATABASE_URL?.trim()),
+    cloudStorageReady: db,
+    emailAuthReady: db,
     githubOAuthReady: Boolean(
       process.env.GITHUB_CLIENT_ID?.trim() && process.env.GITHUB_CLIENT_SECRET?.trim()
-    ),
-    googleOAuthReady: Boolean(
-      process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()
     ),
   };
 }
@@ -65,6 +142,23 @@ async function ensureTables(p: pg.Pool) {
     );
   `);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_nebula_projects_user ON nebula_projects(user_id);`);
+  await p.query(`ALTER TABLE nebula_users ADD COLUMN IF NOT EXISTS password_hash TEXT;`);
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS nebula_password_resets (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES nebula_users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await p.query(
+    `CREATE INDEX IF NOT EXISTS idx_nebula_pw_reset_token ON nebula_password_resets(token_hash);`
+  );
+  await p.query(
+    `CREATE INDEX IF NOT EXISTS idx_nebula_pw_reset_expires ON nebula_password_resets(expires_at);`
+  );
 }
 
 function sessionSecret(): string {
@@ -257,8 +351,8 @@ export async function mountRenderStack(app: Express) {
       const display = gh.name || gh.login || "GitHub User";
 
       const ins = await p.query(
-        `INSERT INTO nebula_users (provider, provider_user_id, email, display_name, avatar_url)
-         VALUES ('github', $1, $2, $3, $4)
+        `INSERT INTO nebula_users (provider, provider_user_id, email, display_name, avatar_url, password_hash)
+         VALUES ('github', $1, $2, $3, $4, NULL)
          ON CONFLICT (provider, provider_user_id) DO UPDATE
          SET email = EXCLUDED.email, display_name = EXCLUDED.display_name, avatar_url = EXCLUDED.avatar_url
          RETURNING id`,
@@ -275,90 +369,121 @@ export async function mountRenderStack(app: Express) {
     }
   });
 
-  // --- Google OAuth (any @gmail.com / Google account: Cloud Console consent screen must be User type "External", not Internal) ---
-  app.get("/api/auth/google", (req, res) => {
-    if (!p) return res.status(503).send("Database not configured (DATABASE_URL)");
-    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
-    if (!clientId) return res.status(503).send("GOOGLE_CLIENT_ID not configured");
-    const redirectUri = `${publicBaseUrl(req)}/api/auth/google/callback`;
-    const state = crypto.randomBytes(16).toString("hex");
-    const remember = String(req.query.remember || "").toLowerCase() === "1" || String(req.query.remember || "").toLowerCase() === "true";
-    res.cookie("oauth_state_google", state, { httpOnly: true, maxAge: 600000, path: "/", sameSite: "lax" });
-    res.cookie(OAUTH_REMEMBER_COOKIE, remember ? "1" : "0", { httpOnly: true, maxAge: 600000, path: "/", sameSite: "lax" });
-    const q = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: [
-        "openid",
-        "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/userinfo.profile",
-      ].join(" "),
-      state,
-      // Account chooser so users can pick or add any Google identity (not org-only "internal" apps).
-      prompt: "select_account",
-      access_type: "online",
-      include_granted_scopes: "true",
-    });
-    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${q}`);
-  });
-
-  app.get("/api/auth/google/callback", async (req, res) => {
-    if (!p) return res.status(500).send("Database not configured");
-    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) return res.status(500).send("Google OAuth not configured");
-
-    const code = typeof req.query.code === "string" ? req.query.code : "";
-    const state = typeof req.query.state === "string" ? req.query.state : "";
-    const cookieState = req.cookies?.oauth_state_google;
-    const remember = req.cookies?.[OAUTH_REMEMBER_COOKIE] === "1";
-    res.clearCookie("oauth_state_google", { path: "/" });
-    res.clearCookie(OAUTH_REMEMBER_COOKIE, { path: "/" });
-    if (!code || !state || state !== cookieState) {
-      return res.status(400).send("Invalid OAuth state");
-    }
-
-    const redirectUri = `${publicBaseUrl(req)}/api/auth/google/callback`;
+  // --- Email + password ---
+  app.post("/api/auth/register", async (req, res) => {
+    if (!p) return res.status(503).json({ error: "Database not configured" });
+    const email = normalizeEmail(req.body?.email);
+    const pwErr = validateNewPassword(req.body?.password);
+    const remember = Boolean(req.body?.remember);
+    if (!email) return res.status(400).json({ error: "Valid email is required." });
+    if (pwErr) return res.status(400).json({ error: pwErr });
+    const password = req.body.password as string;
+    const display =
+      email.split("@")[0].slice(0, 80).replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "User";
     try {
-      const tokRes = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code,
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri,
-          grant_type: "authorization_code",
-        }),
-      });
-      const tokJson = (await tokRes.json()) as { access_token?: string; error?: string };
-      if (!tokJson.access_token) {
-        return res.status(400).send(tokJson.error || "Google token exchange failed");
-      }
-      const uRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: { Authorization: `Bearer ${tokJson.access_token}` },
-      });
-      const g = (await uRes.json()) as { sub: string; email?: string; name?: string; picture?: string };
-      const providerUserId = g.sub;
-      const email = g.email || "unknown@google.local";
-
+      const hash = await hashPassword(password);
       const ins = await p.query(
-        `INSERT INTO nebula_users (provider, provider_user_id, email, display_name, avatar_url)
-         VALUES ('google', $1, $2, $3, $4)
-         ON CONFLICT (provider, provider_user_id) DO UPDATE
-         SET email = EXCLUDED.email, display_name = EXCLUDED.display_name, avatar_url = EXCLUDED.avatar_url
+        `INSERT INTO nebula_users (provider, provider_user_id, email, display_name, avatar_url, password_hash)
+         VALUES ('email', $1, $2, $3, NULL, $4)
          RETURNING id`,
-        [providerUserId, email, g.name || "Google User", g.picture || null]
+        [email, email, display, hash]
       );
       const userId = ins.rows[0].id as string;
-      const token = signSession(userId);
-      setSessionCookie(res, token, remember);
+      setSessionCookie(res, signSession(userId), remember);
+      return res.json({ ok: true });
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      if (err?.code === "23505") {
+        return res.status(409).json({ error: "An account with this email already exists." });
+      }
+      console.error("[nebula] register:", e);
+      return res.status(500).json({ error: "Registration failed." });
+    }
+  });
 
-      res.send(oauthPopupHtml(true, "Signed in with Google"));
+  app.post("/api/auth/login", async (req, res) => {
+    if (!p) return res.status(503).json({ error: "Database not configured" });
+    const email = normalizeEmail(req.body?.email);
+    const password = req.body?.password;
+    const remember = Boolean(req.body?.remember);
+    if (!email || typeof password !== "string") {
+      return res.status(400).json({ error: "Email and password are required." });
+    }
+    try {
+      const r = await p.query(
+        `SELECT id, password_hash FROM nebula_users WHERE provider = 'email' AND provider_user_id = $1`,
+        [email]
+      );
+      const row = r.rows[0] as { id: string; password_hash: string | null } | undefined;
+      if (!row?.password_hash || !(await verifyPassword(password, row.password_hash))) {
+        return res.status(401).json({ error: "Invalid email or password." });
+      }
+      setSessionCookie(res, signSession(row.id), remember);
+      return res.json({ ok: true });
     } catch (e) {
-      console.error("[nebula] Google callback:", e);
-      res.status(500).send(oauthPopupHtml(false, "Google sign-in failed"));
+      console.error("[nebula] login:", e);
+      return res.status(500).json({ error: "Login failed." });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    if (!p) return res.status(503).json({ error: "Database not configured" });
+    const email = normalizeEmail(req.body?.email);
+    if (!email) return res.status(400).json({ error: "Valid email is required." });
+    try {
+      const r = await p.query(`SELECT id FROM nebula_users WHERE provider = 'email' AND provider_user_id = $1`, [
+        email,
+      ]);
+      const row = r.rows[0] as { id: string } | undefined;
+      if (row) {
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        const tokenHash = hashResetToken(rawToken);
+        const expires = new Date(Date.now() + 60 * 60 * 1000);
+        await p.query(`DELETE FROM nebula_password_resets WHERE user_id = $1 AND used_at IS NULL`, [row.id]);
+        await p.query(
+          `INSERT INTO nebula_password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+          [row.id, tokenHash, expires.toISOString()]
+        );
+        const base = publicBaseUrl(req);
+        const resetUrl = `${base}/reset-password?token=${encodeURIComponent(rawToken)}`;
+        await sendPasswordResetEmail(email, resetUrl);
+      }
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[nebula] forgot-password:", e);
+      return res.status(500).json({ error: "Request failed." });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    if (!p) return res.status(503).json({ error: "Database not configured" });
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    const pwErr = validateNewPassword(req.body?.password);
+    if (!token || token.length < 20) return res.status(400).json({ error: "Invalid or missing reset token." });
+    if (pwErr) return res.status(400).json({ error: pwErr });
+    const password = req.body.password as string;
+    const tokenHash = hashResetToken(token);
+    try {
+      const r = await p.query(
+        `SELECT id, user_id FROM nebula_password_resets
+         WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()`,
+        [tokenHash]
+      );
+      const row = r.rows[0] as { id: string; user_id: string } | undefined;
+      if (!row) {
+        return res.status(400).json({ error: "This reset link is invalid or has expired. Request a new one." });
+      }
+      const hash = await hashPassword(password);
+      await p.query(`UPDATE nebula_users SET password_hash = $1 WHERE id = $2 AND provider = 'email'`, [
+        hash,
+        row.user_id,
+      ]);
+      await p.query(`UPDATE nebula_password_resets SET used_at = NOW() WHERE id = $1`, [row.id]);
+      await p.query(`DELETE FROM nebula_password_resets WHERE user_id = $1 AND id <> $2`, [row.user_id, row.id]);
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[nebula] reset-password:", e);
+      return res.status(500).json({ error: "Password reset failed." });
     }
   });
 

@@ -10,9 +10,10 @@ import { MindMap } from './components/MindMap';
 import { PencilStudio } from './components/PencilStudio';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
+import { LoginModal } from './components/LoginModal';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { TermsOfServicePage } from './pages/TermsOfServicePage';
-import { LoginOAuthHints } from './components/LoginOAuthHints';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { Logo } from './components/Logo';
 import {
   fetchSessionUser,
@@ -22,7 +23,7 @@ import {
   upsertCloudProject,
   deleteCloudProject,
 } from './lib/nebulaCloud';
-import { getGithubOAuthCallbackUrl, getGoogleOAuthCallbackUrl } from './lib/authRedirect';
+import { getGithubOAuthCallbackUrl } from './lib/authRedirect';
 import { readResponseJson } from './lib/apiFetch';
 import { installNebulaGuardianClient } from './lib/nebulaGuardianClient';
 import {
@@ -71,8 +72,7 @@ import {
   Sparkles,
   Users,
   Edit2,
-  Github,
-  Globe
+  Github
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -147,18 +147,22 @@ function deepCloneInitialCanvas() {
 }
 
 export default function App() {
-  const [legalRoute, setLegalRoute] = useState<'privacy' | 'terms' | null>(() => {
+  const [legalRoute, setLegalRoute] = useState<'privacy' | 'terms' | 'reset-password' | null>(() => {
     if (typeof window === 'undefined') return null;
     const p = window.location.pathname;
     if (p === '/privacy') return 'privacy';
     if (p === '/terms') return 'terms';
+    if (p === '/reset-password') return 'reset-password';
     return null;
   });
 
   useEffect(() => {
     const sync = () => {
       const p = window.location.pathname;
-      setLegalRoute(p === '/privacy' ? 'privacy' : p === '/terms' ? 'terms' : null);
+      if (p === '/privacy') setLegalRoute('privacy');
+      else if (p === '/terms') setLegalRoute('terms');
+      else if (p === '/reset-password') setLegalRoute('reset-password');
+      else setLegalRoute(null);
     };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
@@ -167,9 +171,11 @@ export default function App() {
   const [showLanding, setShowLanding] = useState(() => {
     if (typeof window === 'undefined') return true;
     const p = window.location.pathname;
-    if (p === '/privacy' || p === '/terms') return false;
+    if (p === '/privacy' || p === '/terms' || p === '/reset-password') return false;
     return true;
   });
+
+  const [sessionReloadNonce, setSessionReloadNonce] = useState(0);
   const [showMasterPlan, setShowMasterPlan] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
   const [showAuthGuide, setShowAuthGuide] = useState(false);
@@ -363,7 +369,7 @@ export default function App() {
       return;
     }
 
-    const mapNebulaUser = (u: { uid: string; displayName: string | null; email: string | null; photoURL: string | null }) =>
+    const mapNebulaUser = (u: { uid: string; displayName: string | null; email: string | null; photoURL: string | null }) => {
       setUser({
         uid: u.uid,
         displayName: u.displayName,
@@ -371,6 +377,19 @@ export default function App() {
         photoURL: u.photoURL,
         role: 'user',
       });
+      try {
+        localStorage.setItem(
+          'nebula_user',
+          JSON.stringify({
+            email: u.email,
+            displayName: u.displayName,
+            photoURL: u.photoURL,
+          })
+        );
+      } catch {
+        /* ignore */
+      }
+    };
 
     const loadCloudOrGuest = async () => {
       const sessionUser = await fetchSessionUser();
@@ -415,7 +434,7 @@ export default function App() {
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [localDevUser, config]);
+  }, [localDevUser, config, sessionReloadNonce]);
 
   useEffect(() => {
     fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
@@ -849,21 +868,6 @@ export default function App() {
     return true;
   };
 
-  const handleGoogleLogin = async (): Promise<boolean> => {
-    if (!config?.cloudStorageReady) {
-      alert('Cloud database is not configured on the server (set DATABASE_URL on Render).');
-      return false;
-    }
-    if (!config?.googleOAuthReady) {
-      alert('Google OAuth is not configured (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server).');
-      return false;
-    }
-    console.log('[AUTH] Google OAuth redirect must be:', getGoogleOAuthCallbackUrl(config?.publicSiteUrl));
-    const remember = stayLoggedIn ? "1" : "0";
-    window.open(`/api/auth/google?remember=${remember}`, 'nebula_auth_popup', 'width=600,height=700');
-    return true;
-  };
-
   const handleLogout = async () => {
     if (localDevUser) {
       console.log('Local Dev Auth is enabled on localhost; logout is disabled in this mode.');
@@ -910,6 +914,9 @@ export default function App() {
   if (legalRoute === 'terms') {
     return <TermsOfServicePage />;
   }
+  if (legalRoute === 'reset-password') {
+    return <ResetPasswordPage />;
+  }
 
   if (showLanding) {
     return <LandingPage onEnter={() => setShowLanding(false)} />;
@@ -934,29 +941,11 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => void handleGoogleLogin()}
-                className="text-xs px-3 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded hover:bg-cyan-500/20 transition-colors font-headline flex items-center gap-2"
+                onClick={() => setShowLoginModal(true)}
+                className="text-xs px-4 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/25 rounded-lg hover:bg-cyan-500/20 transition-colors font-headline"
               >
-                <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                Google
+                Sign in
               </button>
-              <button
-                type="button"
-                onClick={() => void handleGithubLogin()}
-                className="text-xs px-3 py-1.5 bg-slate-800 text-slate-300 border border-slate-700 rounded hover:bg-slate-700 transition-colors font-headline flex items-center gap-2"
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                GitHub
-              </button>
-              <label className="ml-2 flex items-center gap-1 text-[10px] text-slate-400">
-                <input
-                  type="checkbox"
-                  checked={stayLoggedIn}
-                  onChange={(e) => setStayLoggedIn(e.target.checked)}
-                  className="accent-cyan-400"
-                />
-                Stay logged in
-              </label>
             </div>
           )}
         </div>
@@ -1526,75 +1515,16 @@ export function NebulaInterface() {
         </button>
       </footer>
 
-      {/* Login Modal */}
-      {showLoginModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="w-full max-w-md glass-panel p-8 rounded-2xl border border-white/10 flex flex-col gap-6 shadow-2xl animate-in zoom-in-95 duration-300">
-            <div className="flex justify-between items-start">
-              <div className="flex flex-col gap-1">
-                <h2 className="text-2xl font-headline text-slate-100">Login / Sign up & Sync</h2>
-                <p className="text-slate-400 text-sm">A small window opens for Google or GitHub. After you approve access, it closes and Nebulla syncs your session with the Render-hosted API.</p>
-              </div>
-              <button 
-                onClick={() => setShowLoginModal(false)}
-                className="text-slate-500 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await handleGithubLogin();
-                  if (ok) setShowLoginModal(false);
-                }}
-                className="w-full py-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center gap-3 text-slate-200 hover:bg-white/10 transition-all font-headline"
-              >
-                <Github className="w-5 h-5" />
-                Continue with GitHub
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await handleGoogleLogin();
-                  if (ok) setShowLoginModal(false);
-                }}
-                className="w-full py-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center gap-3 text-slate-200 hover:bg-white/10 transition-all font-headline"
-              >
-                <Globe className="w-5 h-5" />
-                Continue with Google
-              </button>
-              <label className="flex items-center gap-2 text-xs text-slate-400 px-1">
-                <input
-                  type="checkbox"
-                  checked={stayLoggedIn}
-                  onChange={(e) => setStayLoggedIn(e.target.checked)}
-                  className="accent-cyan-400"
-                />
-                Stay logged in on this device
-              </label>
-            </div>
-
-            <LoginOAuthHints />
-
-            <div className="pt-4 border-t border-white/5">
-              <p className="text-[10px] text-slate-500 text-center leading-relaxed">
-                By continuing, you agree to our{' '}
-                <a href="/terms" className="text-cyan-400/90 hover:underline" target="_blank" rel="noreferrer">
-                  Terms of Service
-                </a>{' '}
-                and{' '}
-                <a href="/privacy" className="text-cyan-400/90 hover:underline" target="_blank" rel="noreferrer">
-                  Privacy Policy
-                </a>
-                .
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <LoginModal
+        open={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        stayLoggedIn={stayLoggedIn}
+        onStayLoggedInChange={setStayLoggedIn}
+        cloudStorageReady={Boolean(config?.cloudStorageReady)}
+        githubOAuthReady={Boolean(config?.githubOAuthReady)}
+        onGithubPopupLogin={handleGithubLogin}
+        onSignedIn={() => setSessionReloadNonce((n) => n + 1)}
+      />
 
       {/* Auth Guide Modal */}
       <AuthGuideModal isOpen={showAuthGuide} onClose={() => setShowAuthGuide(false)} />
@@ -1602,13 +1532,12 @@ export function NebulaInterface() {
   );
 }
 
-function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
+function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [status, setStatus] = useState<{
     cloud: boolean;
     github: boolean;
-    google: boolean;
     publicSiteUrl: string;
-  }>({ cloud: false, github: false, google: false, publicSiteUrl: '' });
+  }>({ cloud: false, github: false, publicSiteUrl: '' });
 
   useEffect(() => {
     fetch('/api/config')
@@ -1616,7 +1545,6 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
         readResponseJson<{
           cloudStorageReady?: boolean;
           githubOAuthReady?: boolean;
-          googleOAuthReady?: boolean;
           publicSiteUrl?: string;
         }>(res)
       )
@@ -1624,7 +1552,6 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
         setStatus({
           cloud: !!c.cloudStorageReady,
           github: !!c.githubOAuthReady,
-          google: !!c.googleOAuthReady,
           publicSiteUrl: (c.publicSiteUrl || '').trim(),
         });
       })
@@ -1634,7 +1561,6 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
   if (!isOpen) return null;
 
   const gh = getGithubOAuthCallbackUrl(status.publicSiteUrl);
-  const ggl = getGoogleOAuthCallbackUrl(status.publicSiteUrl);
 
   return (
     <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -1643,20 +1569,16 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 text-cyan-300">
               <Key className="w-5 h-5" />
-              <h2 className="text-xl font-headline font-normal">OAuth (Render)</h2>
+              <h2 className="text-xl font-headline font-normal">Auth (Render)</h2>
             </div>
             <div className="flex flex-wrap gap-3 mt-1">
               <span className={`text-[10px] flex items-center gap-1 ${status.cloud ? 'text-green-400' : 'text-red-400'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${status.cloud ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                DATABASE_URL
+                DATABASE_URL (email + sessions)
               </span>
               <span className={`text-[10px] flex items-center gap-1 ${status.github ? 'text-green-400' : 'text-red-400'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${status.github ? 'bg-green-400' : 'bg-red-400'}`}></span>
                 GitHub OAuth
-              </span>
-              <span className={`text-[10px] flex items-center gap-1 ${status.google ? 'text-green-400' : 'text-red-400'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${status.google ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                Google OAuth
               </span>
             </div>
             {status.publicSiteUrl ? (
@@ -1665,7 +1587,7 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
               </p>
             ) : null}
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 transition-colors">
+          <button type="button" onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1681,8 +1603,7 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
               <a href="https://github.com/settings/developers" target="_blank" className="text-cyan-400 hover:underline" rel="noreferrer">
                 GitHub → Settings → Developer settings → OAuth Apps
               </a>
-              , create a <b>classic OAuth App</b> (not limited to a single org’s SSO-only access). Any GitHub user can
-              authorize it. Set <b>Authorization callback URL</b> to exactly:
+              , create a <b>classic OAuth App</b>. Set <b>Authorization callback URL</b> to exactly:
             </p>
             <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
               <code className="text-[10px] text-cyan-500 font-mono break-all">{gh}</code>
@@ -1702,40 +1623,14 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
           <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
             <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">2</span>
-              Google Cloud OAuth client
+              Email &amp; password reset
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              In{' '}
-              <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-cyan-400 hover:underline" rel="noreferrer">
-                Google Cloud → APIs &amp; Services → Credentials
-              </a>
-              , create an OAuth client of type <b>Web application</b>. Under{' '}
-              <a
-                href="https://console.cloud.google.com/apis/credentials/consent"
-                target="_blank"
-                className="text-cyan-400 hover:underline"
-                rel="noreferrer"
-              >
-                OAuth consent screen
-              </a>
-              , set <b>User type: External</b> (Internal only allows users in <i>your</i> Google Workspace). While the app
-              is in Testing, add test users; move to <b>In production</b> for the normal account picker where any user
-              can choose or add their Google account. Add this under <b>Authorized redirect URIs</b> (must match your
-              Render Web Service URL):
+              Sign-up and login use <code className="text-cyan-500/80">POST /api/auth/register</code> and{' '}
+              <code className="text-cyan-500/80">POST /api/auth/login</code> with the same cookie session as GitHub. For
+              password reset emails, add optional <code className="text-cyan-500/80">RESEND_API_KEY</code> and{' '}
+              <code className="text-cyan-500/80">RESEND_FROM_EMAIL</code> (verified sender in Resend).
             </p>
-            <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
-              <code className="text-[10px] text-cyan-500 font-mono break-all">{ggl}</code>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(ggl);
-                  alert('Copied!');
-                }}
-                className="p-1 px-2 text-[10px] bg-white/5 hover:bg-white/10 text-slate-400 rounded transition-all"
-              >
-                Copy
-              </button>
-            </div>
           </section>
 
           <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
@@ -1744,10 +1639,10 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
               Render environment
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              On your Render Web Service, set <code className="text-cyan-500/80">DATABASE_URL</code> from your Render
-              PostgreSQL instance, <code className="text-cyan-500/80">SESSION_SECRET</code> (strong random), provider
-              secrets, and <code className="text-cyan-500/80">PUBLIC_SITE_URL</code> to the public HTTPS URL of this
-              service so OAuth redirects stay stable behind proxies.
+              Set <code className="text-cyan-500/80">DATABASE_URL</code>, <code className="text-cyan-500/80">SESSION_SECRET</code>,{' '}
+              <code className="text-cyan-500/80">GITHUB_CLIENT_ID</code> / <code className="text-cyan-500/80">GITHUB_CLIENT_SECRET</code>, and{' '}
+              <code className="text-cyan-500/80">PUBLIC_SITE_URL</code> to your public HTTPS URL so GitHub OAuth and reset links resolve
+              correctly behind proxies.
             </p>
           </section>
         </div>

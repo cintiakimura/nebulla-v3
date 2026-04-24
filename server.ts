@@ -51,7 +51,6 @@ async function startServer() {
     res.json({
       ...render,
       publicSiteUrl,
-      googleClientId: process.env.GOOGLE_CLIENT_ID || process.env.google_client_id,
       githubClientId: process.env.GITHUB_CLIENT_ID || process.env.github_client_id,
       builderPublicKey: process.env.BUILDER_PUBLIC_KEY,
       hasGrokApiKey: grok.length >= 20,
@@ -654,9 +653,9 @@ try {
     const sendSpaIndex = (_req: express.Request, res: express.Response) => {
       res.sendFile(spaIndexHtml);
     };
-    // Explicit legal routes (Google OAuth console links, crawlers, bookmarks).
     app.get("/privacy", sendSpaIndex);
     app.get("/terms", sendSpaIndex);
+    app.get("/reset-password", sendSpaIndex);
     app.use(express.static(distPath) as any);
     app.get("*", (req, res) => {
       res.sendFile(spaIndexHtml);
