@@ -83,6 +83,7 @@ export function AssistantSidebar({
   const recognitionRef = useRef<any>(null);
   const ttsRequestAbortRef = useRef<AbortController | null>(null);
   const ttsObjectUrlRef = useRef<string | null>(null);
+  const ttsDebounceTimerRef = useRef<number | null>(null);
 
   const handleSendText = async (overrideText?: string) => {
     const textToSend = overrideText || inputText;
@@ -195,9 +196,11 @@ TAB 1 HIDDEN QUESTION ENGINE (Goal of the app) — BACKEND ONLY:
 - These are hidden prompts: never output them verbatim.
 - Grok 4 should ask user-facing clarifying questions one at a time, naturally, until all hidden checklist items are sufficiently answered.
 - Tab 1 must not advance until Grok 4 is confident it can produce relevant competitor/tool research.
+- Once items (2) "target audience" and (3) "user roles" are clearly answered, NEVER ask those again in this session.
+- After Tab 1 checklist is sufficiently answered, automatically move to Tab 2 research flow without re-asking Tab 1 questions.
 
 TABS 2-5 USER QUESTION POLICY:
-- After presenting content for Tab 2, Tab 3, Tab 4, or Tab 5, Grok 4 must ask ONLY:
+- After presenting content for Tab 3, Tab 4, or Tab 5, Grok 4 must ask ONLY:
   "Would like to add, remove, or change anything."
 - Do not ask any other follow-up phrasing on Tabs 2-5.
 
@@ -210,8 +213,9 @@ TAB 2 HIDDEN RULES (Tech Research) — BACKEND ONLY:
   4) Identify the most popular and frequently used features across those tools.
   5) For each important feature, attempt to find validating studies, case studies, or scientific research.
   6) If no scientific data is found for a feature, explicitly state: "No scientific studies found for this feature."
-- After completing Tech Research, summarize the 10 best features, then ask the user:
-  "Would like to add, remove, or change anything."
+- After completing Tech Research, present the 10 most used and relevant recommended features based on competitor + scientific evidence.
+- Then ask the user exactly:
+  "These are the features I recommend based on research. Is this mind? Or do you want to add, change, or remove anything?"
 
 TAB 3 HIDDEN RULES (Features and KPIs) — BACKEND ONLY:
 - Trigger automatically after Tab 2 is explicitly approved.
@@ -485,6 +489,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
       if (cleanText && !isCodingTurn) {
         try {
+          if (ttsDebounceTimerRef.current) {
+            window.clearTimeout(ttsDebounceTimerRef.current);
+            ttsDebounceTimerRef.current = null;
+          }
           // Cancel any in-flight TTS request so only the newest answer speaks.
           if (ttsRequestAbortRef.current) {
             ttsRequestAbortRef.current.abort();
@@ -503,45 +511,53 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
           const controller = new AbortController();
           ttsRequestAbortRef.current = controller;
-          const speakRes = await fetch(`/api/speak?text=${encodeURIComponent(cleanText)}`, {
-            signal: controller.signal,
-          });
-          if (!speakRes.ok) {
-            const errBody = await speakRes.text();
-            throw new Error(`TTS request failed (${speakRes.status}): ${errBody.slice(0, 140)}`);
-          }
-          const audioBlob = await speakRes.blob();
-          const audioUrl = URL.createObjectURL(audioBlob);
-          ttsObjectUrlRef.current = audioUrl;
+          ttsDebounceTimerRef.current = window.setTimeout(async () => {
+            try {
+              const speakRes = await fetch(`/api/speak?text=${encodeURIComponent(cleanText)}`, {
+                signal: controller.signal,
+              });
+              if (!speakRes.ok) {
+                const errBody = await speakRes.text();
+                throw new Error(`TTS request failed (${speakRes.status}): ${errBody.slice(0, 140)}`);
+              }
+              const audioBlob = await speakRes.blob();
+              const audioUrl = URL.createObjectURL(audioBlob);
+              ttsObjectUrlRef.current = audioUrl;
 
-          const audio = new Audio(audioUrl);
-          (window as any).nebula_currentAudio = audio;
-          
-          setIsAiSpeaking(true);
-          
-          audio.onended = () => {
-            setIsAiSpeaking(false);
-            if (ttsObjectUrlRef.current) {
-              URL.revokeObjectURL(ttsObjectUrlRef.current);
-              ttsObjectUrlRef.current = null;
-            }
-          };
+              const audio = new Audio(audioUrl);
+              (window as any).nebula_currentAudio = audio;
+              setIsAiSpeaking(true);
 
-          audio.onerror = () => {
-            setIsAiSpeaking(false);
-            if (ttsObjectUrlRef.current) {
-              URL.revokeObjectURL(ttsObjectUrlRef.current);
-              ttsObjectUrlRef.current = null;
-            }
-          };
+              audio.onended = () => {
+                setIsAiSpeaking(false);
+                if (ttsObjectUrlRef.current) {
+                  URL.revokeObjectURL(ttsObjectUrlRef.current);
+                  ttsObjectUrlRef.current = null;
+                }
+              };
 
-          audio.play().catch(e => {
-            // Expected when we interrupt previous playback with a newer response.
-            if (e?.name !== 'AbortError') {
-              console.error("[TTS] Playback error:", e);
+              audio.onerror = () => {
+                setIsAiSpeaking(false);
+                if (ttsObjectUrlRef.current) {
+                  URL.revokeObjectURL(ttsObjectUrlRef.current);
+                  ttsObjectUrlRef.current = null;
+                }
+              };
+
+              audio.play().catch(e => {
+                // Expected when we interrupt previous playback with a newer response.
+                if (e?.name !== 'AbortError') {
+                  console.error("[TTS] Playback error:", e);
+                }
+                setIsAiSpeaking(false);
+              });
+            } catch (audioErr) {
+              if ((audioErr as any)?.name !== 'AbortError') {
+                console.error("[TTS] Audio initialization failed:", audioErr);
+              }
+              setIsAiSpeaking(false);
             }
-            setIsAiSpeaking(false);
-          });
+          }, 150);
         } catch (audioErr) {
           if ((audioErr as any)?.name !== 'AbortError') {
             console.error("[TTS] Audio initialization failed:", audioErr);
@@ -641,6 +657,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
   useEffect(() => {
     return () => {
+      if (ttsDebounceTimerRef.current) window.clearTimeout(ttsDebounceTimerRef.current);
       if (ttsRequestAbortRef.current) ttsRequestAbortRef.current.abort();
       if (ttsObjectUrlRef.current) URL.revokeObjectURL(ttsObjectUrlRef.current);
     };
@@ -761,6 +778,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
   };
 
   const interruptAiSpeech = () => {
+    if (ttsDebounceTimerRef.current) {
+      window.clearTimeout(ttsDebounceTimerRef.current);
+      ttsDebounceTimerRef.current = null;
+    }
     if (ttsRequestAbortRef.current) {
       ttsRequestAbortRef.current.abort();
       ttsRequestAbortRef.current = null;
