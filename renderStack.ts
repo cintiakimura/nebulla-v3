@@ -188,20 +188,35 @@ function readSession(req: Request): string | null {
   return null;
 }
 
-function publicBaseUrl(req: Request): string {
-  // Admin-configured canonical callback origin takes precedence.
-  const explicit = process.env.PUBLIC_SITE_URL?.trim();
-  if (explicit) return explicit.replace(/\/$/, "");
-
-  // Fallback to request-derived origin for local/dev and proxy-only setups.
+function requestDerivedBaseUrl(req: Request): string | null {
   const forwardedHost = (req.get("x-forwarded-host") || "").split(",")[0]?.trim();
   const host = (req.get("host") || "").trim();
   const finalHost = forwardedHost || host;
   const forwardedProto = (req.get("x-forwarded-proto") || "").split(",")[0]?.trim();
   const proto = forwardedProto || (req.protocol === "https" ? "https" : "http");
   if (finalHost) return `${proto}://${finalHost}`.replace(/\/$/, "");
+  return null;
+}
+
+function publicBaseUrl(req: Request): string {
+  // Admin-configured canonical origin (emails, production SPA links).
+  const explicit = process.env.PUBLIC_SITE_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+
+  const fromReq = requestDerivedBaseUrl(req);
+  if (fromReq) return fromReq;
 
   return `http://localhost:${process.env.PORT || 3000}`;
+}
+
+/** GitHub redirect_uri must match the host the user actually hit (local dev vs Render). */
+function githubOAuthRedirectBase(req: Request): string {
+  if (process.env.NODE_ENV !== "production") {
+    const fromReq = requestDerivedBaseUrl(req);
+    if (fromReq) return fromReq;
+    return `http://localhost:${process.env.PORT || 3000}`;
+  }
+  return publicBaseUrl(req);
 }
 
 function setSessionCookie(res: Response, token: string, remember: boolean) {
@@ -271,7 +286,7 @@ export async function mountRenderStack(app: Express) {
     if (!p) return res.status(503).send("Database not configured (DATABASE_URL)");
     const id = process.env.GITHUB_CLIENT_ID?.trim();
     if (!id) return res.status(503).send("GITHUB_CLIENT_ID not configured");
-    const redirectUri = `${publicBaseUrl(req)}/api/auth/github/callback`;
+    const redirectUri = `${githubOAuthRedirectBase(req)}/api/auth/github/callback`;
     const state = crypto.randomBytes(16).toString("hex");
     const remember = String(req.query.remember || "").toLowerCase() === "1" || String(req.query.remember || "").toLowerCase() === "true";
     res.cookie("oauth_state", state, { httpOnly: true, maxAge: 600000, path: "/", sameSite: "lax" });
@@ -301,7 +316,7 @@ export async function mountRenderStack(app: Express) {
       return res.status(400).send("Invalid OAuth state");
     }
 
-    const redirectUri = `${publicBaseUrl(req)}/api/auth/github/callback`;
+    const redirectUri = `${githubOAuthRedirectBase(req)}/api/auth/github/callback`;
     try {
       const tokRes = await fetch("https://github.com/login/oauth/access_token", {
         method: "POST",

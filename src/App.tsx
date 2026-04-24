@@ -1263,6 +1263,8 @@ export default function App() {
                     onLock={handleLockDesign}
                     pagesText={pagesText}
                     onBeforeGenerate={openNebulaUiStudioMarkdownForStudio}
+                    pencilMockupsReady={Boolean(config?.pencilMockupsReady)}
+                    nebulaUiStudioDemo={Boolean(config?.nebulaUiStudioDemo)}
                   />
                 </div>
               ) : showMasterPlan ? (

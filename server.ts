@@ -16,6 +16,14 @@ import {
   captureError,
 } from "./guardian/nebulaGuardian";
 import { mountRenderStack, getRenderPublicConfig } from "./renderStack";
+import {
+  resolvePencilApiKey,
+  resolvePencilMockupsUrl,
+  useBundledDemoMockupWithoutKey,
+  loadBundledDemoMockupSvg,
+  buildNebulaUiStudioPromptBody,
+  callPencilMockupsGenerate,
+} from "./lib/nebulaPencilDev";
 
 dotenv.config({ path: path.join(process.cwd(), ".env") });
 
@@ -48,6 +56,7 @@ async function startServer() {
     const writer = process.env.GROK_3_API_KEY?.trim() ?? "";
     const render = getRenderPublicConfig();
     const publicSiteUrl = process.env.PUBLIC_SITE_URL?.trim() || "";
+    const pencilKey = resolvePencilApiKey();
     res.json({
       ...render,
       publicSiteUrl,
@@ -56,6 +65,8 @@ async function startServer() {
       hasGrokApiKey: grok.length >= 20,
       hasGrokTtsKey: tts.length >= 20,
       hasGrokWriterKey: writer.length >= 20,
+      pencilMockupsReady: Boolean(pencilKey),
+      nebulaUiStudioDemo: Boolean(!pencilKey && useBundledDemoMockupWithoutKey()),
     });
   });
 
@@ -320,78 +331,50 @@ No approved UI code yet.
 
   app.post("/api/nebula-ui-studio/generate", async (req, res) => {
     const { pagesText, branding } = req.body;
-    const apiKey = process.env.PENCIL_API_KEY;
-    const apiUrl = process.env.PENCIL_API_URL || "https://api.pencil.dev/v1/mockups/generate";
-    
-    if (!apiKey) {
-      console.error("Nebula UI Studio key not set (PENCIL_API_KEY)");
-      return res.status(500).json({ error: "Nebula UI Studio key is missing. Add PENCIL_API_KEY to .env." });
-    }
+    const apiKey = resolvePencilApiKey();
+    const apiUrl = resolvePencilMockupsUrl();
 
     try {
       ensureNebulaUiStudioFile();
       const uiStudioFile = fs.readFileSync(nebulaUiStudioPath, "utf8");
       const storedPrompt = extractNebulaCommentSection(uiStudioFile, "NEBULA_UI_STUDIO_PROMPT");
       const skillExcerpt = readSkillDesignSystemExcerpt();
-      const brandingPrompt = branding ? `
-Branding Context:
-- App Name: ${branding.appName}
-- Primary Color: ${branding.primaryColor}
-- Secondary Color: ${branding.secondaryColor}
-- Style: ${branding.style}
-` : '';
 
-      const designSystemBlock = skillExcerpt
-        ? `
-Design system (Nebula SKILL.md — Pencil CLI / visual design conventions; follow for layout, hierarchy, export discipline):
-${skillExcerpt}
-`
-        : "";
-
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          prompt: `${storedPrompt && storedPrompt !== "No prompt generated yet." ? storedPrompt : `Generate a high-fidelity mobile/web app SVG UI from the product plan.`}
-${designSystemBlock}
-Master Plan — Pages and Navigation (must cover every listed screen):
-${pagesText || "No pages defined yet."}
-${brandingPrompt}
-
-Requirements:
-1. Return valid SVG only (UI codebook-style single canvas or multi-section SVG representing all pages from Pages and Navigation).
-2. No markdown fences.
-3. Apply SKILL.md design-system discipline above together with brand colors and style.
-4. Ensure readable text and realistic spacing.
-5. Include modern production-ready component structure.`,
-          branding,
-        }),
-      });
-
-      if (!response.ok) {
-        const errBody = await response.text();
-        console.error("Nebula UI Studio Engine Error Response:", errBody);
-        let errorMessage = `Nebula UI Studio Engine Error: ${response.status}`;
-        try {
-          const parsedErr = JSON.parse(errBody);
-          if (parsedErr.error?.message) errorMessage += ` - ${parsedErr.error.message}`;
-        } catch (e) {
-          errorMessage += ` - ${errBody.substring(0, 100)}`;
+      if (!apiKey) {
+        if (useBundledDemoMockupWithoutKey()) {
+          const svg = loadBundledDemoMockupSvg();
+          return res.json({
+            svg,
+            demoMode: true,
+            usedPrompt: storedPrompt || "",
+            message:
+              process.env.NODE_ENV === "production"
+                ? "Bundled demo mockup (set PENCIL_API_KEY for live Pencil.dev, or remove NEBULA_UI_STUDIO_DEMO to require a key)."
+                : "Bundled demo mockup (dev). Set PENCIL_API_KEY for live Pencil.dev API output.",
+          });
         }
-        return res.status(response.status).json({ error: errorMessage });
+        console.error("Nebula UI Studio key not set (PENCIL_API_KEY / PENCIL_DEV_API_KEY / PENCIL_CLI_KEY)");
+        return res.status(500).json({
+          error:
+            "Nebula UI Studio key is missing. Add PENCIL_API_KEY from pencil.dev to your server env, or set NEBULA_UI_STUDIO_DEMO=1 to serve bundled demo mockups without calling the API.",
+        });
       }
 
-      const data = await response.json();
-      const svg =
-        data.svg ||
-        data.output?.svg ||
-        data.result?.svg ||
-        data.choices?.[0]?.message?.content ||
-        "";
-      res.json({ ...data, svg, usedPrompt: storedPrompt || "" });
+      const body = buildNebulaUiStudioPromptBody({
+        storedPrompt,
+        skillExcerpt,
+        pagesText: typeof pagesText === "string" ? pagesText : "",
+        branding,
+      });
+
+      const result = await callPencilMockupsGenerate({ apiKey, apiUrl, body });
+      if (result.ok === false) {
+        console.error("Nebula UI Studio Engine Error:", result.error);
+        return res.status(result.status).json({ error: result.error });
+      }
+
+      const raw = result.raw as Record<string, unknown>;
+      res.json({ ...raw, svg: result.svg, usedPrompt: storedPrompt || "" });
     } catch (error) {
       console.error("Error calling Nebula UI Studio engine:", error);
       captureError(error instanceof Error ? error : new Error(String(error)), {

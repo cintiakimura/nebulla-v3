@@ -4,7 +4,7 @@ import { Rocket, ArrowRight, CheckCircle, Palette, Check, Type, Image as ImageIc
 type Step = 'branding' | 'generating' | 'review' | 'pencil' | 'final';
 
 /** One mockup slot: image URL for preview + raw SVG for approve (no shared mutable state). */
-type GenerationSlot = { dataUrl: string; svg: string };
+type GenerationSlot = { dataUrl: string; svg: string; demoMode?: boolean };
 
 interface Branding {
   appName: string;
@@ -18,11 +18,17 @@ export function PencilStudio({
   onLock,
   pagesText,
   onBeforeGenerate,
+  pencilMockupsReady = false,
+  nebulaUiStudioDemo = false,
 }: {
   onLock: () => void;
   pagesText: string;
   /** Opens nebula-sysh-ui-sysh-studio.md in the IDE when user starts generation. */
   onBeforeGenerate?: () => void;
+  /** From /api/config — live Pencil.dev API key present on server. */
+  pencilMockupsReady?: boolean;
+  /** From /api/config — server will return bundled demo SVGs (no external Pencil call). */
+  nebulaUiStudioDemo?: boolean;
 }) {
   const [step, setStep] = useState<Step>('branding');
   const [generations, setGenerations] = useState<GenerationSlot[]>([]);
@@ -54,6 +60,7 @@ export function PencilStudio({
     }
 
     const data = await response.json();
+    const demoMode = Boolean(data.demoMode);
     let svgCode = data.svg || data.choices?.[0]?.message?.content || '';
     svgCode = String(svgCode)
       .replace(/```xml/g, '')
@@ -66,7 +73,7 @@ export function PencilStudio({
       svgCode = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280" viewBox="0 0 400 280"><rect fill="#0e273d" width="400" height="280"/><text x="50%" y="50%" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13" text-anchor="middle" dominant-baseline="middle">Preview unavailable — check PENCIL_API_KEY and try again.</text></svg>`;
     }
     const base64Svg = btoa(unescape(encodeURIComponent(svgCode)));
-    return { dataUrl: `data:image/svg+xml;base64,${base64Svg}`, svg: svgCode };
+    return { dataUrl: `data:image/svg+xml;base64,${base64Svg}`, svg: svgCode, demoMode };
   };
 
   const startInitialGenerations = async () => {
@@ -157,6 +164,20 @@ export function PencilStudio({
         {step === 'branding' && (
           <div className="w-full max-w-2xl flex flex-col gap-8">
             <form onSubmit={handleBrandingSubmit} className="flex flex-col gap-6 glass-panel p-8 rounded-2xl border border-white/10">
+              {nebulaUiStudioDemo && !pencilMockupsReady ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-100/95 leading-relaxed">
+                  <span className="font-headline text-amber-50">Bundled preview mode.</span> Pencil.dev live API is not
+                  configured on this host (<code className="text-amber-200/90">PENCIL_API_KEY</code>). The app ships demo
+                  SVG mockups from <code className="text-amber-200/90">templates/nebula-ui-studio-demo-mockup.svg</code> so
+                  you can try the studio flow without installing anything. Add a key from pencil.dev on the server for
+                  real AI-generated layouts.
+                </div>
+              ) : pencilMockupsReady ? (
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-[12px] text-slate-300 leading-relaxed">
+                  Pencil.dev mockups API is configured. Generation uses the bundled client in{' '}
+                  <code className="text-cyan-300/90">lib/nebulaPencilDev.ts</code> (no separate CLI install for end users).
+                </div>
+              ) : null}
               <input required value={branding.appName} onChange={(e) => setBranding({ ...branding, appName: e.target.value })} placeholder="App name" className="bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-slate-200" />
               <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept=".png,.jpg,.jpeg" className="hidden" />
               <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs text-cyan-400">{branding.logo ? 'Change Logo' : 'Upload Logo'}</button>
@@ -175,7 +196,11 @@ export function PencilStudio({
             {error && <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg">{error}</div>}
             {generations.length === 0 && (
               <div className="flex flex-col items-center gap-4 py-8">
-                <p className="text-slate-400 text-sm text-center max-w-md">No mockups were generated. Add <code className="text-cyan-400">PENCIL_API_KEY</code> in <code className="text-cyan-400">.env</code> or retry.</p>
+                <p className="text-slate-400 text-sm text-center max-w-md">
+                  No mockups were generated. On production, set <code className="text-cyan-400">PENCIL_API_KEY</code> from
+                  pencil.dev on the server, or set <code className="text-cyan-400">NEBULA_UI_STUDIO_DEMO=1</code> for bundled
+                  demo previews only. Then retry.
+                </p>
                 <button
                   type="button"
                   onClick={() => setStep('branding')}
