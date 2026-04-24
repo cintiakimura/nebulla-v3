@@ -44,7 +44,7 @@ async function startServer() {
 
   app.get("/api/config", (req, res) => {
     const grok = process.env.GROK_API_KEY?.trim() ?? "";
-    const tts = process.env.GROK_TTS_API_KEY?.trim() ?? "";
+    const tts = process.env.GROK_TTS_NEW_API_KEY?.trim() ?? "";
     const writer = process.env.GROK_3_API_KEY?.trim() ?? "";
     const render = getRenderPublicConfig();
     const publicSiteUrl = process.env.PUBLIC_SITE_URL?.trim() || "";
@@ -206,7 +206,7 @@ No approved UI code yet.
         'metadata.json', 'server.ts', '.env.example', 'firebase-applet-config.json',
         'master-plan.json', 'Nebula Architecture Spec.md', 'index.html', 'src', 'public',
         'firebase-blueprint.json', 'firestore.rules', 'DRAFT_firestore.rules',
-        'Audit_Report.md', '.gitignore', 'nebula-ui-studio.md', 'nebula-sysh-ui-sysh-studio.md', 'guardian'
+        '.gitignore', 'nebula-ui-studio.md', 'nebula-sysh-ui-sysh-studio.md', 'guardian'
       ]);
 
       const items = fs.readdirSync(targetDir, { withFileTypes: true });
@@ -682,28 +682,24 @@ startServer().catch((err) => {
 });
 
 async function speak(text: string): Promise<Buffer> {
-  // Use GROK_TTS_API_KEY for TTS
-  const apiKey = process.env.GROK_TTS_API_KEY;
+  // Use new Grok TTS API key for speech generation.
+  const apiKey = process.env.GROK_TTS_NEW_API_KEY;
   
   if (!apiKey) {
-    throw new Error("GROK_TTS_API_KEY is not set. Please check your environment variables.");
+    throw new Error("GROK_TTS_NEW_API_KEY is not set. Please check your environment variables.");
   }
 
-  const response = await fetch("https://api.x.ai/v1/tts", {
+  const response = await fetch("https://api.x.ai/v1/audio/speech", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      text: text,
-      voice_id: "Eve",
-      output_format: {
-        codec: "mp3",
-        sample_rate: 44100,
-        bit_rate: 128000
-      },
-      language: "en"
+      model: "grok-tts-1",
+      input: text,
+      voice: "Eve",
+      response_format: "mp3",
     }),
   });
 

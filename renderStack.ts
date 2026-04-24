@@ -35,8 +35,7 @@ export function getRenderPublicConfig() {
       process.env.GITHUB_CLIENT_ID?.trim() && process.env.GITHUB_CLIENT_SECRET?.trim()
     ),
     googleOAuthReady: Boolean(
-      (process.env.GOOGLE_CLIENT_ID?.trim() || process.env.GOOGLE_CLIENT_ID_?.trim()) &&
-        process.env.GOOGLE_CLIENT_SECRET?.trim()
+      process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()
     ),
   };
 }
@@ -96,7 +95,11 @@ function readSession(req: Request): string | null {
 }
 
 function publicBaseUrl(req: Request): string {
-  // Keep OAuth callback host equal to the host that initiated the flow.
+  // Admin-configured canonical callback origin takes precedence.
+  const explicit = process.env.PUBLIC_SITE_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+
+  // Fallback to request-derived origin for local/dev and proxy-only setups.
   const forwardedHost = (req.get("x-forwarded-host") || "").split(",")[0]?.trim();
   const host = (req.get("host") || "").trim();
   const finalHost = forwardedHost || host;
@@ -104,8 +107,6 @@ function publicBaseUrl(req: Request): string {
   const proto = forwardedProto || (req.protocol === "https" ? "https" : "http");
   if (finalHost) return `${proto}://${finalHost}`.replace(/\/$/, "");
 
-  const explicit = process.env.PUBLIC_SITE_URL?.trim();
-  if (explicit) return explicit.replace(/\/$/, "");
   return `http://localhost:${process.env.PORT || 3000}`;
 }
 
@@ -255,7 +256,7 @@ export async function mountRenderStack(app: Express) {
   // --- Google OAuth ---
   app.get("/api/auth/google", (req, res) => {
     if (!p) return res.status(503).send("Database not configured (DATABASE_URL)");
-    const clientId = process.env.GOOGLE_CLIENT_ID?.trim() || process.env.GOOGLE_CLIENT_ID_?.trim();
+    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
     if (!clientId) return res.status(503).send("GOOGLE_CLIENT_ID not configured");
     const redirectUri = `${publicBaseUrl(req)}/api/auth/google/callback`;
     const state = crypto.randomBytes(16).toString("hex");
@@ -275,7 +276,7 @@ export async function mountRenderStack(app: Express) {
 
   app.get("/api/auth/google/callback", async (req, res) => {
     if (!p) return res.status(500).send("Database not configured");
-    const clientId = process.env.GOOGLE_CLIENT_ID?.trim() || process.env.GOOGLE_CLIENT_ID_?.trim();
+    const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
     if (!clientId || !clientSecret) return res.status(500).send("Google OAuth not configured");
 
