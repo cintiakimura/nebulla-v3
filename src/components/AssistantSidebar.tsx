@@ -81,6 +81,8 @@ export function AssistantSidebar({
   const [isRecordingText, setIsRecordingText] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const ttsRequestAbortRef = useRef<AbortController | null>(null);
+  const ttsObjectUrlRef = useRef<string | null>(null);
 
   const handleSendText = async (overrideText?: string) => {
     const textToSend = overrideText || inputText;
@@ -483,13 +485,35 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
       if (cleanText && !isCodingTurn) {
         try {
+          // Cancel any in-flight TTS request so only the newest answer speaks.
+          if (ttsRequestAbortRef.current) {
+            ttsRequestAbortRef.current.abort();
+            ttsRequestAbortRef.current = null;
+          }
+
           // Stop any currently playing audio
           if ((window as any).nebula_currentAudio) {
             (window as any).nebula_currentAudio.pause();
             (window as any).nebula_currentAudio.currentTime = 0;
           }
+          if (ttsObjectUrlRef.current) {
+            URL.revokeObjectURL(ttsObjectUrlRef.current);
+            ttsObjectUrlRef.current = null;
+          }
 
-          const audioUrl = `/api/speak?text=${encodeURIComponent(cleanText)}`;
+          const controller = new AbortController();
+          ttsRequestAbortRef.current = controller;
+          const speakRes = await fetch(`/api/speak?text=${encodeURIComponent(cleanText)}`, {
+            signal: controller.signal,
+          });
+          if (!speakRes.ok) {
+            const errBody = await speakRes.text();
+            throw new Error(`TTS request failed (${speakRes.status}): ${errBody.slice(0, 140)}`);
+          }
+          const audioBlob = await speakRes.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          ttsObjectUrlRef.current = audioUrl;
+
           const audio = new Audio(audioUrl);
           (window as any).nebula_currentAudio = audio;
           
@@ -497,18 +521,31 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           
           audio.onended = () => {
             setIsAiSpeaking(false);
+            if (ttsObjectUrlRef.current) {
+              URL.revokeObjectURL(ttsObjectUrlRef.current);
+              ttsObjectUrlRef.current = null;
+            }
           };
 
           audio.onerror = () => {
             setIsAiSpeaking(false);
+            if (ttsObjectUrlRef.current) {
+              URL.revokeObjectURL(ttsObjectUrlRef.current);
+              ttsObjectUrlRef.current = null;
+            }
           };
 
           audio.play().catch(e => {
-            console.error("[TTS] Playback error:", e);
+            // Expected when we interrupt previous playback with a newer response.
+            if (e?.name !== 'AbortError') {
+              console.error("[TTS] Playback error:", e);
+            }
             setIsAiSpeaking(false);
           });
         } catch (audioErr) {
-          console.error("[TTS] Audio initialization failed:", audioErr);
+          if ((audioErr as any)?.name !== 'AbortError') {
+            console.error("[TTS] Audio initialization failed:", audioErr);
+          }
           setIsAiSpeaking(false);
         }
       }
@@ -600,6 +637,13 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         setIsRecordingText(false);
       };
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (ttsRequestAbortRef.current) ttsRequestAbortRef.current.abort();
+      if (ttsObjectUrlRef.current) URL.revokeObjectURL(ttsObjectUrlRef.current);
+    };
   }, []);
 
   const toggleTextRecording = () => {
@@ -717,9 +761,17 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
   };
 
   const interruptAiSpeech = () => {
+    if (ttsRequestAbortRef.current) {
+      ttsRequestAbortRef.current.abort();
+      ttsRequestAbortRef.current = null;
+    }
     if ((window as any).nebula_currentAudio) {
       (window as any).nebula_currentAudio.pause();
       (window as any).nebula_currentAudio.currentTime = 0;
+    }
+    if (ttsObjectUrlRef.current) {
+      URL.revokeObjectURL(ttsObjectUrlRef.current);
+      ttsObjectUrlRef.current = null;
     }
     setIsAiSpeaking(false);
     if (!isLive) {

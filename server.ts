@@ -703,12 +703,40 @@ async function speak(text: string): Promise<Buffer> {
     }),
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`TTS Error: ${response.status} - ${errorText}`);
+  if (response.ok) {
+    return Buffer.from(await response.arrayBuffer());
   }
 
-  return Buffer.from(await response.arrayBuffer());
+  const primaryError = await response.text();
+  console.warn(`[TTS] New endpoint failed (${response.status}). Trying compatibility fallback.`);
+
+  // Compatibility fallback while Grok TTS rollout stabilizes across accounts/regions.
+  const fallback = await fetch("https://api.x.ai/v1/tts", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text,
+      voice_id: "Eve",
+      output_format: {
+        codec: "mp3",
+        sample_rate: 44100,
+        bit_rate: 128000,
+      },
+      language: "en",
+    }),
+  });
+
+  if (!fallback.ok) {
+    const fallbackError = await fallback.text();
+    throw new Error(
+      `TTS Error (new=${response.status}, fallback=${fallback.status}) new="${primaryError}" fallback="${fallbackError}"`
+    );
+  }
+
+  return Buffer.from(await fallback.arrayBuffer());
 }
 
 const MASTER_PLAN_SECTION_TITLES = [
