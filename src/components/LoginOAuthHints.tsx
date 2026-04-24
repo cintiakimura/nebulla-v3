@@ -1,8 +1,18 @@
 import { getGithubOAuthCallbackUrl, getGoogleOAuthCallbackUrl } from "../lib/authRedirect";
+import { readResponseJson } from "../lib/apiFetch";
+import { useEffect, useState } from "react";
 
 export function LoginOAuthHints() {
-  const gh = getGithubOAuthCallbackUrl();
-  const ggl = getGoogleOAuthCallbackUrl();
+  const [publicSiteUrl, setPublicSiteUrl] = useState<string>("");
+  const gh = getGithubOAuthCallbackUrl(publicSiteUrl);
+  const ggl = getGoogleOAuthCallbackUrl(publicSiteUrl);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => readResponseJson<{ publicSiteUrl?: string }>(res))
+      .then((c) => setPublicSiteUrl((c.publicSiteUrl || "").trim()))
+      .catch(() => setPublicSiteUrl(""));
+  }, []);
 
   return (
     <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-left space-y-3">

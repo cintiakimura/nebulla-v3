@@ -796,7 +796,7 @@ export default function App() {
       alert('GitHub OAuth is not configured (GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on the server).');
       return false;
     }
-    console.log('[AUTH] GitHub OAuth callback must be:', getGithubOAuthCallbackUrl());
+    console.log('[AUTH] GitHub OAuth callback must be:', getGithubOAuthCallbackUrl(config?.publicSiteUrl));
     window.open('/api/auth/github', 'nebula_auth_popup', 'width=600,height=700');
     return true;
   };
@@ -810,7 +810,7 @@ export default function App() {
       alert('Google OAuth is not configured (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server).');
       return false;
     }
-    console.log('[AUTH] Google OAuth redirect must be:', getGoogleOAuthCallbackUrl());
+    console.log('[AUTH] Google OAuth redirect must be:', getGoogleOAuthCallbackUrl(config?.publicSiteUrl));
     window.open('/api/auth/google', 'nebula_auth_popup', 'width=600,height=700');
     return true;
   };
@@ -1538,8 +1538,8 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
 
   if (!isOpen) return null;
 
-  const gh = getGithubOAuthCallbackUrl();
-  const ggl = getGoogleOAuthCallbackUrl();
+  const gh = getGithubOAuthCallbackUrl(status.publicSiteUrl);
+  const ggl = getGoogleOAuthCallbackUrl(status.publicSiteUrl);
 
   return (
     <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
