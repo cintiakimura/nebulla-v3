@@ -443,6 +443,14 @@ function SecretsTab() {
             <ul className="text-[10px] text-slate-400 space-y-2 list-disc pl-4">
               <li>Redirect URIs must match the deployed host exactly (including https and path).</li>
               <li>If you use a custom domain, update both provider consoles and <code className="text-slate-500">PUBLIC_SITE_URL</code>.</li>
+              <li>
+                <b>Google:</b> OAuth consent screen → User type <b>External</b> (Internal = only your Google
+                Workspace). Publish <b>In production</b> for the normal “Sign in with Google” flow for any user.
+              </li>
+              <li>
+                <b>GitHub:</b> Use a standard OAuth App; keep the app available to all GitHub users (avoid org-only
+                restrictions in the provider settings).
+              </li>
             </ul>
           </div>
         </div>

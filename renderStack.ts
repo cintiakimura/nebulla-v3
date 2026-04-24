@@ -166,7 +166,13 @@ export async function mountRenderStack(app: Express) {
     res.json({ ok: true });
   });
 
-  // --- GitHub OAuth ---
+  const githubApiHeaders = (token: string) => ({
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "User-Agent": "Nebulla-OAuth/1.0",
+  });
+
+  // --- GitHub OAuth (any GitHub account — use a standard OAuth App, not org-locked SSO-only flows) ---
   app.get("/api/auth/github", (req, res) => {
     if (!p) return res.status(503).send("Database not configured (DATABASE_URL)");
     const id = process.env.GITHUB_CLIENT_ID?.trim();
@@ -220,8 +226,9 @@ export async function mountRenderStack(app: Express) {
       if (!tokJson.access_token) {
         return res.status(400).send(tokJson.error || "GitHub token exchange failed");
       }
+      const ghAccessToken = tokJson.access_token;
       const uRes = await fetch("https://api.github.com/user", {
-        headers: { Authorization: `Bearer ${tokJson.access_token}`, Accept: "application/vnd.github+json" },
+        headers: githubApiHeaders(ghAccessToken),
       });
       const gh = (await uRes.json()) as {
         id: number;
@@ -231,7 +238,22 @@ export async function mountRenderStack(app: Express) {
         login?: string;
       };
       const providerUserId = String(gh.id);
-      const email = gh.email || `${gh.login || "user"}@users.noreply.github.com`;
+      let email = (gh.email && String(gh.email).trim()) || "";
+      if (!email) {
+        const emRes = await fetch("https://api.github.com/user/emails", {
+          headers: githubApiHeaders(ghAccessToken),
+        });
+        const list = (await emRes.json()) as { email?: string; primary?: boolean; verified?: boolean }[];
+        if (Array.isArray(list)) {
+          const primary = list.find((e) => e.primary && e.email);
+          const verified = list.find((e) => e.verified && e.email);
+          const any = list.find((e) => e.email);
+          email = (primary?.email || verified?.email || any?.email || "").trim();
+        }
+      }
+      if (!email) {
+        email = `${gh.login || "user"}@users.noreply.github.com`;
+      }
       const display = gh.name || gh.login || "GitHub User";
 
       const ins = await p.query(
@@ -243,8 +265,8 @@ export async function mountRenderStack(app: Express) {
         [providerUserId, email, display, gh.avatar_url || null]
       );
       const userId = ins.rows[0].id as string;
-      const token = signSession(userId);
-      setSessionCookie(res, token, remember);
+      const sessionJwt = signSession(userId);
+      setSessionCookie(res, sessionJwt, remember);
 
       res.send(oauthPopupHtml(true, "Signed in with GitHub"));
     } catch (e) {
@@ -253,7 +275,7 @@ export async function mountRenderStack(app: Express) {
     }
   });
 
-  // --- Google OAuth ---
+  // --- Google OAuth (any @gmail.com / Google account: Cloud Console consent screen must be User type "External", not Internal) ---
   app.get("/api/auth/google", (req, res) => {
     if (!p) return res.status(503).send("Database not configured (DATABASE_URL)");
     const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
@@ -267,9 +289,16 @@ export async function mountRenderStack(app: Express) {
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: "openid email profile",
+      scope: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+      ].join(" "),
       state,
+      // Account chooser so users can pick or add any Google identity (not org-only "internal" apps).
       prompt: "select_account",
+      access_type: "online",
+      include_granted_scopes: "true",
     });
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${q}`);
   });

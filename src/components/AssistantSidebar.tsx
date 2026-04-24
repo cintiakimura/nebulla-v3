@@ -69,6 +69,8 @@ export function AssistantSidebar({
   const resumeDictationAfterTtsRef = useRef(false);
   /** Assigned after `startAudioCapture` exists — TTS end / interrupt call this to restore STT. */
   const resumeListeningAfterOutgoingTtsRef = useRef<() => void>(() => {});
+  /** Dictation `useEffect` mounts once — call through this ref so live STT can resume after dictation. */
+  const resumeLiveAfterDictationEndsRef = useRef<() => void>(() => {});
 
   const [isRecordingText, setIsRecordingText] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -108,6 +110,18 @@ export function AssistantSidebar({
     }
   };
 
+  /** Hands-free and dictation share one mic channel — restart live STT after dictation/TTS pause. */
+  const resumeLiveSttAfterDictationEnds = () => {
+    queueMicrotask(() => {
+      if (!isLiveRef.current || !liveRecognitionRef.current || isAiSpeakingRef.current) return;
+      try {
+        liveRecognitionRef.current.start();
+      } catch (e) {
+        console.warn('Live recognition restart failed', e);
+      }
+    });
+  };
+
   /** No speech-to-text while Grok TTS is playing (avoids self-listening). Snapshots prior listen state. */
   const pauseListeningForOutgoingTts = () => {
     resumeLiveAfterTtsRef.current = Boolean(
@@ -117,6 +131,7 @@ export function AssistantSidebar({
     resumeDictationAfterTtsRef.current = Boolean(isRecordingTextRef.current);
     stopLiveRecognitionSafe();
     stopDictationRecognitionSafe();
+    isRecordingTextRef.current = false;
     setIsRecordingText(false);
   };
 
@@ -874,12 +889,16 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       };
 
       recognition.onend = () => {
+        isRecordingTextRef.current = false;
         setIsRecordingText(false);
+        resumeLiveAfterDictationEndsRef.current();
       };
 
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error', event.error);
+        isRecordingTextRef.current = false;
         setIsRecordingText(false);
+        resumeLiveAfterDictationEndsRef.current();
       };
 
       dictationRecognitionRef.current = recognition;
@@ -896,16 +915,23 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
   const toggleTextRecording = () => {
     if (isAiSpeakingRef.current) return;
-    if (isLiveRef.current) return;
     if (isRecordingText) {
       stopDictationRecognitionSafe();
+      isRecordingTextRef.current = false;
       setIsRecordingText(false);
+      resumeLiveSttAfterDictationEnds();
     } else {
+      isRecordingTextRef.current = true;
+      if (isLiveRef.current && liveRecognitionRef.current) {
+        stopLiveRecognitionSafe();
+      }
       try {
         dictationRecognitionRef.current?.start();
         setIsRecordingText(true);
       } catch (e) {
+        isRecordingTextRef.current = false;
         console.warn('Dictation start failed', e);
+        resumeLiveSttAfterDictationEnds();
       }
     }
   };
@@ -973,7 +999,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       };
 
       recognition.onend = () => {
-        if (isLiveRef.current && !isAiSpeakingRef.current) {
+        if (
+          isLiveRef.current &&
+          !isAiSpeakingRef.current &&
+          !isRecordingTextRef.current
+        ) {
           try {
             recognition.start();
           } catch (e) {
@@ -981,6 +1011,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           }
         }
       };
+
+      stopDictationRecognitionSafe();
+      setIsRecordingText(false);
+      isRecordingTextRef.current = false;
 
       recognition.start();
       liveRecognitionRef.current = recognition;
@@ -1011,6 +1045,8 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
     liveRecognitionRef.current = null;
   };
 
+  resumeLiveAfterDictationEndsRef.current = resumeLiveSttAfterDictationEnds;
+
   resumeListeningAfterOutgoingTtsRef.current = () => {
     if (isLiveRef.current) {
       if (deferredLiveRecognitionStartRef.current) {
@@ -1031,16 +1067,20 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       deferredLiveRecognitionStartRef.current = false;
     }
 
-    if (resumeDictationAfterTtsRef.current && !isLiveRef.current) {
+    if (resumeDictationAfterTtsRef.current) {
       resumeDictationAfterTtsRef.current = false;
+      isRecordingTextRef.current = true;
+      if (isLiveRef.current && liveRecognitionRef.current) {
+        stopLiveRecognitionSafe();
+      }
       try {
         dictationRecognitionRef.current?.start();
         setIsRecordingText(true);
       } catch (e) {
+        isRecordingTextRef.current = false;
         console.warn('Dictation resume failed', e);
+        resumeLiveSttAfterDictationEnds();
       }
-    } else {
-      resumeDictationAfterTtsRef.current = false;
     }
   };
 
@@ -1231,7 +1271,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             <button
               type="button"
               onClick={toggleTextRecording}
-              disabled={isAiSpeaking || isLive || isLoading}
+              disabled={isAiSpeaking || isLoading}
               className={`w-8 h-8 flex items-center justify-center rounded-full transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none ${
                 isRecordingText
                   ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]'
@@ -1240,10 +1280,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
               title={
                 isAiSpeaking
                   ? 'Mic paused while Nebula is speaking'
-                  : isLive
-                    ? 'Turn off hands-free to use dictation mic'
-                    : isRecordingText
-                      ? 'Stop dictation'
+                  : isRecordingText
+                    ? 'Stop dictation'
+                    : isLive
+                      ? 'Dictate text (hands-free pauses while dictating)'
                       : 'Dictate text'
               }
             >

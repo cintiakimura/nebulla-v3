@@ -1642,7 +1642,8 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
               <a href="https://github.com/settings/developers" target="_blank" className="text-cyan-400 hover:underline" rel="noreferrer">
                 GitHub → Settings → Developer settings → OAuth Apps
               </a>
-              , set <b>Authorization callback URL</b> to exactly:
+              , create a <b>classic OAuth App</b> (not limited to a single org’s SSO-only access). Any GitHub user can
+              authorize it. Set <b>Authorization callback URL</b> to exactly:
             </p>
             <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
               <code className="text-[10px] text-cyan-500 font-mono break-all">{gh}</code>
@@ -1669,7 +1670,19 @@ function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => v
               <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-cyan-400 hover:underline" rel="noreferrer">
                 Google Cloud → APIs &amp; Services → Credentials
               </a>
-              , add this under <b>Authorized redirect URIs</b> (must match your Render Web Service URL):
+              , create an OAuth client of type <b>Web application</b>. Under{' '}
+              <a
+                href="https://console.cloud.google.com/apis/credentials/consent"
+                target="_blank"
+                className="text-cyan-400 hover:underline"
+                rel="noreferrer"
+              >
+                OAuth consent screen
+              </a>
+              , set <b>User type: External</b> (Internal only allows users in <i>your</i> Google Workspace). While the app
+              is in Testing, add test users; move to <b>In production</b> for the normal account picker where any user
+              can choose or add their Google account. Add this under <b>Authorized redirect URIs</b> (must match your
+              Render Web Service URL):
             </p>
             <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
               <code className="text-[10px] text-cyan-500 font-mono break-all">{ggl}</code>

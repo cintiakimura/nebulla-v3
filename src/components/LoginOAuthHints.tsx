@@ -17,6 +17,13 @@ export function LoginOAuthHints() {
   return (
     <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-left space-y-3">
       <p className="text-[11px] text-amber-200/90 leading-relaxed">
+        <span className="font-headline text-amber-100">Open to any account?</span> In Google Cloud →{' '}
+        <b>OAuth consent screen</b>, set <b>User type: External</b> (not Internal). Publish the app to{' '}
+        <b>In production</b> when you want any Google user to sign in without being listed as a test user. Use an
+        OAuth client of type <b>Web application</b>. For GitHub, use a normal <b>OAuth App</b> under your user or org
+        so any GitHub account can authorize (not an org-only SSO lockout).
+      </p>
+      <p className="text-[11px] text-amber-200/90 leading-relaxed">
         <span className="font-headline text-amber-100">Google “redirect_uri_mismatch”?</span> In{" "}
         <a
           className="text-cyan-400 hover:underline"

@@ -65,7 +65,6 @@ async function startServer() {
   const nebulaUiStudioPath = path.join(process.cwd(), "nebula-sysh-ui-sysh-studio.md");
   /** On-disk folder for approved UI exports (alongside the markdown manifest). */
   const nebulaUiStudioOutputDir = path.join(process.cwd(), "nebulla-sysh-ui-sysh-studio");
-  const SUPER_ADMIN_EMAIL = 'cintiakimura20@gmail.com';
 
   const readSkillDesignSystemExcerpt = (): string => {
     const skillPath = path.join(process.cwd(), "SKILL.md");
