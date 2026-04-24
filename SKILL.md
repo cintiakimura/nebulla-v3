@@ -172,3 +172,38 @@ For quick successive iterations, keep a consistent naming pattern:
 ## Working Directory
 
 Save design files in the user's current working directory or a subdirectory like `designs/`. Don't use temp directories â€” the user will want to find and iterate on these files later.
+
+## Nebula UI Studio Contract (Project-Specific)
+
+These rules are mandatory for this repository and override generic workflow defaults when working on Nebula UI Studio artifacts.
+
+### Source of Truth Files
+
+- Prompt source file: `nebula-sysh-ui-sysh-studio.md`
+- Prompt section key: `NEBULA_UI_STUDIO_PROMPT`
+- UI code section key: `NEBULA_UI_STUDIO_CODE`
+
+### Prompt and Generation Rules
+
+- Pencil MUST read the design prompt from `nebula-sysh-ui-sysh-studio.md`, specifically from the `NEBULA_UI_STUDIO_PROMPT` section.
+- Pencil MUST generate consistent UI across all pages using the design system defined in that prompt.
+- Pencil may generate one page at a time or in small batches, but MUST eventually generate every page required by the page map.
+- If the user makes changes manually or via chat, Pencil outputs must be updated to reflect those changes.
+
+### Output Code Quality Rules
+
+- Pencil output must be clean, production-ready code.
+- Preferred implementation target is React + Tailwind when that is the active stack (or whatever stack the app is currently using).
+- Generated UI should follow shared component patterns and remain visually/systemically consistent across pages.
+
+### Write-Back Rules (Critical)
+
+- After generating UI code, Pencil output must be written into the `NEBULA_UI_STUDIO_CODE` section of `nebula-sysh-ui-sysh-studio.md`.
+- Pencil MUST NEVER modify the `NEBULA_UI_STUDIO_PROMPT` section.
+- `NEBULA_UI_STUDIO_PROMPT` is treated as immutable input unless explicitly updated by Grok 4 prompt-generation flow.
+
+### Grok 4 and Grok B Responsibilities
+
+- Grok 4 must provide a comprehensive, non-code summary for Master Plan-facing communication.
+- Grok B must write/fill Master Plan tabs using rich, formal formatting.
+- For coding implementation, Grok code should use `nebula-sysh-ui-sysh-studio.md` as the source of truth, focusing on the UI code section (`NEBULA_UI_STUDIO_CODE`) rather than prompt prose.
