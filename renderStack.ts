@@ -11,6 +11,7 @@ import crypto from "crypto";
 
 const SESSION_COOKIE = "nebula_session";
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const OAUTH_REMEMBER_COOKIE = "oauth_remember";
 
 let pool: pg.Pool | null = null;
 
@@ -101,15 +102,16 @@ function publicBaseUrl(req: Request): string {
   return `${proto}://${host}`;
 }
 
-function setSessionCookie(res: Response, token: string) {
+function setSessionCookie(res: Response, token: string, remember: boolean) {
   const secure = process.env.NODE_ENV === "production";
-  res.cookie(SESSION_COOKIE, token, {
+  const cookieOptions: Record<string, unknown> = {
     httpOnly: true,
     secure,
     sameSite: "lax",
-    maxAge: SESSION_MAX_AGE_MS,
     path: "/",
-  });
+  };
+  if (remember) cookieOptions.maxAge = SESSION_MAX_AGE_MS;
+  res.cookie(SESSION_COOKIE, token, cookieOptions);
 }
 
 export async function mountRenderStack(app: Express) {
@@ -163,7 +165,9 @@ export async function mountRenderStack(app: Express) {
     if (!id) return res.status(503).send("GITHUB_CLIENT_ID not configured");
     const redirectUri = `${publicBaseUrl(req)}/api/auth/github/callback`;
     const state = crypto.randomBytes(16).toString("hex");
+    const remember = String(req.query.remember || "").toLowerCase() === "1" || String(req.query.remember || "").toLowerCase() === "true";
     res.cookie("oauth_state", state, { httpOnly: true, maxAge: 600000, path: "/", sameSite: "lax" });
+    res.cookie(OAUTH_REMEMBER_COOKIE, remember ? "1" : "0", { httpOnly: true, maxAge: 600000, path: "/", sameSite: "lax" });
     const q = new URLSearchParams({
       client_id: id,
       redirect_uri: redirectUri,
@@ -182,7 +186,9 @@ export async function mountRenderStack(app: Express) {
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";
     const cookieState = req.cookies?.oauth_state;
+    const remember = req.cookies?.[OAUTH_REMEMBER_COOKIE] === "1";
     res.clearCookie("oauth_state", { path: "/" });
+    res.clearCookie(OAUTH_REMEMBER_COOKIE, { path: "/" });
     if (!code || !state || state !== cookieState) {
       return res.status(400).send("Invalid OAuth state");
     }
@@ -230,7 +236,7 @@ export async function mountRenderStack(app: Express) {
       );
       const userId = ins.rows[0].id as string;
       const token = signSession(userId);
-      setSessionCookie(res, token);
+      setSessionCookie(res, token, remember);
 
       res.send(oauthPopupHtml(true, "Signed in with GitHub"));
     } catch (e) {
@@ -246,15 +252,16 @@ export async function mountRenderStack(app: Express) {
     if (!clientId) return res.status(503).send("GOOGLE_CLIENT_ID not configured");
     const redirectUri = `${publicBaseUrl(req)}/api/auth/google/callback`;
     const state = crypto.randomBytes(16).toString("hex");
+    const remember = String(req.query.remember || "").toLowerCase() === "1" || String(req.query.remember || "").toLowerCase() === "true";
     res.cookie("oauth_state_google", state, { httpOnly: true, maxAge: 600000, path: "/", sameSite: "lax" });
+    res.cookie(OAUTH_REMEMBER_COOKIE, remember ? "1" : "0", { httpOnly: true, maxAge: 600000, path: "/", sameSite: "lax" });
     const q = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: "code",
       scope: "openid email profile",
       state,
-      access_type: "offline",
-      prompt: "consent",
+      prompt: "select_account",
     });
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${q}`);
   });
@@ -268,7 +275,9 @@ export async function mountRenderStack(app: Express) {
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";
     const cookieState = req.cookies?.oauth_state_google;
+    const remember = req.cookies?.[OAUTH_REMEMBER_COOKIE] === "1";
     res.clearCookie("oauth_state_google", { path: "/" });
+    res.clearCookie(OAUTH_REMEMBER_COOKIE, { path: "/" });
     if (!code || !state || state !== cookieState) {
       return res.status(400).send("Invalid OAuth state");
     }
@@ -307,7 +316,7 @@ export async function mountRenderStack(app: Express) {
       );
       const userId = ins.rows[0].id as string;
       const token = signSession(userId);
-      setSessionCookie(res, token);
+      setSessionCookie(res, token, remember);
 
       res.send(oauthPopupHtml(true, "Signed in with Google"));
     } catch (e) {
