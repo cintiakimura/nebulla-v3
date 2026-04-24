@@ -305,6 +305,18 @@ export function LandingPage({ onEnter }: LandingPageProps) {
           </button>
         </section>
       </main>
+
+      <footer className="shrink-0 border-t border-white/5 py-6 px-8 flex flex-wrap items-center justify-center gap-6 text-13 text-slate-500">
+        <a href="/privacy" className="text-slate-400 hover:text-cyan-300 transition-colors no-underline">
+          Privacy Policy
+        </a>
+        <span className="text-slate-600" aria-hidden>
+          ·
+        </span>
+        <a href="/terms" className="text-slate-400 hover:text-cyan-300 transition-colors no-underline">
+          Terms of Service
+        </a>
+      </footer>
     </div>
   );
 }

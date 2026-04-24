@@ -650,9 +650,16 @@ try {
     app.use((vite.middlewares) as any);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    const spaIndexHtml = path.join(distPath, "index.html");
+    const sendSpaIndex = (_req: express.Request, res: express.Response) => {
+      res.sendFile(spaIndexHtml);
+    };
+    // Explicit legal routes (Google OAuth console links, crawlers, bookmarks).
+    app.get("/privacy", sendSpaIndex);
+    app.get("/terms", sendSpaIndex);
     app.use(express.static(distPath) as any);
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      res.sendFile(spaIndexHtml);
     });
   }
 

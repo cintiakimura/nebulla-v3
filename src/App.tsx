@@ -10,6 +10,8 @@ import { MindMap } from './components/MindMap';
 import { PencilStudio } from './components/PencilStudio';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
+import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { LoginOAuthHints } from './components/LoginOAuthHints';
 import { Logo } from './components/Logo';
 import {
@@ -145,7 +147,29 @@ function deepCloneInitialCanvas() {
 }
 
 export default function App() {
-  const [showLanding, setShowLanding] = useState(true);
+  const [legalRoute, setLegalRoute] = useState<'privacy' | 'terms' | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const p = window.location.pathname;
+    if (p === '/privacy') return 'privacy';
+    if (p === '/terms') return 'terms';
+    return null;
+  });
+
+  useEffect(() => {
+    const sync = () => {
+      const p = window.location.pathname;
+      setLegalRoute(p === '/privacy' ? 'privacy' : p === '/terms' ? 'terms' : null);
+    };
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  const [showLanding, setShowLanding] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const p = window.location.pathname;
+    if (p === '/privacy' || p === '/terms') return false;
+    return true;
+  });
   const [showMasterPlan, setShowMasterPlan] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
   const [showAuthGuide, setShowAuthGuide] = useState(false);
@@ -880,6 +904,13 @@ export default function App() {
     }
   };
 
+  if (legalRoute === 'privacy') {
+    return <PrivacyPolicyPage />;
+  }
+  if (legalRoute === 'terms') {
+    return <TermsOfServicePage />;
+  }
+
   if (showLanding) {
     return <LandingPage onEnter={() => setShowLanding(false)} />;
   }
@@ -1549,8 +1580,16 @@ export function NebulaInterface() {
             <LoginOAuthHints />
 
             <div className="pt-4 border-t border-white/5">
-              <p className="text-[10px] text-slate-500 text-center uppercase tracking-widest">
-                By continuing, you agree to our Terms of Service
+              <p className="text-[10px] text-slate-500 text-center leading-relaxed">
+                By continuing, you agree to our{' '}
+                <a href="/terms" className="text-cyan-400/90 hover:underline" target="_blank" rel="noreferrer">
+                  Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="/privacy" className="text-cyan-400/90 hover:underline" target="_blank" rel="noreferrer">
+                  Privacy Policy
+                </a>
+                .
               </p>
             </div>
           </div>
