@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PlusCircle, Handshake, Github, Save, FolderOpen, Trash2 } from 'lucide-react';
+import { Github, FolderOpen, Trash2, Sparkles, Users, FileText, Upload, Save } from 'lucide-react';
 import { NEBULLA_GROK_KEY_STORAGE } from '../lib/grokKey';
 
 export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | 'secrets';
@@ -13,8 +13,7 @@ interface DashboardProps {
   activeProjectKey: string;
   onOpenProject: (key: string) => void;
   onDeleteProject: (key: string) => void;
-  onCreateBlankProject: () => void;
-  onStartFlow: (kind: 'prompt' | 'github' | 'brainstorm') => void;
+  onStartFlow: (kind: 'quick' | 'devpartner' | 'github' | 'prompt' | 'upload') => void;
 }
 
 export function Dashboard({
@@ -26,7 +25,6 @@ export function Dashboard({
   activeProjectKey,
   onOpenProject,
   onDeleteProject,
-  onCreateBlankProject,
   onStartFlow,
 }: DashboardProps) {
   return (
@@ -56,7 +54,6 @@ export function Dashboard({
               activeProjectKey={activeProjectKey}
               onOpenProject={onOpenProject}
               onDeleteProject={onDeleteProject}
-              onCreateBlankProject={onCreateBlankProject}
               onStartFlow={onStartFlow}
             />
           )}
@@ -76,7 +73,6 @@ function ProjectsTab({
   activeProjectKey,
   onOpenProject,
   onDeleteProject,
-  onCreateBlankProject,
   onStartFlow,
 }: {
   projectName: string;
@@ -85,8 +81,7 @@ function ProjectsTab({
   activeProjectKey: string;
   onOpenProject: (key: string) => void;
   onDeleteProject: (key: string) => void;
-  onCreateBlankProject: () => void;
-  onStartFlow: (kind: 'prompt' | 'github' | 'brainstorm') => void;
+  onStartFlow: (kind: 'quick' | 'devpartner' | 'github' | 'prompt' | 'upload') => void;
 }) {
   const formatWhen = (iso: string) => {
     try {
@@ -118,7 +113,7 @@ function ProjectsTab({
         </div>
         {projects.length === 0 ? (
           <p className="text-sm text-slate-500 border border-dashed border-white/10 rounded-xl p-6 text-center">
-            No saved projects yet. Create one below.
+            No saved projects yet. Start a new blank workspace with one of the flows below.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -167,58 +162,78 @@ function ProjectsTab({
 
       <div>
         <h3 className="text-xl font-headline text-cyan-300 mb-1">Create new project</h3>
-        <p className="text-sm text-slate-500 mb-6">Starts a fresh mind map and workspace, then runs your chosen flow.</p>
-
-        <div className="mb-6">
-          <button
-            type="button"
-            onClick={onCreateBlankProject}
-            className="px-4 py-2 rounded-lg text-sm font-headline bg-white/10 text-slate-200 border border-white/15 hover:bg-white/15"
-          >
-            New blank project
-          </button>
-        </div>
+        <p className="text-sm text-slate-500 mb-6">
+          Every new project starts as a blank workspace by default. Pick a flow below—Nebulla will use your choice from there.
+        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <button
             type="button"
-            onClick={() => void onStartFlow('prompt')}
-            className="p-6 border border-cyan-500/30 rounded-xl bg-cyan-500/5 hover:bg-cyan-500/10 transition-all flex flex-col items-center text-center gap-4 text-left"
+            onClick={() => void onStartFlow('quick')}
+            className="p-6 border border-cyan-500/30 rounded-xl bg-cyan-500/5 hover:bg-cyan-500/10 transition-all flex flex-col items-center text-center gap-4 text-left min-h-[180px]"
           >
             <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400">
-              <PlusCircle className="w-6 h-6" />
+              <Sparkles className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="text-slate-200 font-headline mb-1">Written prompt</h4>
-              <p className="text-xs text-slate-500">New project, then send a description to the assistant</p>
+              <h4 className="text-slate-200 font-headline mb-1">Quick generate</h4>
+              <p className="text-xs text-slate-500">Have a short conversation with Nebula, then we auto-generate the full app</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void onStartFlow('devpartner')}
+            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left min-h-[180px]"
+          >
+            <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-slate-400">
+              <Users className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-slate-200 font-headline mb-1">Dev partner</h4>
+              <p className="text-xs text-slate-500">Participate and approve every section of the project development</p>
             </div>
           </button>
 
           <button
             type="button"
             onClick={() => void onStartFlow('github')}
-            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left"
+            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left min-h-[180px]"
           >
             <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-slate-400">
               <Github className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="text-slate-200 font-headline mb-1">Clone GitHub</h4>
-              <p className="text-xs text-slate-500">New project, then analyze a repository</p>
+              <h4 className="text-slate-200 font-headline mb-1">Clone from GitHub</h4>
+              <p className="text-xs text-slate-500">Importing an existing repository</p>
             </div>
           </button>
 
           <button
             type="button"
-            onClick={() => void onStartFlow('brainstorm')}
-            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left"
+            onClick={() => void onStartFlow('prompt')}
+            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left min-h-[180px]"
           >
             <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-400">
-              <Handshake className="w-6 h-6" />
+              <FileText className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="text-slate-200 font-headline mb-1">Brainstorm</h4>
-              <p className="text-xs text-slate-500">New project, then open voice session</p>
+              <h4 className="text-slate-200 font-headline mb-1">Written prompt</h4>
+              <p className="text-xs text-slate-500">Give a detailed written description and we build from it</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void onStartFlow('upload')}
+            className="p-6 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all flex flex-col items-center text-center gap-4 text-left min-h-[180px]"
+          >
+            <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+              <Upload className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-slate-200 font-headline mb-1">Upload files</h4>
+              <p className="text-xs text-slate-500">Upload your own project files</p>
             </div>
           </button>
         </div>

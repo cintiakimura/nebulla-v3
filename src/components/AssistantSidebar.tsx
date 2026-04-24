@@ -53,9 +53,25 @@ export function AssistantSidebar({
   const captureStreamRef = useRef<MediaStream | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isMicOpenRef = useRef(false);
   const isLiveRef = useRef(isLive);
   const isAiSpeakingRef = useRef(isAiSpeaking);
+  const isRecordingTextRef = useRef(false);
+
+  /** Web Speech instance for hands-free (continuous) — never shared with dictation mic. */
+  const liveRecognitionRef = useRef<any>(null);
+  /** Web Speech instance for push-to-talk dictation (mic button). */
+  const dictationRecognitionRef = useRef<any>(null);
+  /** User started live mode while TTS was playing; begin recognition when TTS ends. */
+  const deferredLiveRecognitionStartRef = useRef(false);
+  /** Snapshot at TTS start: resume live recognition after playback if user still in live mode. */
+  const resumeLiveAfterTtsRef = useRef(false);
+  /** Snapshot at TTS start: resume dictation after playback if user was dictating. */
+  const resumeDictationAfterTtsRef = useRef(false);
+  /** Assigned after `startAudioCapture` exists — TTS end / interrupt call this to restore STT. */
+  const resumeListeningAfterOutgoingTtsRef = useRef<() => void>(() => {});
+
+  const [isRecordingText, setIsRecordingText] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     isLiveRef.current = isLive;
@@ -63,27 +79,46 @@ export function AssistantSidebar({
 
   useEffect(() => {
     isAiSpeakingRef.current = isAiSpeaking;
-    
-    // Auto-toggle recognition when AI starts/stops speaking
-    if (isLive) {
-      if (isAiSpeaking) {
-        if (recognitionRef.current) {
-          try { recognitionRef.current.stop(); } catch (e) {}
-        }
-      } else {
-        if (recognitionRef.current) {
-          try { recognitionRef.current.start(); } catch (e) {}
-        }
-      }
-    }
-  }, [isAiSpeaking, isLive]);
+  }, [isAiSpeaking]);
 
-  const [isRecordingText, setIsRecordingText] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  useEffect(() => {
+    isRecordingTextRef.current = isRecordingText;
+  }, [isRecordingText]);
   const ttsRequestAbortRef = useRef<AbortController | null>(null);
   const ttsObjectUrlRef = useRef<string | null>(null);
   const ttsDebounceTimerRef = useRef<number | null>(null);
+
+  const stopLiveRecognitionSafe = () => {
+    const r = liveRecognitionRef.current;
+    if (!r) return;
+    try {
+      r.stop();
+    } catch {
+      /* already stopped */
+    }
+  };
+
+  const stopDictationRecognitionSafe = () => {
+    const r = dictationRecognitionRef.current;
+    if (!r) return;
+    try {
+      r.stop();
+    } catch {
+      /* already stopped */
+    }
+  };
+
+  /** No speech-to-text while Grok TTS is playing (avoids self-listening). Snapshots prior listen state. */
+  const pauseListeningForOutgoingTts = () => {
+    resumeLiveAfterTtsRef.current = Boolean(
+      isLiveRef.current &&
+        (liveRecognitionRef.current != null || deferredLiveRecognitionStartRef.current)
+    );
+    resumeDictationAfterTtsRef.current = Boolean(isRecordingTextRef.current);
+    stopLiveRecognitionSafe();
+    stopDictationRecognitionSafe();
+    setIsRecordingText(false);
+  };
 
   const handleSendText = async (overrideText?: string) => {
     const textToSend = overrideText || inputText;
@@ -715,36 +750,42 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
               const audio = new Audio(audioUrl);
               (window as any).nebula_currentAudio = audio;
+
+              pauseListeningForOutgoingTts();
+              isAiSpeakingRef.current = true;
               setIsAiSpeaking(true);
 
-              audio.onended = () => {
-                setIsAiSpeaking(false);
+              let ttsPlaybackFinished = false;
+              const finishTtsAndResumeListening = () => {
+                if (ttsPlaybackFinished) return;
+                if ((window as any).nebula_currentAudio !== audio) return;
+                ttsPlaybackFinished = true;
+                (window as any).nebula_currentAudio = null;
                 if (ttsObjectUrlRef.current) {
                   URL.revokeObjectURL(ttsObjectUrlRef.current);
                   ttsObjectUrlRef.current = null;
                 }
-              };
-
-              audio.onerror = () => {
                 setIsAiSpeaking(false);
-                if (ttsObjectUrlRef.current) {
-                  URL.revokeObjectURL(ttsObjectUrlRef.current);
-                  ttsObjectUrlRef.current = null;
-                }
+                isAiSpeakingRef.current = false;
+                resumeListeningAfterOutgoingTtsRef.current();
               };
 
-              audio.play().catch(e => {
-                // Expected when we interrupt previous playback with a newer response.
+              audio.onended = finishTtsAndResumeListening;
+              audio.onerror = finishTtsAndResumeListening;
+
+              audio.play().catch((e) => {
                 if (e?.name !== 'AbortError') {
-                  console.error("[TTS] Playback error:", e);
+                  console.error('[TTS] Playback error:', e);
                 }
-                setIsAiSpeaking(false);
+                finishTtsAndResumeListening();
               });
             } catch (audioErr) {
               if ((audioErr as any)?.name !== 'AbortError') {
                 console.error("[TTS] Audio initialization failed:", audioErr);
               }
               setIsAiSpeaking(false);
+              isAiSpeakingRef.current = false;
+              resumeListeningAfterOutgoingTtsRef.current();
             }
           }, 150);
         } catch (audioErr) {
@@ -752,6 +793,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             console.error("[TTS] Audio initialization failed:", audioErr);
           }
           setIsAiSpeaking(false);
+          isAiSpeakingRef.current = false;
         }
       }
 
@@ -821,26 +863,26 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
   useEffect(() => {
     if ('webkitSpeechRecognition' in window) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      
-      recognitionRef.current.onresult = (event: any) => {
-        if (isAiSpeakingRef.current) {
-          interruptAiSpeech();
-        }
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event: any) => {
+        if (isAiSpeakingRef.current) return;
         const transcript = event.results[0][0].transcript;
-        setInputText(prev => prev + (prev ? ' ' : '') + transcript);
+        setInputText((prev) => prev + (prev ? ' ' : '') + transcript);
       };
-      
-      recognitionRef.current.onend = () => {
+
+      recognition.onend = () => {
         setIsRecordingText(false);
       };
-      
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error', event.error);
         setIsRecordingText(false);
       };
+
+      dictationRecognitionRef.current = recognition;
     }
   }, []);
 
@@ -853,12 +895,18 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
   }, []);
 
   const toggleTextRecording = () => {
+    if (isAiSpeakingRef.current) return;
+    if (isLiveRef.current) return;
     if (isRecordingText) {
-      recognitionRef.current?.stop();
+      stopDictationRecognitionSafe();
       setIsRecordingText(false);
     } else {
-      recognitionRef.current?.start();
-      setIsRecordingText(true);
+      try {
+        dictationRecognitionRef.current?.start();
+        setIsRecordingText(true);
+      } catch (e) {
+        console.warn('Dictation start failed', e);
+      }
     }
   };
 
@@ -874,37 +922,48 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         throw new Error('Speech recognition not supported in this browser.');
       }
 
+      if (isAiSpeakingRef.current) {
+        deferredLiveRecognitionStartRef.current = true;
+        isLiveRef.current = true;
+        setIsLive(true);
+        return;
+      }
+
+      deferredLiveRecognitionStartRef.current = false;
+
+      if (liveRecognitionRef.current) {
+        try {
+          liveRecognitionRef.current.stop();
+        } catch {
+          /* ignore */
+        }
+        liveRecognitionRef.current = null;
+      }
+
       const SpeechRecognition = (window as any).webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      
+
       recognition.onresult = (event: any) => {
-        if (isAiSpeakingRef.current) {
-          interruptAiSpeech();
-        }
-        // Reset the timer on ANY detection (interim or final)
+        if (isAiSpeakingRef.current) return;
         if (autoSendTimerRef.current) {
           clearTimeout(autoSendTimerRef.current);
           autoSendTimerRef.current = null;
         }
 
         let finalTranscript = '';
-        let interimTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
           }
         }
-        
+
         if (finalTranscript) {
-          setInputText(prev => prev + (prev ? ' ' : '') + finalTranscript);
+          setInputText((prev) => prev + (prev ? ' ' : '') + finalTranscript);
         }
 
-        // Set a new timer to auto-send after 2.9 seconds of silence
         autoSendTimerRef.current = setTimeout(() => {
           const currentText = (document.getElementById('assistant-input') as HTMLTextAreaElement)?.value;
           if (currentText && currentText.trim()) {
@@ -914,39 +973,74 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       };
 
       recognition.onend = () => {
-        // Automatically restart if live and AI is not speaking
         if (isLiveRef.current && !isAiSpeakingRef.current) {
           try {
             recognition.start();
           } catch (e) {
-            console.warn("Speech recognition restart failed", e);
+            console.warn('Speech recognition restart failed', e);
           }
         }
       };
 
       recognition.start();
-      recognitionRef.current = recognition;
+      liveRecognitionRef.current = recognition;
+      isLiveRef.current = true;
       setIsLive(true);
     } catch (err: any) {
-      console.error("Failed to start hands-free mode", err);
+      console.error('Failed to start hands-free mode', err);
       let errorMsg = 'Failed to start hands-free mode.';
       if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
         errorMsg = 'Microphone permission denied. Please allow microphone access.';
       }
-      setMessages(prev => [...prev, { role: 'system', text: errorMsg }]);
+      setMessages((prev) => [...prev, { role: 'system', text: errorMsg }]);
+      isLiveRef.current = false;
       setIsLive(false);
+      deferredLiveRecognitionStartRef.current = false;
     }
   };
 
   const stopAudioCapture = () => {
-    setIsLive(false);
+    isLiveRef.current = false;
+    deferredLiveRecognitionStartRef.current = false;
+    resumeLiveAfterTtsRef.current = false;
     if (autoSendTimerRef.current) {
       clearTimeout(autoSendTimerRef.current);
       autoSendTimerRef.current = null;
     }
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      // We don't null it here to let onend handle it if needed
+    stopLiveRecognitionSafe();
+    liveRecognitionRef.current = null;
+  };
+
+  resumeListeningAfterOutgoingTtsRef.current = () => {
+    if (isLiveRef.current) {
+      if (deferredLiveRecognitionStartRef.current) {
+        deferredLiveRecognitionStartRef.current = false;
+        void startAudioCapture();
+      } else if (resumeLiveAfterTtsRef.current) {
+        resumeLiveAfterTtsRef.current = false;
+        try {
+          liveRecognitionRef.current?.start();
+        } catch (e) {
+          console.warn('Live recognition resume failed', e);
+        }
+      } else {
+        resumeLiveAfterTtsRef.current = false;
+      }
+    } else {
+      resumeLiveAfterTtsRef.current = false;
+      deferredLiveRecognitionStartRef.current = false;
+    }
+
+    if (resumeDictationAfterTtsRef.current && !isLiveRef.current) {
+      resumeDictationAfterTtsRef.current = false;
+      try {
+        dictationRecognitionRef.current?.start();
+        setIsRecordingText(true);
+      } catch (e) {
+        console.warn('Dictation resume failed', e);
+      }
+    } else {
+      resumeDictationAfterTtsRef.current = false;
     }
   };
 
@@ -961,7 +1055,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
   };
 
   const disconnectLive = () => {
-    if (sessionRef.current) { sessionRef.current.close(); sessionRef.current = null; }
+    if (sessionRef.current) {
+      sessionRef.current.close();
+      sessionRef.current = null;
+    }
+    isLiveRef.current = false;
     setIsLive(false);
     stopAudioCapture();
   };
@@ -975,18 +1073,24 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       ttsRequestAbortRef.current.abort();
       ttsRequestAbortRef.current = null;
     }
-    if ((window as any).nebula_currentAudio) {
-      (window as any).nebula_currentAudio.pause();
-      (window as any).nebula_currentAudio.currentTime = 0;
+    const w = window as any;
+    const audio = w.nebula_currentAudio;
+    w.nebula_currentAudio = null;
+    if (audio) {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
     }
     if (ttsObjectUrlRef.current) {
       URL.revokeObjectURL(ttsObjectUrlRef.current);
       ttsObjectUrlRef.current = null;
     }
     setIsAiSpeaking(false);
-    if (!isLive) {
-      connectLive();
-    }
+    isAiSpeakingRef.current = false;
+    resumeListeningAfterOutgoingTtsRef.current();
   };
 
   const showGrokSetupHint =
@@ -1104,30 +1208,44 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
-            <button 
+            <button
+              type="button"
               onClick={toggleLive}
               className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${
-                isAiSpeaking 
-                  ? 'bg-cyan-500/20 text-cyan-400 shadow-[0_0_10px_rgba(0,255,255,0.2)]' 
-                  : isLive 
-                    ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]' 
-                    : 'bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20'
+                isLive
+                  ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]'
+                  : 'bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20'
               }`}
-              title={isLive ? "End Talk" : "Start Talk"}
+              title={isLive ? 'End talk (hands-free)' : 'Start talk (hands-free)'}
             >
-              <VoiceLinesIcon className="w-4 h-4" active={isLive || isAiSpeaking} />
+              <VoiceLinesIcon className="w-4 h-4" active={isLive} />
             </button>
-            <button 
+            <button
+              type="button"
               onClick={interruptAiSpeech}
               className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/5 text-slate-500 hover:text-yellow-300 transition-all"
-              title="Interrupt & Listen"
+              title="Interrupt speech and listen again"
             >
               <span className="material-symbols-outlined text-18">front_hand</span>
             </button>
-            <button 
+            <button
+              type="button"
               onClick={toggleTextRecording}
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${isRecordingText ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]' : 'hover:bg-white/5 text-slate-500 hover:text-cyan-300'}`}
-              title={isRecordingText ? "Stop Recording" : "Dictate Text"}
+              disabled={isAiSpeaking || isLive || isLoading}
+              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none ${
+                isRecordingText
+                  ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]'
+                  : 'hover:bg-white/5 text-slate-500 hover:text-cyan-300'
+              }`}
+              title={
+                isAiSpeaking
+                  ? 'Mic paused while Nebula is speaking'
+                  : isLive
+                    ? 'Turn off hands-free to use dictation mic'
+                    : isRecordingText
+                      ? 'Stop dictation'
+                      : 'Dictate text'
+              }
             >
               <span className="material-symbols-outlined text-18">mic</span>
             </button>

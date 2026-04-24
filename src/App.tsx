@@ -66,8 +66,8 @@ import {
   ChevronDown,
   User,
   Save,
-  PlusCircle,
-  Handshake,
+  Sparkles,
+  Users,
   Edit2,
   Github,
   Globe
@@ -629,24 +629,46 @@ export default function App() {
     })();
   };
 
-  const startNewProjectFlow = async (kind: 'prompt' | 'github' | 'brainstorm') => {
+  const startNewProjectFlow = async (kind: 'quick' | 'devpartner' | 'github' | 'prompt' | 'upload') => {
     await createBlankProjectWorkspace();
+    if ((window as any).openMasterPlan) {
+      (window as any).openMasterPlan();
+    }
+    const send = (text: string) => {
+      if ((window as any).nebula_handleSendText) {
+        (window as any).nebula_handleSendText(text);
+      }
+    };
+    if (kind === 'quick') {
+      send(
+        'Quick generate: I want a short conversation with you first about the app, then please auto-generate the full product (Master Plan through UI) based on what we agree in chat.'
+      );
+      return;
+    }
+    if (kind === 'devpartner') {
+      send(
+        'Dev partner mode: I want to participate and approve every section of project development step by step. Start with Tab 1 (Goal of the app), ask your discovery questions, and wait for my explicit approval before moving to the next tab.'
+      );
+      return;
+    }
     if (kind === 'prompt') {
       const prompt = window.prompt('Paste your written prompt:');
-      if (prompt && (window as any).nebula_handleSendText) {
-        (window as any).nebula_handleSendText(prompt);
+      if (prompt) {
+        send(prompt);
       }
       return;
     }
     if (kind === 'github') {
       const repo = window.prompt('Paste GitHub repository link:');
-      if (repo && (window as any).nebula_handleSendText) {
-        (window as any).nebula_handleSendText(`I want to clone and analyze this GitHub repository: ${repo}`);
+      if (repo) {
+        send(`I want to clone and analyze this GitHub repository: ${repo}`);
       }
       return;
     }
-    if ((window as any).nebula_toggleLive) {
-      (window as any).nebula_toggleLive();
+    if (kind === 'upload') {
+      send(
+        'Upload files: I am starting from my own project files. Please tell me exactly what to upload (formats, structure) and how you will use them to build the app.'
+      );
     }
   };
 
@@ -1212,7 +1234,6 @@ export default function App() {
                     }
                     onOpenProject={(key) => void openProjectByKey(key)}
                     onDeleteProject={deleteProjectByKey}
-                    onCreateBlankProject={() => void createBlankProjectWorkspace()}
                     onStartFlow={startNewProjectFlow}
                   />
                 </div>
@@ -1307,32 +1328,46 @@ export function NebulaInterface() {
                                 </p>
                               </div>
                               
-                              <div className="flex flex-wrap justify-center gap-3">
-                                <button 
+                              <div className="flex flex-wrap justify-center gap-3 max-w-3xl">
+                                <button
                                   type="button"
-                                  onClick={() => void startNewProjectFlow('prompt')}
-                                  className="flex items-center gap-2 px-5 py-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl hover:bg-cyan-500/20 transition-all text-sm text-cyan-300 font-headline"
+                                  onClick={() => void startNewProjectFlow('quick')}
+                                  className="flex items-center gap-2 px-4 py-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl hover:bg-cyan-500/20 transition-all text-sm text-cyan-300 font-headline"
                                 >
-                                  <PlusCircle className="w-4 h-4" />
-                                  Written Prompt
+                                  <Sparkles className="w-4 h-4" />
+                                  Quick generate
                                 </button>
-                                
-                                <button 
+                                <button
+                                  type="button"
+                                  onClick={() => void startNewProjectFlow('devpartner')}
+                                  className="flex items-center gap-2 px-4 py-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl hover:bg-purple-500/20 transition-all text-sm text-purple-300 font-headline"
+                                >
+                                  <Users className="w-4 h-4" />
+                                  Dev partner
+                                </button>
+                                <button
                                   type="button"
                                   onClick={() => void startNewProjectFlow('github')}
-                                  className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-sm text-slate-300 font-headline"
+                                  className="flex items-center gap-2 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-sm text-slate-300 font-headline"
                                 >
-                                  <Save className="w-4 h-4 text-slate-400" />
+                                  <Github className="w-4 h-4 text-slate-400" />
                                   Clone GitHub
                                 </button>
-
-                                <button 
+                                <button
                                   type="button"
-                                  onClick={() => void startNewProjectFlow('brainstorm')}
-                                  className="flex items-center gap-2 px-5 py-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl hover:bg-purple-500/20 transition-all text-sm text-purple-300 font-headline"
+                                  onClick={() => void startNewProjectFlow('prompt')}
+                                  className="flex items-center gap-2 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-sm text-slate-300 font-headline"
                                 >
-                                  <Handshake className="w-4 h-4" />
-                                  Brainstorm
+                                  <FileText className="w-4 h-4 text-slate-400" />
+                                  Written prompt
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void startNewProjectFlow('upload')}
+                                  className="flex items-center gap-2 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-sm text-slate-300 font-headline"
+                                >
+                                  <Upload className="w-4 h-4 text-slate-400" />
+                                  Upload files
                                 </button>
                               </div>
                             </div>
