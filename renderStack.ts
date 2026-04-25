@@ -48,11 +48,7 @@ function normalizeEmail(email: unknown): string | null {
 
 function validateNewPassword(password: unknown): string | null {
   if (typeof password !== "string") return "Password is required.";
-  if (password.length < 10) return "Password must be at least 10 characters.";
-  if (password.length > 128) return "Password is too long.";
-  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
-    return "Password must include at least one letter and one number.";
-  }
+  if (!password.length) return "Password is required.";
   return null;
 }
 

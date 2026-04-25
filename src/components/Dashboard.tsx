@@ -386,15 +386,16 @@ function SecretsTab() {
 
       {/* Auth integration */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <h4 className="text-sm font-headline text-slate-200 mb-2">Sign-in (Email + Password)</h4>
+        <h4 className="text-sm font-headline text-slate-200 mb-2">Access mode</h4>
         <p className="text-xs text-slate-500 mb-4">
-          Authentication is simplified: users only need email and password. On first login, account + Render workspace are created automatically.
+          Authentication is currently disabled. The workspace opens directly with no login required.
         </p>
         <div className="p-4 border border-white/10 rounded-lg bg-white/5">
           <h5 className="text-xs font-headline text-slate-300 mb-2 uppercase tracking-wider">Server environment</h5>
           <p className="text-[10px] text-slate-500 leading-relaxed">
-            On Render, set <code className="text-cyan-500/80">DATABASE_URL</code>, <code className="text-cyan-500/80">SESSION_SECRET</code>,{' '}
-            <code className="text-cyan-500/80">RENDER_API_KEY</code>, and <code className="text-cyan-500/80">PUBLIC_SITE_URL</code>.
+            On Render, set <code className="text-cyan-500/80">DATABASE_URL</code>,{' '}
+            <code className="text-cyan-500/80">RENDER_API_KEY</code>, and{' '}
+            <code className="text-cyan-500/80">PUBLIC_SITE_URL</code>.
           </p>
         </div>
       </div>

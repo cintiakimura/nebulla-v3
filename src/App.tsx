@@ -10,14 +10,11 @@ import { MindMap } from './components/MindMap';
 import { PencilStudio } from './components/PencilStudio';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
-import { SimpleLoginModal } from './components/SimpleLoginModal';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { Logo } from './components/Logo';
 import {
-  fetchSessionUser,
-  logoutNebula,
   listCloudProjects,
   getCloudProject,
   upsertCloudProject,
@@ -174,7 +171,6 @@ export default function App() {
     return true;
   });
 
-  const [sessionReloadNonce, setSessionReloadNonce] = useState(0);
   const [showMasterPlan, setShowMasterPlan] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
   const [showPencilStudio, setShowPencilStudio] = useState(false);
@@ -201,8 +197,6 @@ export default function App() {
 
   const [isLeftOpen, setIsLeftOpen] = useState(true);
   const [isTerminalOpen, setIsTerminalOpen] = useState(true);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [pendingProjectFlow, setPendingProjectFlow] = useState<NewProjectFlowKind | null>(null);
 
   const [user, setUser] = useState<MockUser | null>(null);
   const isLocalDevAuthEnabled =
@@ -351,88 +345,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (localDevUser) {
-      setUser(localDevUser);
-      hydrateGuestWorkspace();
-      return;
-    }
-
-    if (config === null) {
-      hydrateGuestWorkspace();
-      return;
-    }
-
-    if (!config.cloudStorageReady) {
-      hydrateGuestWorkspace();
-      return;
-    }
-
-    const mapNebulaUser = (u: { uid: string; displayName: string | null; email: string | null; photoURL: string | null }) => {
-      setUser({
-        uid: u.uid,
-        displayName: u.displayName,
-        email: u.email,
-        photoURL: u.photoURL,
-        role: 'user',
-      });
-      try {
-        localStorage.setItem(
-          'nebula_user',
-          JSON.stringify({
-            email: u.email,
-            displayName: u.displayName,
-            photoURL: u.photoURL,
-          })
-        );
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const loadCloudOrGuest = async () => {
-      const sessionUser = await fetchSessionUser();
-      if (!sessionUser) {
-        setUser(null);
-        hydrateGuestWorkspace();
-        return;
-      }
-
-      mapNebulaUser(sessionUser);
-      const rows = await listCloudProjects();
-      if (!rows.length) {
-        hydrateGuestWorkspace();
-        return;
-      }
-
-      setProjectsSource('cloud');
-      setProjectListUi(
-        rows.map((r) => ({
-          key: r.name,
-          name: r.name,
-          updatedAt: r.updated_at || new Date().toISOString(),
-        }))
-      );
-      const activeName = localStorage.getItem(ACTIVE_CLOUD_PROJECT_NAME_KEY) || rows[0].name;
-      const row = rows.find((r) => r.name === activeName) || rows[0];
-      localStorage.setItem(ACTIVE_CLOUD_PROJECT_NAME_KEY, row.name);
-      if (row.pages) setPages(row.pages as typeof initialPages);
-      if (row.edges) setEdges(row.edges as typeof initialEdges);
-      if (row.name) setProjectName(row.name);
-    };
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        void loadCloudOrGuest();
-      }
-    };
-    window.addEventListener('message', handleMessage);
-
-    void loadCloudOrGuest();
-
-    return () => {
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [localDevUser, config, sessionReloadNonce]);
+    setUser(localDevUser ?? null);
+    hydrateGuestWorkspace();
+  }, [localDevUser, config]);
 
   useEffect(() => {
     fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
@@ -672,12 +587,6 @@ export default function App() {
   };
 
   const startNewProjectFlow = async (kind: NewProjectFlowKind) => {
-    if (!localDevUser && !user) {
-      setPendingProjectFlow(kind);
-      setShowLoginModal(true);
-      return;
-    }
-
     const inputName = window.prompt('What is the name of your project?');
     const projectNameInput = (inputName || '').trim();
     if (!projectNameInput) return;
@@ -810,22 +719,6 @@ export default function App() {
       return;
     }
     console.log(`${actionName} initiated.`);
-  };
-
-  useEffect(() => {
-    if (!pendingProjectFlow) return;
-    if (!user && !localDevUser) return;
-    const pending = pendingProjectFlow;
-    setPendingProjectFlow(null);
-    void startNewProjectFlow(pending);
-  }, [pendingProjectFlow, user, localDevUser]);
-
-  const handleLogout = async () => {
-    if (localDevUser) return;
-    await logoutNebula();
-    setUser(null);
-    localStorage.removeItem('nebula_user');
-    hydrateGuestWorkspace();
   };
 
   useEffect(() => {
@@ -1013,24 +906,9 @@ export default function App() {
           <h1 className="font-headline text-4xl font-light tracking-tighter text-cyan-300 no-bold">nebulla</h1>
         </div>
         <div className="flex items-center gap-4">
-          {user ? (
-            <div className="flex items-center gap-3">
-              <div className="text-xs px-3 py-1 rounded-lg border border-cyan-500/25 bg-cyan-500/10 text-cyan-300 font-headline">
-                {user.email || user.displayName || 'Signed in'}
-              </div>
-              <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-cyan-300 transition-colors font-headline">
-                Logout
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowLoginModal(true)}
-              className="text-xs px-4 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/25 rounded-lg hover:bg-cyan-500/20 transition-colors font-headline"
-            >
-              Login
-            </button>
-          )}
+          <div className="text-xs px-3 py-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 font-headline">
+            No authentication
+          </div>
         </div>
       </header>
 
@@ -1590,13 +1468,6 @@ export function NebulaInterface() {
           <Bug className="w-5 h-5" />
         </button>
       </footer>
-
-      <SimpleLoginModal
-        open={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        cloudStorageReady={Boolean(config?.cloudStorageReady)}
-        onSignedIn={() => setSessionReloadNonce((n) => n + 1)}
-      />
 
     </div>
   );
