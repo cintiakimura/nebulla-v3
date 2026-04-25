@@ -1190,9 +1190,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
               <div className="flex flex-col gap-2 items-end">
                 <p className="text-13 no-bold whitespace-pre-wrap w-full">{msg.text}</p>
                 <button
+                  type="button"
                   onClick={() => handleRevertMessage(idx)}
                   disabled={isLoading}
-                  className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-headline text-slate-400 transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
                   title="Revert to this message"
                 >
                   Revert
@@ -1229,74 +1230,100 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             <span className="font-mono text-amber-300">Dashboard → Secrets</span> (this browser only).
           </p>
         )}
-        <div className="relative flex flex-col gap-2">
-          <textarea 
+        <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+          <textarea
             id="assistant-input"
             name="assistant-input"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendText(); } }}
-            className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-13 no-bold focus:outline-none focus:border-cyan-500/50 resize-none h-20 placeholder:text-slate-600 transition-all" 
-            placeholder={isLive ? "Listening or type here..." : "Start a call or type here..."}
-          />
-          <div className="absolute bottom-2 right-2 flex gap-2">
-            <button onClick={() => handleSendText()} className="w-7 h-7 flex items-center justify-center rounded-full bg-primary-container/20 text-primary hover:shadow-[0_0_15px_rgba(0,255,255,0.2)] transition-all">
-              <span className="material-symbols-outlined text-18">send</span>
-            </button>
-          </div>
-        </div>
-        
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={toggleLive}
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${
-                isLive
-                  ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]'
-                  : 'bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20'
-              }`}
-              title={isLive ? 'End talk (hands-free)' : 'Start talk (hands-free)'}
-            >
-              <VoiceLinesIcon className="w-4 h-4" active={isLive} />
-            </button>
-            <button
-              type="button"
-              onClick={interruptAiSpeech}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/5 text-slate-500 hover:text-yellow-300 transition-all"
-              title="Interrupt speech and listen again"
-            >
-              <span className="material-symbols-outlined text-18">front_hand</span>
-            </button>
-            <button
-              type="button"
-              onClick={toggleTextRecording}
-              disabled={isAiSpeaking || isLoading}
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none ${
-                isRecordingText
-                  ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(255,0,0,0.2)]'
-                  : 'hover:bg-white/5 text-slate-500 hover:text-cyan-300'
-              }`}
-              title={
-                isAiSpeaking
-                  ? 'Mic paused while Nebula is speaking'
-                  : isRecordingText
-                    ? 'Stop dictation'
-                    : isLive
-                      ? 'Dictate text (hands-free pauses while dictating)'
-                      : 'Dictate text'
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSendText();
               }
-            >
-              <span className="material-symbols-outlined text-18">mic</span>
-            </button>
+            }}
+            className="min-h-[5rem] w-full resize-none rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 text-13 text-slate-200 no-bold placeholder:text-slate-600 transition-colors focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25"
+            placeholder={isLive ? 'Listening or type here…' : 'Message Nebula Partner…'}
+            aria-label="Chat message"
+          />
+          <div className="flex items-center justify-between gap-2 border-t border-white/5 pt-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={toggleLive}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35 ${
+                  isLive
+                    ? 'border-red-500/35 bg-red-500/15 text-red-300 shadow-[0_0_12px_rgba(248,113,113,0.15)]'
+                    : 'border-white/10 bg-white/5 text-slate-400 hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-300'
+                }`}
+                title={isLive ? 'End talk (hands-free)' : 'Start talk (hands-free)'}
+              >
+                <VoiceLinesIcon className="h-4 w-4" active={isLive} />
+              </button>
+              <button
+                type="button"
+                onClick={interruptAiSpeech}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-500 transition-colors hover:border-amber-500/25 hover:bg-amber-500/10 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30"
+                title="Interrupt speech and listen again"
+              >
+                <span className="material-symbols-outlined text-[18px]">front_hand</span>
+              </button>
+              <button
+                type="button"
+                onClick={toggleTextRecording}
+                disabled={isAiSpeaking || isLoading}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35 disabled:cursor-not-allowed disabled:opacity-35 ${
+                  isRecordingText
+                    ? 'border-red-500/35 bg-red-500/15 text-red-300 shadow-[0_0_12px_rgba(248,113,113,0.15)]'
+                    : 'border-white/10 bg-white/5 text-slate-400 hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-300'
+                }`}
+                title={
+                  isAiSpeaking
+                    ? 'Mic paused while Nebula is speaking'
+                    : isRecordingText
+                      ? 'Stop dictation'
+                      : isLive
+                        ? 'Dictate text (hands-free pauses while dictating)'
+                        : 'Dictate text'
+                }
+              >
+                <span className="material-symbols-outlined text-[18px]">mic</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => alert('File upload initiated.')}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-400 transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35"
+                title="Attach file"
+              >
+                <span className="material-symbols-outlined text-[18px]">attach_file</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSendText()}
+                disabled={isLoading || !inputText.trim()}
+                title="Send message"
+                aria-busy={isLoading}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 disabled:cursor-not-allowed ${
+                  isLoading
+                    ? 'border-cyan-500/40 bg-cyan-500/20 text-cyan-100'
+                    : inputText.trim()
+                      ? 'border-cyan-500/35 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 hover:text-white'
+                      : 'border-white/10 bg-white/5 text-slate-600 hover:bg-white/5 hover:text-slate-600'
+                }`}
+              >
+                {isLoading ? (
+                  <span
+                    className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-cyan-300/35 border-t-cyan-100"
+                    aria-hidden
+                  />
+                ) : (
+                  <span className="material-symbols-outlined text-[18px]">send</span>
+                )}
+              </button>
+            </div>
           </div>
-          <button 
-            onClick={() => alert('File upload initiated.')}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/5 text-slate-500 hover:text-cyan-300 transition-all" 
-            title="Upload File"
-          >
-            <span className="material-symbols-outlined text-18">attach_file</span>
-          </button>
         </div>
       </div>
     </aside>
