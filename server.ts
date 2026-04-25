@@ -289,6 +289,122 @@ No approved UI code yet.
     });
   });
 
+  app.post("/api/render/deploy", async (_req, res) => {
+    try {
+      const renderApiKey = process.env.RENDER_API_KEY?.trim();
+      const serviceId = process.env.RENDER_SERVICE_ID?.trim();
+      const deployHookUrl = process.env.RENDER_DEPLOY_HOOK_URL?.trim();
+      const baseUrl = (process.env.RENDER_API_BASE_URL || "https://api.render.com/v1").replace(/\/$/, "");
+
+      if (serviceId && renderApiKey) {
+        const r = await fetch(`${baseUrl}/services/${serviceId}/deploys`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${renderApiKey}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+        });
+        const bodyText = await r.text();
+        if (!r.ok) {
+          return res.status(r.status).json({ error: `Render deploy failed: ${bodyText.slice(0, 300)}` });
+        }
+        let payload: any = {};
+        try {
+          payload = bodyText ? JSON.parse(bodyText) : {};
+        } catch {
+          payload = {};
+        }
+        const deployId = payload?.id || payload?.deploy?.id || payload?.deployId || null;
+        const status = payload?.status || payload?.deploy?.status || "created";
+        return res.json({
+          ok: true,
+          mode: "service-api",
+          serviceId,
+          deployId,
+          status,
+          raw: payload,
+        });
+      }
+
+      if (deployHookUrl) {
+        const r = await fetch(deployHookUrl, { method: "POST" });
+        const bodyText = await r.text();
+        if (!r.ok) {
+          return res.status(r.status).json({ error: `Render deploy hook failed: ${bodyText.slice(0, 300)}` });
+        }
+        let payload: any = {};
+        try {
+          payload = bodyText ? JSON.parse(bodyText) : {};
+        } catch {
+          payload = {};
+        }
+        return res.json({
+          ok: true,
+          mode: "deploy-hook",
+          status: "triggered",
+          raw: payload,
+        });
+      }
+
+      return res.status(503).json({
+        error:
+          "Render deploy is not configured. Set RENDER_SERVICE_ID + RENDER_API_KEY, or set RENDER_DEPLOY_HOOK_URL.",
+      });
+    } catch (error) {
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : "Unknown Render deploy error",
+      });
+    }
+  });
+
+  app.get("/api/render/deploy/status", async (req, res) => {
+    try {
+      const deployId = typeof req.query.deployId === "string" ? req.query.deployId.trim() : "";
+      if (!deployId) return res.status(400).json({ error: "deployId is required" });
+
+      const renderApiKey = process.env.RENDER_API_KEY?.trim();
+      const serviceId = process.env.RENDER_SERVICE_ID?.trim();
+      if (!renderApiKey || !serviceId) {
+        return res.status(503).json({ error: "RENDER_API_KEY and RENDER_SERVICE_ID are required for status polling" });
+      }
+      const baseUrl = (process.env.RENDER_API_BASE_URL || "https://api.render.com/v1").replace(/\/$/, "");
+      const r = await fetch(`${baseUrl}/services/${serviceId}/deploys/${deployId}`, {
+        headers: {
+          Authorization: `Bearer ${renderApiKey}`,
+          Accept: "application/json",
+        },
+      });
+      const bodyText = await r.text();
+      if (!r.ok) {
+        return res.status(r.status).json({ error: `Render deploy status failed: ${bodyText.slice(0, 300)}` });
+      }
+      let payload: any = {};
+      try {
+        payload = bodyText ? JSON.parse(bodyText) : {};
+      } catch {
+        payload = {};
+      }
+      const status =
+        payload?.status ||
+        payload?.deploy?.status ||
+        payload?.state ||
+        payload?.deploy?.state ||
+        "unknown";
+      const message =
+        payload?.message ||
+        payload?.deploy?.message ||
+        payload?.error ||
+        payload?.deploy?.error ||
+        "";
+      res.json({ ok: true, status, message, raw: payload });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unknown Render status polling error",
+      });
+    }
+  });
+
   app.get("/auth/callback", (_req, res) => {
     res.redirect(302, "/");
   });

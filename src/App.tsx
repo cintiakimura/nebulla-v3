@@ -10,7 +10,7 @@ import { MindMap } from './components/MindMap';
 import { PencilStudio } from './components/PencilStudio';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
-import { LoginModal } from './components/LoginModal';
+import { SimpleLoginModal } from './components/SimpleLoginModal';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
@@ -23,7 +23,6 @@ import {
   upsertCloudProject,
   deleteCloudProject,
 } from './lib/nebulaCloud';
-import { getGithubOAuthCallbackUrl } from './lib/authRedirect';
 import { readResponseJson } from './lib/apiFetch';
 import { installNebulaGuardianClient } from './lib/nebulaGuardianClient';
 import {
@@ -67,7 +66,6 @@ import {
   History, 
   Bug,
   ChevronDown,
-  User,
   Save,
   Sparkles,
   Users,
@@ -147,6 +145,7 @@ function deepCloneInitialCanvas() {
 }
 
 export default function App() {
+  type NewProjectFlowKind = 'quick' | 'devpartner' | 'github' | 'prompt' | 'upload';
   const [legalRoute, setLegalRoute] = useState<'privacy' | 'terms' | 'reset-password' | null>(() => {
     if (typeof window === 'undefined') return null;
     const p = window.location.pathname;
@@ -178,7 +177,6 @@ export default function App() {
   const [sessionReloadNonce, setSessionReloadNonce] = useState(0);
   const [showMasterPlan, setShowMasterPlan] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
-  const [showAuthGuide, setShowAuthGuide] = useState(false);
   const [showPencilStudio, setShowPencilStudio] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<DashboardTab | null>(null);
@@ -204,7 +202,7 @@ export default function App() {
   const [isLeftOpen, setIsLeftOpen] = useState(true);
   const [isTerminalOpen, setIsTerminalOpen] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [stayLoggedIn, setStayLoggedIn] = useState(false);
+  const [pendingProjectFlow, setPendingProjectFlow] = useState<NewProjectFlowKind | null>(null);
 
   const [user, setUser] = useState<MockUser | null>(null);
   const isLocalDevAuthEnabled =
@@ -510,7 +508,6 @@ export default function App() {
       writeActiveGuestProjectId(gid);
       setProjectListUi(readGuestIndex().map((e) => ({ key: e.id, name: e.name, updatedAt: e.updatedAt })));
       showProjectSavedToast();
-      if (!user && !localDevUser) setShowLoginModal(true);
       return;
     }
 
@@ -537,8 +534,10 @@ export default function App() {
     showProjectSavedToast();
   };
 
-  const createBlankProjectWorkspace = async () => {
-    const newName = `Untitled ${new Date().toLocaleDateString()} · ${Math.random().toString(36).slice(2, 6)}`;
+  const createBlankProjectWorkspace = async (requestedName?: string) => {
+    const normalized = typeof requestedName === 'string' ? requestedName.trim() : '';
+    const newName =
+      normalized || `Untitled ${new Date().toLocaleDateString()} · ${Math.random().toString(36).slice(2, 6)}`;
     const { pages: blankPages, edges: blankEdges } = deepCloneInitialCanvas();
 
     if (localDevUser || !user || projectsSource === 'guest') {
@@ -672,8 +671,18 @@ export default function App() {
     })();
   };
 
-  const startNewProjectFlow = async (kind: 'quick' | 'devpartner' | 'github' | 'prompt' | 'upload') => {
-    await createBlankProjectWorkspace();
+  const startNewProjectFlow = async (kind: NewProjectFlowKind) => {
+    if (!localDevUser && !user) {
+      setPendingProjectFlow(kind);
+      setShowLoginModal(true);
+      return;
+    }
+
+    const inputName = window.prompt('What is the name of your project?');
+    const projectNameInput = (inputName || '').trim();
+    if (!projectNameInput) return;
+
+    await createBlankProjectWorkspace(projectNameInput);
     if ((window as any).openMasterPlan) {
       (window as any).openMasterPlan();
     }
@@ -715,8 +724,108 @@ export default function App() {
     }
   };
 
+  const appendTerminalLog = (command: string, output: string) => {
+    setTerminalHistory((prev) => [...prev, { command, output }]);
+  };
+
+  const deployOnRender = async () => {
+    setIsTerminalOpen(true);
+    appendTerminalLog('render deploy', 'Starting deployment on Render...');
+    try {
+      const deployRes = await fetch('/api/render/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const deployData = await readResponseJson<{
+        ok?: boolean;
+        mode?: string;
+        serviceId?: string;
+        deployId?: string;
+        status?: string;
+        error?: string;
+      }>(deployRes);
+      if (!deployRes.ok || deployData?.error) {
+        appendTerminalLog('render deploy', `ERROR: ${deployData?.error || 'Failed to trigger deployment.'}`);
+        return;
+      }
+
+      appendTerminalLog(
+        'render deploy',
+        `Deployment triggered (${deployData.mode || 'render'}). Initial status: ${deployData.status || 'unknown'}.`
+      );
+
+      if (deployData.mode === 'deploy-hook' || !deployData.deployId) {
+        appendTerminalLog(
+          'render status',
+          'Deploy hook triggered. No deploy id available for polling. Check Render dashboard for final status.'
+        );
+        return;
+      }
+
+      const terminalStatuses = new Set<string>();
+      for (let i = 0; i < 90; i++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 4000));
+        const statusRes = await fetch(
+          `/api/render/deploy/status?deployId=${encodeURIComponent(deployData.deployId)}`
+        );
+        const statusData = await readResponseJson<{
+          status?: string;
+          message?: string;
+          error?: string;
+        }>(statusRes);
+        if (!statusRes.ok || statusData?.error) {
+          appendTerminalLog('render status', `ERROR: ${statusData?.error || 'Could not read deploy status.'}`);
+          return;
+        }
+
+        const normalized = String(statusData.status || 'unknown').toLowerCase();
+        const withMessage = statusData.message ? ` — ${statusData.message}` : '';
+        if (!terminalStatuses.has(`${normalized}${withMessage}`)) {
+          terminalStatuses.add(`${normalized}${withMessage}`);
+          appendTerminalLog('render status', `${normalized}${withMessage}`);
+        }
+
+        if (['live', 'deployed', 'active', 'healthy', 'ready', 'success', 'succeeded'].includes(normalized)) {
+          appendTerminalLog('render deploy', 'Deployment succeeded. Refreshing page...');
+          window.setTimeout(() => window.location.reload(), 1200);
+          return;
+        }
+        if (['build_failed', 'failed', 'error', 'canceled', 'cancelled'].includes(normalized)) {
+          appendTerminalLog('render deploy', `ERROR: Deployment failed with status "${normalized}".`);
+          return;
+        }
+      }
+      appendTerminalLog(
+        'render deploy',
+        'Status polling timed out. Deployment may still be running. Check Render dashboard.'
+      );
+    } catch (err: any) {
+      appendTerminalLog('render deploy', `ERROR: ${err?.message || 'Unknown deploy error.'}`);
+    }
+  };
+
   const handleAction = (actionName: string) => {
+    if (actionName === 'Upload' || actionName === 'Deploy') {
+      void deployOnRender();
+      return;
+    }
     console.log(`${actionName} initiated.`);
+  };
+
+  useEffect(() => {
+    if (!pendingProjectFlow) return;
+    if (!user && !localDevUser) return;
+    const pending = pendingProjectFlow;
+    setPendingProjectFlow(null);
+    void startNewProjectFlow(pending);
+  }, [pendingProjectFlow, user, localDevUser]);
+
+  const handleLogout = async () => {
+    if (localDevUser) return;
+    await logoutNebula();
+    setUser(null);
+    localStorage.removeItem('nebula_user');
+    hydrateGuestWorkspace();
   };
 
   useEffect(() => {
@@ -853,33 +962,6 @@ export default function App() {
     setShowCodePreview(false);
   };
 
-  const handleGithubLogin = async (): Promise<boolean> => {
-    if (!config?.cloudStorageReady) {
-      alert('Cloud database is not configured on the server (set DATABASE_URL on Render).');
-      return false;
-    }
-    if (!config?.githubOAuthReady) {
-      alert('GitHub OAuth is not configured (GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on the server).');
-      return false;
-    }
-    console.log('[AUTH] GitHub OAuth callback must be:', getGithubOAuthCallbackUrl(config?.publicSiteUrl));
-    const remember = stayLoggedIn ? "1" : "0";
-    window.open(`/api/auth/github?remember=${remember}`, 'nebula_auth_popup', 'width=600,height=700');
-    return true;
-  };
-
-  const handleLogout = async () => {
-    if (localDevUser) {
-      console.log('Local Dev Auth is enabled on localhost; logout is disabled in this mode.');
-      return;
-    }
-
-    await logoutNebula();
-    setUser(null);
-    localStorage.removeItem('nebula_user');
-    hydrateGuestWorkspace();
-  };
-
   const handleTerminalSubmit = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && terminalInput.trim()) {
       const command = terminalInput.trim();
@@ -931,22 +1013,23 @@ export default function App() {
           <h1 className="font-headline text-4xl font-light tracking-tighter text-cyan-300 no-bold">nebulla</h1>
         </div>
         <div className="flex items-center gap-4">
-          {/* Action buttons removed as requested */}
           {user ? (
             <div className="flex items-center gap-3">
-              <img src={user.photoURL || ''} alt="User" className="w-6 h-6 rounded-full border border-white/10" referrerPolicy="no-referrer" />
-              <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-cyan-300 transition-colors font-headline">Logout</button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowLoginModal(true)}
-                className="text-xs px-4 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/25 rounded-lg hover:bg-cyan-500/20 transition-colors font-headline"
-              >
-                Sign in
+              <div className="text-xs px-3 py-1 rounded-lg border border-cyan-500/25 bg-cyan-500/10 text-cyan-300 font-headline">
+                {user.email || user.displayName || 'Signed in'}
+              </div>
+              <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-cyan-300 transition-colors font-headline">
+                Logout
               </button>
             </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowLoginModal(true)}
+              className="text-xs px-4 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/25 rounded-lg hover:bg-cyan-500/20 transition-colors font-headline"
+            >
+              Login
+            </button>
           )}
         </div>
       </header>
@@ -1152,15 +1235,6 @@ export default function App() {
                 </div>
                 <span className="text-[10px] text-slate-500 font-headline uppercase tracking-tighter no-bold block pt-2">Quick Actions</span>
                 <div className="flex flex-col gap-2">
-                  {!user && (
-                    <button 
-                      onClick={() => setShowLoginModal(true)}
-                      className="flex items-center gap-2 text-13 text-cyan-400 hover:text-cyan-300 transition-all no-bold"
-                    >
-                      <User className="w-3.5 h-3.5" />
-                      Login to Save
-                    </button>
-                  )}
                   <button 
                     onClick={() => handleAction('Connect')}
                     className="flex items-center gap-2 text-13 text-slate-400 hover:text-cyan-300 transition-all no-bold"
@@ -1173,7 +1247,7 @@ export default function App() {
                     className="flex items-center gap-2 text-13 text-slate-400 hover:text-cyan-300 transition-all no-bold"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    Upload
+                    Deploy on Render
                   </button>
                 </div>
               </div>
@@ -1517,146 +1591,13 @@ export function NebulaInterface() {
         </button>
       </footer>
 
-      <LoginModal
+      <SimpleLoginModal
         open={showLoginModal}
         onClose={() => setShowLoginModal(false)}
-        stayLoggedIn={stayLoggedIn}
-        onStayLoggedInChange={setStayLoggedIn}
         cloudStorageReady={Boolean(config?.cloudStorageReady)}
-        githubOAuthReady={Boolean(config?.githubOAuthReady)}
-        onGithubPopupLogin={handleGithubLogin}
         onSignedIn={() => setSessionReloadNonce((n) => n + 1)}
       />
 
-      {/* Auth Guide Modal */}
-      <AuthGuideModal isOpen={showAuthGuide} onClose={() => setShowAuthGuide(false)} />
-    </div>
-  );
-}
-
-function AuthGuideModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [status, setStatus] = useState<{
-    cloud: boolean;
-    github: boolean;
-    publicSiteUrl: string;
-  }>({ cloud: false, github: false, publicSiteUrl: '' });
-
-  useEffect(() => {
-    fetch('/api/config')
-      .then(async (res) =>
-        readResponseJson<{
-          cloudStorageReady?: boolean;
-          githubOAuthReady?: boolean;
-          publicSiteUrl?: string;
-        }>(res)
-      )
-      .then((c) => {
-        setStatus({
-          cloud: !!c.cloudStorageReady,
-          github: !!c.githubOAuthReady,
-          publicSiteUrl: (c.publicSiteUrl || '').trim(),
-        });
-      })
-      .catch(console.error);
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const gh = getGithubOAuthCallbackUrl(status.publicSiteUrl);
-
-  return (
-    <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-[#0b1219] border border-white/10 rounded-2xl p-6 max-w-2xl w-full shadow-2xl flex flex-col gap-6 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 text-cyan-300">
-              <Key className="w-5 h-5" />
-              <h2 className="text-xl font-headline font-normal">Auth (Render)</h2>
-            </div>
-            <div className="flex flex-wrap gap-3 mt-1">
-              <span className={`text-[10px] flex items-center gap-1 ${status.cloud ? 'text-green-400' : 'text-red-400'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${status.cloud ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                DATABASE_URL (email + sessions)
-              </span>
-              <span className={`text-[10px] flex items-center gap-1 ${status.github ? 'text-green-400' : 'text-red-400'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${status.github ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                GitHub OAuth
-              </span>
-            </div>
-            {status.publicSiteUrl ? (
-              <p className="text-[10px] text-slate-500">
-                PUBLIC_SITE_URL (server): <code className="text-cyan-500/90">{status.publicSiteUrl}</code>
-              </p>
-            ) : null}
-          </div>
-          <button type="button" onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="space-y-6">
-          <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
-            <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">1</span>
-              GitHub OAuth App
-            </h3>
-            <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              In{' '}
-              <a href="https://github.com/settings/developers" target="_blank" className="text-cyan-400 hover:underline" rel="noreferrer">
-                GitHub → Settings → Developer settings → OAuth Apps
-              </a>
-              , create a <b>classic OAuth App</b>. Set <b>Authorization callback URL</b> to exactly:
-            </p>
-            <div className="ml-7 p-3 bg-black/40 border border-white/5 rounded-lg flex items-center justify-between group">
-              <code className="text-[10px] text-cyan-500 font-mono break-all">{gh}</code>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(gh);
-                  alert('Copied!');
-                }}
-                className="p-1 px-2 text-[10px] bg-white/5 hover:bg-white/10 text-slate-400 rounded transition-all"
-              >
-                Copy
-              </button>
-            </div>
-          </section>
-
-          <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
-            <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">2</span>
-              Email &amp; password reset
-            </h3>
-            <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              Sign-up and login use <code className="text-cyan-500/80">POST /api/auth/register</code> and{' '}
-              <code className="text-cyan-500/80">POST /api/auth/login</code> with the same cookie session as GitHub. For
-              password reset emails, add optional <code className="text-cyan-500/80">RESEND_API_KEY</code> and{' '}
-              <code className="text-cyan-500/80">RESEND_FROM_EMAIL</code> (verified sender in Resend).
-            </p>
-          </section>
-
-          <section className="space-y-3 p-4 bg-white/5 rounded-xl border border-white/5">
-            <h3 className="text-sm font-headline text-slate-200 flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px]">3</span>
-              Render environment
-            </h3>
-            <p className="text-xs text-slate-400 leading-relaxed pl-7">
-              Set <code className="text-cyan-500/80">DATABASE_URL</code>, <code className="text-cyan-500/80">SESSION_SECRET</code>,{' '}
-              <code className="text-cyan-500/80">GITHUB_CLIENT_ID</code> / <code className="text-cyan-500/80">GITHUB_CLIENT_SECRET</code>, and{' '}
-              <code className="text-cyan-500/80">PUBLIC_SITE_URL</code> to your public HTTPS URL so GitHub OAuth and reset links resolve
-              correctly behind proxies.
-            </p>
-          </section>
-        </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full py-3 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 rounded-xl hover:bg-cyan-500/30 transition-all font-headline text-sm"
-        >
-          I&apos;ve updated my settings
-        </button>
-      </div>
     </div>
   );
 }

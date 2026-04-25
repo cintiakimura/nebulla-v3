@@ -142,6 +142,18 @@ async function ensureTables(p: pg.Pool) {
     );
   `);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_nebula_projects_user ON nebula_projects(user_id);`);
+  await p.query(`ALTER TABLE nebula_projects ADD COLUMN IF NOT EXISTS workspace_id TEXT;`);
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS nebula_client_workspaces (
+      user_id UUID PRIMARY KEY REFERENCES nebula_users(id) ON DELETE CASCADE,
+      email TEXT,
+      workspace_id TEXT NOT NULL UNIQUE,
+      workspace_name TEXT NOT NULL,
+      render_payload JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
   await p.query(`ALTER TABLE nebula_users ADD COLUMN IF NOT EXISTS password_hash TEXT;`);
   await p.query(`
     CREATE TABLE IF NOT EXISTS nebula_password_resets (
@@ -231,6 +243,42 @@ function setSessionCookie(res: Response, token: string, remember: boolean) {
   res.cookie(SESSION_COOKIE, token, cookieOptions);
 }
 
+function normalizeWorkspaceNameFromEmail(email: string): string {
+  const local = email.split("@")[0] || "client";
+  const cleaned = local.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return `nebula-${cleaned || "client"}`.slice(0, 63);
+}
+
+async function createRenderWorkspace(workspaceName: string): Promise<{ id: string; name: string; raw: unknown }> {
+  const renderApiKey = process.env.RENDER_API_KEY?.trim();
+  if (!renderApiKey) {
+    throw new Error("RENDER_API_KEY is not configured.");
+  }
+  const baseUrl = (process.env.RENDER_API_BASE_URL || "https://api.render.com/v1").replace(/\/$/, "");
+  const renderRes = await fetch(`${baseUrl}/workspaces`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${renderApiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ name: workspaceName }),
+  });
+  if (!renderRes.ok) {
+    const errorText = await renderRes.text();
+    throw new Error(`Render workspace creation failed: ${errorText.slice(0, 300)}`);
+  }
+  const payload: any = await renderRes.json();
+  const workspaceId =
+    payload?.id || payload?.workspace?.id || payload?.workspaceId || payload?.workspace_id || null;
+  if (!workspaceId) throw new Error("Render response did not include a workspace ID.");
+  return {
+    id: String(workspaceId),
+    name: payload?.name || payload?.workspace?.name || workspaceName,
+    raw: payload,
+  };
+}
+
 export async function mountRenderStack(app: Express) {
   app.use(cookieParser() as any);
 
@@ -243,6 +291,37 @@ export async function mountRenderStack(app: Express) {
       console.error("[nebula] PostgreSQL init failed:", e);
     }
   }
+
+  const ensureWorkspaceForUser = async (uid: string): Promise<{ id: string; name: string }> => {
+    if (!p) throw new Error("Database not configured");
+    const existing = await p.query(
+      `SELECT workspace_id, workspace_name FROM nebula_client_workspaces WHERE user_id = $1`,
+      [uid]
+    );
+    const row = existing.rows[0] as { workspace_id: string; workspace_name: string } | undefined;
+    if (row?.workspace_id) {
+      return { id: row.workspace_id, name: row.workspace_name };
+    }
+
+    const userRes = await p.query(`SELECT email FROM nebula_users WHERE id = $1`, [uid]);
+    const userRow = userRes.rows[0] as { email: string | null } | undefined;
+    if (!userRow?.email) throw new Error("User email is required to provision workspace.");
+
+    const workspaceName = normalizeWorkspaceNameFromEmail(userRow.email);
+    const created = await createRenderWorkspace(workspaceName);
+    await p.query(
+      `INSERT INTO nebula_client_workspaces (user_id, email, workspace_id, workspace_name, render_payload, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+       SET email = EXCLUDED.email,
+           workspace_id = EXCLUDED.workspace_id,
+           workspace_name = EXCLUDED.workspace_name,
+           render_payload = EXCLUDED.render_payload,
+           updated_at = NOW()`,
+      [uid, userRow.email, created.id, created.name, JSON.stringify(created.raw ?? {})]
+    );
+    return { id: created.id, name: created.name };
+  };
 
   app.get("/api/auth/session", async (req, res) => {
     const uid = readSession(req);
@@ -404,6 +483,7 @@ export async function mountRenderStack(app: Express) {
         [email, email, display, hash]
       );
       const userId = ins.rows[0].id as string;
+      await ensureWorkspaceForUser(userId);
       setSessionCookie(res, signSession(userId), remember);
       return res.json({ ok: true });
     } catch (e: unknown) {
@@ -433,6 +513,7 @@ export async function mountRenderStack(app: Express) {
       if (!row?.password_hash || !(await verifyPassword(password, row.password_hash))) {
         return res.status(401).json({ error: "Invalid email or password." });
       }
+      await ensureWorkspaceForUser(row.id);
       setSessionCookie(res, signSession(row.id), remember);
       return res.json({ ok: true });
     } catch (e) {
@@ -534,13 +615,14 @@ export async function mountRenderStack(app: Express) {
       return res.status(400).json({ error: "name is required" });
     }
     try {
+      const workspace = await ensureWorkspaceForUser(uid);
       await p.query(
-        `INSERT INTO nebula_projects (user_id, name, pages, edges, updated_at)
-         VALUES ($1, $2, $3::jsonb, $4::jsonb, NOW())
+        `INSERT INTO nebula_projects (user_id, name, pages, edges, workspace_id, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, NOW())
          ON CONFLICT (user_id, name) DO UPDATE
-         SET pages = EXCLUDED.pages, edges = EXCLUDED.edges, updated_at = NOW()
+         SET pages = EXCLUDED.pages, edges = EXCLUDED.edges, workspace_id = EXCLUDED.workspace_id, updated_at = NOW()
          RETURNING name, pages, edges, updated_at`,
-        [uid, name.trim(), JSON.stringify(pages ?? []), JSON.stringify(edges ?? [])]
+        [uid, name.trim(), JSON.stringify(pages ?? []), JSON.stringify(edges ?? []), workspace.id]
       );
       res.json({ ok: true });
     } catch (e) {
