@@ -17,6 +17,7 @@ export function SimpleLoginModal({
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
 
   useEffect(() => {
     if (!open) {
@@ -24,6 +25,7 @@ export function SimpleLoginModal({
       setPassword('');
       setBusy(false);
       setError('');
+      setMode('login');
     }
   }, [open]);
 
@@ -55,17 +57,7 @@ export function SimpleLoginModal({
 
     setBusy(true);
     try {
-      const login = await runJson('/api/auth/login', {
-        email: normalizedEmail,
-        password,
-        remember: true,
-      });
-      if (!login.res.ok) {
-        const shouldCreate = login.res.status === 401 || login.res.status === 404;
-        if (!shouldCreate) {
-          setError(login.data.error || 'Login failed.');
-          return;
-        }
+      if (mode === 'signup') {
         const register = await runJson('/api/auth/register', {
           email: normalizedEmail,
           password,
@@ -73,6 +65,16 @@ export function SimpleLoginModal({
         });
         if (!register.res.ok) {
           setError(register.data.error || 'Could not create account.');
+          return;
+        }
+      } else {
+        const login = await runJson('/api/auth/login', {
+          email: normalizedEmail,
+          password,
+          remember: true,
+        });
+        if (!login.res.ok) {
+          setError(login.data.error || 'Login failed.');
           return;
         }
       }
@@ -101,6 +103,32 @@ export function SimpleLoginModal({
         </div>
 
         <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4">
+          <div className="flex rounded-lg border border-white/10 p-0.5 bg-black/20">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setError('');
+              }}
+              className={`flex-1 py-2 text-xs font-headline rounded-md transition-colors ${
+                mode === 'login' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('signup');
+                setError('');
+              }}
+              className={`flex-1 py-2 text-xs font-headline rounded-md transition-colors ${
+                mode === 'signup' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Sign up
+            </button>
+          </div>
           <div>
             <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">Email</label>
             <input
@@ -129,7 +157,7 @@ export function SimpleLoginModal({
             disabled={busy}
             className="w-full py-2.5 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 font-headline text-sm disabled:opacity-50"
           >
-            {busy ? 'Please wait…' : 'Continue'}
+            {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Continue'}
           </button>
         </form>
       </div>
