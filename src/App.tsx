@@ -10,6 +10,7 @@ import { MindMap } from './components/MindMap';
 import { PencilStudio } from './components/PencilStudio';
 import { Dashboard, DashboardTab } from './components/Dashboard';
 import { LandingPage } from './components/LandingPage';
+import { SimpleLoginModal } from './components/SimpleLoginModal';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
@@ -19,7 +20,10 @@ import {
   getCloudProject,
   upsertCloudProject,
   deleteCloudProject,
+  fetchSessionUser,
+  logoutNebula,
 } from './lib/nebulaCloud';
+import type { NebulaSessionUser } from './lib/nebulaCloud';
 import { readResponseJson } from './lib/apiFetch';
 import { installNebulaGuardianClient } from './lib/nebulaGuardianClient';
 import {
@@ -215,6 +219,10 @@ export default function App() {
         role: 'user',
       }
     : null;
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [pendingProjectFlow, setPendingProjectFlow] = useState<NewProjectFlowKind | null>(null);
+  const [sessionReloadNonce, setSessionReloadNonce] = useState(0);
+
   const [deviceUserId] = useState(() => {
     if (typeof window === 'undefined') return 'anonymous';
     try {
@@ -345,9 +353,71 @@ export default function App() {
   };
 
   useEffect(() => {
-    setUser(localDevUser ?? null);
-    hydrateGuestWorkspace();
-  }, [localDevUser, config]);
+    if (localDevUser) {
+      setUser(localDevUser);
+      hydrateGuestWorkspace();
+      return;
+    }
+
+    if (config === null) {
+      hydrateGuestWorkspace();
+      return;
+    }
+
+    if (!config.cloudStorageReady) {
+      hydrateGuestWorkspace();
+      return;
+    }
+
+    const mapNebulaUser = (u: NebulaSessionUser | null): MockUser | null =>
+      u
+        ? {
+            uid: u.uid,
+            displayName: u.displayName,
+            email: u.email,
+            photoURL: u.photoURL,
+            role: u.role ?? 'user',
+          }
+        : null;
+
+    const loadCloudOrGuest = async () => {
+      const sessionUser = await fetchSessionUser();
+      const mapped = mapNebulaUser(sessionUser);
+      setUser(mapped);
+
+      if (!mapped) {
+        hydrateGuestWorkspace();
+        return;
+      }
+
+      const rows = await listCloudProjects();
+      if (!rows.length) {
+        hydrateGuestWorkspace();
+        return;
+      }
+
+      setProjectsSource('cloud');
+      setProjectListUi(
+        rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
+      );
+      const activeName = localStorage.getItem(ACTIVE_CLOUD_PROJECT_NAME_KEY);
+      const preferred = activeName ? rows.find((r) => r.name === activeName) : undefined;
+      const pick = preferred ?? rows[0];
+      if (pick.pages) setPages(pick.pages as typeof initialPages);
+      if (pick.edges) setEdges(pick.edges as typeof initialEdges);
+      if (pick.name) setProjectName(pick.name);
+      localStorage.setItem(
+        'nebula_project_default',
+        JSON.stringify({
+          pages: pick.pages ?? [],
+          edges: pick.edges ?? [],
+          projectName: pick.name,
+        })
+      );
+    };
+
+    void loadCloudOrGuest();
+  }, [localDevUser, config, sessionReloadNonce]);
 
   useEffect(() => {
     fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
@@ -587,6 +657,11 @@ export default function App() {
   };
 
   const startNewProjectFlow = async (kind: NewProjectFlowKind) => {
+    if (!localDevUser && !user) {
+      setPendingProjectFlow(kind);
+      setShowLoginModal(true);
+      return;
+    }
     const inputName = window.prompt('What is the name of your project?');
     const projectNameInput = (inputName || '').trim();
     if (!projectNameInput) return;
@@ -631,6 +706,21 @@ export default function App() {
         'Upload files: I am starting from my own project files. Please tell me exactly what to upload (formats, structure) and how you will use them to build the app.'
       );
     }
+  };
+
+  useEffect(() => {
+    if (!pendingProjectFlow) return;
+    if (!user && !localDevUser) return;
+    const pending = pendingProjectFlow;
+    setPendingProjectFlow(null);
+    void startNewProjectFlow(pending);
+  }, [pendingProjectFlow, user, localDevUser]);
+
+  const handleLogout = async () => {
+    await logoutNebula();
+    setUser(null);
+    setProjectsSource('guest');
+    hydrateGuestWorkspace();
   };
 
   const appendTerminalLog = (command: string, output: string) => {
@@ -906,9 +996,31 @@ export default function App() {
           <h1 className="font-headline text-4xl font-light tracking-tighter text-cyan-300 no-bold">nebulla</h1>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-xs px-3 py-1 rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 font-headline">
-            No authentication
-          </div>
+          {user ? (
+            <div className="flex items-center gap-3">
+              <div
+                className="text-xs px-3 py-1 rounded-lg border border-cyan-500/25 bg-cyan-500/10 text-cyan-300 font-headline max-w-[220px] truncate"
+                title={user.email || user.displayName || ''}
+              >
+                {user.email || user.displayName || 'Signed in'}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                className="text-xs px-3 py-1 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:border-white/20 font-headline transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowLoginModal(true)}
+              className="text-xs px-3 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/15 font-headline transition-colors"
+            >
+              Login
+            </button>
+          )}
         </div>
       </header>
 
@@ -1469,6 +1581,12 @@ export function NebulaInterface() {
         </button>
       </footer>
 
+      <SimpleLoginModal
+        open={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        cloudStorageReady={Boolean(config?.cloudStorageReady)}
+        onSignedIn={() => setSessionReloadNonce((n) => n + 1)}
+      />
     </div>
   );
 }

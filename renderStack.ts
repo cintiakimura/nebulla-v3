@@ -49,6 +49,7 @@ function normalizeEmail(email: unknown): string | null {
 function validateNewPassword(password: unknown): string | null {
   if (typeof password !== "string") return "Password is required.";
   if (!password.length) return "Password is required.";
+  if (password.length > 128) return "Password is too long.";
   return null;
 }
 
@@ -150,6 +151,11 @@ async function ensureTables(p: pg.Pool) {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  await p.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_nebula_client_workspaces_email_lower
+     ON nebula_client_workspaces (LOWER(email))
+     WHERE email IS NOT NULL;`
+  );
   await p.query(`ALTER TABLE nebula_users ADD COLUMN IF NOT EXISTS password_hash TEXT;`);
   await p.query(`
     CREATE TABLE IF NOT EXISTS nebula_password_resets (
@@ -290,20 +296,46 @@ export async function mountRenderStack(app: Express) {
 
   const ensureWorkspaceForUser = async (uid: string): Promise<{ id: string; name: string }> => {
     if (!p) throw new Error("Database not configured");
-    const existing = await p.query(
-      `SELECT workspace_id, workspace_name FROM nebula_client_workspaces WHERE user_id = $1`,
-      [uid]
-    );
-    const row = existing.rows[0] as { workspace_id: string; workspace_name: string } | undefined;
-    if (row?.workspace_id) {
-      return { id: row.workspace_id, name: row.workspace_name };
-    }
-
     const userRes = await p.query(`SELECT email FROM nebula_users WHERE id = $1`, [uid]);
     const userRow = userRes.rows[0] as { email: string | null } | undefined;
     if (!userRow?.email) throw new Error("User email is required to provision workspace.");
+    const normalizedEmail = normalizeEmail(userRow.email);
+    if (!normalizedEmail) throw new Error("User email is invalid for workspace provisioning.");
 
-    const workspaceName = normalizeWorkspaceNameFromEmail(userRow.email);
+    const existingByUser = await p.query(
+      `SELECT workspace_id, workspace_name FROM nebula_client_workspaces WHERE user_id = $1`,
+      [uid]
+    );
+    const byUser = existingByUser.rows[0] as { workspace_id: string; workspace_name: string } | undefined;
+    if (byUser?.workspace_id) {
+      await p.query(`UPDATE nebula_projects SET workspace_id = $2 WHERE user_id = $1`, [uid, byUser.workspace_id]);
+      return { id: byUser.workspace_id, name: byUser.workspace_name };
+    }
+
+    const existingByEmail = await p.query(
+      `SELECT user_id, workspace_id, workspace_name
+       FROM nebula_client_workspaces
+       WHERE LOWER(email) = LOWER($1)
+       LIMIT 1`,
+      [normalizedEmail]
+    );
+    const byEmail = existingByEmail.rows[0] as
+      | { user_id: string; workspace_id: string; workspace_name: string }
+      | undefined;
+    if (byEmail?.workspace_id) {
+      if (byEmail.user_id !== uid) {
+        await p.query(
+          `UPDATE nebula_client_workspaces
+           SET user_id = $1, email = $2, updated_at = NOW()
+           WHERE user_id = $3`,
+          [uid, normalizedEmail, byEmail.user_id]
+        );
+      }
+      await p.query(`UPDATE nebula_projects SET workspace_id = $2 WHERE user_id = $1`, [uid, byEmail.workspace_id]);
+      return { id: byEmail.workspace_id, name: byEmail.workspace_name };
+    }
+
+    const workspaceName = normalizeWorkspaceNameFromEmail(normalizedEmail);
     const created = await createRenderWorkspace(workspaceName);
     await p.query(
       `INSERT INTO nebula_client_workspaces (user_id, email, workspace_id, workspace_name, render_payload, updated_at)
@@ -314,8 +346,9 @@ export async function mountRenderStack(app: Express) {
            workspace_name = EXCLUDED.workspace_name,
            render_payload = EXCLUDED.render_payload,
            updated_at = NOW()`,
-      [uid, userRow.email, created.id, created.name, JSON.stringify(created.raw ?? {})]
+      [uid, normalizedEmail, created.id, created.name, JSON.stringify(created.raw ?? {})]
     );
+    await p.query(`UPDATE nebula_projects SET workspace_id = $2 WHERE user_id = $1`, [uid, created.id]);
     return { id: created.id, name: created.name };
   };
 
@@ -449,6 +482,7 @@ export async function mountRenderStack(app: Express) {
         [providerUserId, email, display, gh.avatar_url || null]
       );
       const userId = ins.rows[0].id as string;
+      await ensureWorkspaceForUser(userId);
       const sessionJwt = signSession(userId);
       setSessionCookie(res, sessionJwt, remember);
 
@@ -585,6 +619,7 @@ export async function mountRenderStack(app: Express) {
     if (!uid || !p) return res.status(401).json({ error: "Unauthorized" });
     const oneName = typeof req.query.name === "string" ? req.query.name.trim() : "";
     try {
+      await ensureWorkspaceForUser(uid);
       if (oneName) {
         const r = await p.query(
           `SELECT name, pages, edges, updated_at FROM nebula_projects WHERE user_id = $1 AND name = $2`,
