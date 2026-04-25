@@ -764,6 +764,9 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
       // VOICE (Grok A / TTS): speak after a short delay; skip when this turn is coding-only (Grok 4 must not narrate while shipping code)
       const isCodingTurn = /<\s*START_CODING\s*>|\bSTART_CODING\b/.test(fullResponse);
+      if (isCodingTurn && (window as any).openCodingMode) {
+        (window as any).openCodingMode('project-execution-rules.md');
+      }
 
       if (cleanText && !isCodingTurn) {
         try {

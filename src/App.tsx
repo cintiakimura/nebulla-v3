@@ -817,6 +817,19 @@ export default function App() {
       setDashboardTab(null);
     };
 
+    (window as any).openCodingMode = (targetFile?: string) => {
+      const fileToOpen = typeof targetFile === 'string' && targetFile.trim() ? targetFile.trim() : 'project-execution-rules.md';
+      setDashboardTab(null);
+      setShowPencilStudio(false);
+      setShowMindMap(false);
+      setShowMasterPlan(false);
+      setShowCodePreview(true);
+      setCurrentPath('.');
+      setSelectedFile(fileToOpen);
+      void getFileContent(fileToOpen);
+      setIsTerminalOpen(true);
+    };
+
     (window as any).syncMindMapFromMasterPlan = async () => {
       try {
         const res = await fetch('/api/master-plan/read');
@@ -878,6 +891,7 @@ export default function App() {
       delete (window as any).openMindMap;
       delete (window as any).openUIUX;
       delete (window as any).openPreview;
+      delete (window as any).openCodingMode;
       delete (window as any).syncMindMapFromMasterPlan;
     };
   }, []);
