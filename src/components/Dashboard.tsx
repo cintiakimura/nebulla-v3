@@ -261,6 +261,7 @@ function ProjectSettingsTab() {
 function SecretsTab() {
   const [grokKeyInput, setGrokKeyInput] = useState('');
   const [grokSavedFlash, setGrokSavedFlash] = useState(false);
+  const [copiedChecklist, setCopiedChecklist] = useState(false);
 
   useEffect(() => {
     try {
@@ -279,6 +280,34 @@ function SecretsTab() {
     }
     setGrokSavedFlash(true);
     window.setTimeout(() => setGrokSavedFlash(false), 2000);
+  };
+
+  const environmentChecklist = [
+    '## 1. Platform variables',
+    '- GROK_API_KEY',
+    '- GROK_TTS_NEW_API_KEY',
+    '- GROK_3_API_KEY',
+    '- PENCIL_API_KEY',
+    '- Optional: PENCIL_API_URL, GROK_B_MODEL',
+    '',
+    '## 2. Variables from Render',
+    '- DATABASE_URL (from Render PostgreSQL connection string)',
+    '- PUBLIC_SITE_URL (Render service public HTTPS URL)',
+    '',
+    '## 3. User additional secrets',
+    '- Mirror every Secrets and Integrations value to Render env for this project',
+    '- Sync on create and every update (idempotent)',
+    '- Runtime source of truth is Render env',
+  ].join('\n');
+
+  const copyChecklist = async () => {
+    try {
+      await navigator.clipboard.writeText(environmentChecklist);
+      setCopiedChecklist(true);
+      window.setTimeout(() => setCopiedChecklist(false), 2000);
+    } catch {
+      setCopiedChecklist(false);
+    }
   };
 
   return (
@@ -315,71 +344,75 @@ function SecretsTab() {
         </div>
       </div>
 
-      {/* Environment Variables */}
+      {/* Environment Setup Canonical Checklist */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-        <h4 className="text-sm font-headline text-slate-200 mb-2">Environment Variables</h4>
-        <p className="text-xs text-slate-500 mb-4">For production and CLI, configure <code className="text-slate-400">.env</code> (see <code className="text-slate-400">.env.example</code>). The list below is illustrative.</p>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h4 className="text-sm font-headline text-slate-200 mb-1">Environment Setup Checklist</h4>
+            <p className="text-xs text-slate-500">
+              Canonical source: <code className="text-slate-400">environment-setup.md</code>. Keep Render env in sync with this page.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void copyChecklist()}
+            className="px-3 py-1.5 rounded-lg text-xs font-headline border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10 transition-colors shrink-0"
+          >
+            {copiedChecklist ? 'Copied' : 'Copy checklist'}
+          </button>
+        </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
-              <span className="text-sm text-slate-300 font-mono">GROK_API_KEY</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">.env</span>
-              <button type="button" className="text-slate-600 cursor-default" aria-hidden><span className="material-symbols-outlined text-[18px]">edit</span></button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">database</span>
-              <span className="text-sm text-slate-300 font-mono">SUPABASE_URL</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">api</span>
-              <span className="text-sm text-slate-300 font-mono">PENCIL_API_KEY</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+        <div className="space-y-6">
+          <div>
+            <h5 className="text-xs font-headline text-cyan-300 uppercase tracking-wider mb-2">1. Platform variables</h5>
+            <div className="space-y-2">
+              {[
+                ['GROK_API_KEY', 'Grok 4 primary brain'],
+                ['GROK_TTS_NEW_API_KEY', 'Grok TTS (new API)'],
+                ['GROK_3_API_KEY', 'Grok B writer model'],
+                ['PENCIL_API_KEY', 'Nebula UI Studio mockups API'],
+              ].map(([name, role]) => (
+                <div key={name} className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+                  <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
+                    <span className="text-sm text-slate-300 font-mono">{name}</span>
+                  </div>
+                  <span className="text-xs text-slate-500">{role}</span>
+                </div>
+              ))}
+              <div className="text-[11px] text-slate-500 leading-relaxed pt-1">
+                Optional only when needed: <code className="text-slate-400">PENCIL_API_URL</code>, <code className="text-slate-400">GROK_B_MODEL</code>.
+              </div>
             </div>
           </div>
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">key</span>
-              <span className="text-sm text-slate-300 font-mono">BUILDER_PRIVATE_KEY</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+
+          <div>
+            <h5 className="text-xs font-headline text-cyan-300 uppercase tracking-wider mb-2">2. Variables from Render</h5>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-slate-500 text-lg">database</span>
+                  <span className="text-sm text-slate-300 font-mono">DATABASE_URL</span>
+                </div>
+                <span className="text-xs text-slate-500">Render PostgreSQL connection string</span>
+              </div>
+              <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-slate-500 text-lg">public</span>
+                  <span className="text-sm text-slate-300 font-mono">PUBLIC_SITE_URL</span>
+                </div>
+                <span className="text-xs text-slate-500">Render public HTTPS origin</span>
+              </div>
             </div>
           </div>
-          <div className="flex items-center justify-between p-3 border border-white/5 rounded-lg bg-black/20">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-slate-500 text-lg">cloud</span>
-              <span className="text-sm text-slate-300 font-mono">VERCEL_TOKEN_19_MAR</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-slate-500">Active</span>
-              <button className="text-slate-500 hover:text-red-400 transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-3 border border-red-500/20 rounded-lg bg-red-500/5 opacity-60">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-red-400 text-lg">payments</span>
-              <span className="text-sm text-red-300 font-mono">STRIPE_SECRET_KEY</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-red-400 font-headline">DISABLED</span>
-              <button className="text-slate-500 cursor-not-allowed"><span className="material-symbols-outlined text-[18px]">lock</span></button>
-            </div>
+
+          <div className="p-4 border border-cyan-500/20 rounded-lg bg-cyan-500/5">
+            <h5 className="text-xs font-headline text-cyan-300 uppercase tracking-wider mb-2">3. User additional secrets</h5>
+            <ul className="text-xs text-slate-400 space-y-2 leading-relaxed">
+              <li>- Every key/token added in this page must be mirrored to the same project on Render env.</li>
+              <li>- Sync must run on create and every update/remove (idempotent behavior).</li>
+              <li>- Production runtime reads Render env as source of truth.</li>
+            </ul>
           </div>
         </div>
       </div>

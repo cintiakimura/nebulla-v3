@@ -28,6 +28,7 @@ export function LoginModal({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [projectName, setProjectName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -37,6 +38,7 @@ export function LoginModal({
       setEmail('');
       setPassword('');
       setConfirm('');
+      setProjectName('');
       setError('');
       setBusy(false);
     }
@@ -91,7 +93,11 @@ export function LoginModal({
     }
     setBusy(true);
     try {
-      const { res, data } = await runJson('/api/auth/register', { email: email.trim(), password });
+      const { res, data } = await runJson('/api/auth/register', {
+        email: email.trim(),
+        password,
+        projectName: projectName.trim(),
+      });
       if (!res.ok) {
         setError(typeof data.error === 'string' ? data.error : 'Sign up failed.');
         return;
@@ -217,18 +223,32 @@ export function LoginModal({
               />
             </div>
             {mode === 'signup' ? (
-              <div>
-                <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">
-                  Confirm password
-                </label>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">
+                    First project name
+                  </label>
+                  <input
+                    type="text"
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+                    placeholder="My First Project"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">
+                    Confirm password
+                  </label>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+                  />
+                </div>
+              </>
             ) : null}
             {error ? <p className="text-sm text-red-400/95">{error}</p> : null}
             <button

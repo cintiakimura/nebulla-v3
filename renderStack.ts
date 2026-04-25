@@ -129,6 +129,7 @@ const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const OAUTH_REMEMBER_COOKIE = "oauth_remember";
 
 let pool: pg.Pool | null = null;
+let dbReady = false;
 
 function getPool(): pg.Pool | null {
   const url = process.env.DATABASE_URL?.trim();
@@ -327,14 +328,19 @@ export async function mountRenderStack(app: Express) {
   app.use(cookieParser() as any);
 
   const p = getPool();
+  dbReady = false;
   if (p) {
     try {
       await ensureTables(p);
+      dbReady = true;
       console.log("[nebula] PostgreSQL (Render) schema ready.");
     } catch (e) {
       console.error("[nebula] PostgreSQL init failed:", e);
+      dbReady = false;
     }
   }
+
+  const hasDb = () => Boolean(p && dbReady);
 
   const ensureWorkspaceForUser = async (uid: string): Promise<{ id: string; name: string }> => {
     if (!p) throw new Error("Database not configured");
@@ -397,9 +403,25 @@ export async function mountRenderStack(app: Express) {
     return { id: created.id, name: created.name };
   };
 
+  const ensureInitialProjectForUser = async (uid: string, preferredName?: string): Promise<void> => {
+    if (!p) throw new Error("Database not configured");
+    const current = await p.query(`SELECT COUNT(*)::int AS count FROM nebula_projects WHERE user_id = $1`, [uid]);
+    const count = Number((current.rows[0] as { count?: number })?.count || 0);
+    if (count > 0) return;
+
+    const workspace = await ensureWorkspaceForUser(uid);
+    const projectName = (preferredName || "").trim() || "Untitled Project";
+    await p.query(
+      `INSERT INTO nebula_projects (user_id, name, pages, edges, workspace_id, updated_at)
+       VALUES ($1, $2, '[]'::jsonb, '[]'::jsonb, $3, NOW())
+       ON CONFLICT (user_id, name) DO NOTHING`,
+      [uid, projectName, workspace.id]
+    );
+  };
+
   app.get("/api/auth/session", async (req, res) => {
     const uid = readSession(req);
-    if (!uid || !p) {
+    if (!uid || !hasDb()) {
       return res.json({ user: null });
     }
     try {
@@ -447,7 +469,7 @@ export async function mountRenderStack(app: Express) {
 
   // --- GitHub OAuth (any GitHub account — use a standard OAuth App, not org-locked SSO-only flows) ---
   app.get("/api/auth/github", (req, res) => {
-    if (!p) return res.status(503).send("Database not configured (DATABASE_URL)");
+    if (!hasDb()) return res.status(503).send("Database not configured (DATABASE_URL)");
     const id = process.env.GITHUB_CLIENT_ID?.trim();
     if (!id) return res.status(503).send("GITHUB_CLIENT_ID not configured");
     const redirectUri = `${githubOAuthRedirectBase(req)}/api/auth/github/callback`;
@@ -465,7 +487,7 @@ export async function mountRenderStack(app: Express) {
   });
 
   app.get("/api/auth/github/callback", async (req, res) => {
-    if (!p) return res.status(500).send("Database not configured");
+    if (!hasDb()) return res.status(503).send("Database not configured (DATABASE_URL)");
     const secret = process.env.GITHUB_CLIENT_SECRET?.trim();
     const id = process.env.GITHUB_CLIENT_ID?.trim();
     if (!secret || !id) return res.status(500).send("GitHub OAuth not configured");
@@ -539,6 +561,7 @@ export async function mountRenderStack(app: Express) {
       );
       const userId = ins.rows[0].id as string;
       await ensureWorkspaceForUser(userId);
+      await ensureInitialProjectForUser(userId);
       const sessionJwt = signSession(userId);
       setSessionCookie(res, sessionJwt, remember);
 
@@ -551,7 +574,7 @@ export async function mountRenderStack(app: Express) {
 
   // --- Username + password (no email required for new accounts) ---
   app.post("/api/auth/register", async (req, res) => {
-    if (!p) return res.status(503).json({ error: "Database not configured" });
+    if (!hasDb()) return res.status(503).json({ error: "Database not configured" });
     const rawUser =
       typeof req.body?.username === "string"
         ? req.body.username
@@ -580,6 +603,9 @@ export async function mountRenderStack(app: Express) {
       );
       const userId = ins.rows[0].id as string;
       await ensureWorkspaceForUser(userId);
+      const preferredFirstProjectName =
+        typeof req.body?.projectName === "string" ? req.body.projectName : undefined;
+      await ensureInitialProjectForUser(userId, preferredFirstProjectName);
       setSessionCookie(res, signSession(userId), remember);
       return res.json({ ok: true });
     } catch (e: unknown) {
@@ -593,7 +619,7 @@ export async function mountRenderStack(app: Express) {
   });
 
   app.post("/api/auth/login", async (req, res) => {
-    if (!p) return res.status(503).json({ error: "Database not configured" });
+    if (!hasDb()) return res.status(503).json({ error: "Database not configured" });
     const rawLogin =
       typeof req.body?.username === "string"
         ? req.body.username
@@ -629,6 +655,7 @@ export async function mountRenderStack(app: Express) {
         return res.status(401).json({ error: "Invalid username or password." });
       }
       await ensureWorkspaceForUser(row.id);
+      await ensureInitialProjectForUser(row.id);
       setSessionCookie(res, signSession(row.id), remember);
       return res.json({ ok: true });
     } catch (e) {
@@ -638,7 +665,7 @@ export async function mountRenderStack(app: Express) {
   });
 
   app.post("/api/auth/forgot-password", async (req, res) => {
-    if (!p) return res.status(503).json({ error: "Database not configured" });
+    if (!hasDb()) return res.status(503).json({ error: "Database not configured" });
     const email = normalizeEmail(req.body?.email);
     if (!email) return res.status(400).json({ error: "Valid email is required." });
     try {
@@ -667,7 +694,7 @@ export async function mountRenderStack(app: Express) {
   });
 
   app.post("/api/auth/reset-password", async (req, res) => {
-    if (!p) return res.status(503).json({ error: "Database not configured" });
+    if (!hasDb()) return res.status(503).json({ error: "Database not configured" });
     const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
     const pwErr = validateNewPassword(req.body?.password);
     if (!token || token.length < 20) return res.status(400).json({ error: "Invalid or missing reset token." });
@@ -698,7 +725,8 @@ export async function mountRenderStack(app: Express) {
   // --- Projects API ---
   app.get("/api/projects", async (req, res) => {
     const uid = readSession(req);
-    if (!uid || !p) return res.status(401).json({ error: "Unauthorized" });
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    if (!hasDb()) return res.status(503).json({ error: "Database not configured" });
     const oneName = typeof req.query.name === "string" ? req.query.name.trim() : "";
     try {
       await ensureWorkspaceForUser(uid);
@@ -722,7 +750,8 @@ export async function mountRenderStack(app: Express) {
 
   app.post("/api/projects", async (req, res) => {
     const uid = readSession(req);
-    if (!uid || !p) return res.status(401).json({ error: "Unauthorized" });
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    if (!hasDb()) return res.status(503).json({ error: "Database not configured" });
     const { name, pages, edges } = req.body || {};
     if (typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
@@ -746,7 +775,8 @@ export async function mountRenderStack(app: Express) {
 
   app.delete("/api/projects/:name", async (req, res) => {
     const uid = readSession(req);
-    if (!uid || !p) return res.status(401).json({ error: "Unauthorized" });
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    if (!hasDb()) return res.status(503).json({ error: "Database not configured" });
     const name = req.params.name;
     if (!name) return res.status(400).json({ error: "name required" });
     try {

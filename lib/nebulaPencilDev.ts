@@ -17,7 +17,29 @@ export function resolvePencilApiKey(): string | undefined {
 }
 
 export function resolvePencilMockupsUrl(): string {
-  return (process.env.PENCIL_API_URL?.trim() || DEFAULT_PENCIL_MOCKUPS_URL).replace(/\/$/, "");
+  const raw = (process.env.PENCIL_API_URL?.trim() || DEFAULT_PENCIL_MOCKUPS_URL).replace(/\/$/, "");
+  return normalizePencilEndpoint(raw);
+}
+
+function normalizePencilEndpoint(raw: string): string {
+  try {
+    const u = new URL(raw);
+    if (u.hostname === "pencil.dev" || u.hostname === "www.pencil.dev") {
+      u.hostname = "api.pencil.dev";
+    }
+
+    if (!u.pathname || u.pathname === "/") {
+      u.pathname = "/v1/mockups/generate";
+    } else if (u.pathname === "/v1/mockups") {
+      u.pathname = "/v1/mockups/generate";
+    } else if (u.pathname === "/mockups" || u.pathname === "/mockups/generate") {
+      u.pathname = `/v1${u.pathname}`;
+    }
+
+    return u.toString().replace(/\/$/, "");
+  } catch {
+    return DEFAULT_PENCIL_MOCKUPS_URL;
+  }
 }
 
 /** Explicit demo: bundled SVG when no API key (staging / operator choice). */
@@ -120,12 +142,18 @@ export async function callPencilMockupsGenerate(params: {
   apiUrl?: string;
   body: Record<string, unknown>;
 }): Promise<PencilMockupResult> {
-  const url = params.apiUrl || resolvePencilMockupsUrl();
+  const requestedUrl = normalizePencilEndpoint(params.apiUrl || resolvePencilMockupsUrl());
+  const fallbackUrl = DEFAULT_PENCIL_MOCKUPS_URL;
+  const candidateUrls = requestedUrl === fallbackUrl ? [requestedUrl] : [requestedUrl, fallbackUrl];
+  let lastError: PencilMockupResult | null = null;
+
+  for (const url of candidateUrls) {
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Accept: "application/json",
         Authorization: `Bearer ${params.apiKey}`,
       },
       body: JSON.stringify(params.body),
@@ -138,23 +166,39 @@ export async function callPencilMockupsGenerate(params: {
         const parsedErr = JSON.parse(errBody) as { error?: { message?: string } };
         if (parsedErr.error?.message) errorMessage += ` - ${parsedErr.error.message}`;
       } catch {
-        errorMessage += ` - ${errBody.substring(0, 200)}`;
+        if (/<html|<!doctype html/i.test(errBody)) {
+          errorMessage += ` - Non-API HTML response from ${url}. Verify PENCIL_API_URL points to api.pencil.dev/v1/mockups/generate.`;
+        } else {
+          errorMessage += ` - ${errBody.substring(0, 200)}`;
+        }
       }
-      return { ok: false, status: response.status, error: errorMessage };
+      lastError = { ok: false, status: response.status, error: errorMessage };
+      continue;
     }
 
     const data = (await response.json()) as unknown;
     let svg = normalizeSvgResponse(extractSvgFromPencilJson(data));
     if (!svg || !/<svg/i.test(svg)) {
-      return {
+      lastError = {
         ok: false,
         status: 502,
         error: "Nebula UI Studio: response had no valid SVG. Check PENCIL_API_KEY and API response shape.",
       };
+      continue;
     }
     return { ok: true, svg, raw: data };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, status: 500, error: msg };
+    lastError = { ok: false, status: 500, error: msg };
+    continue;
   }
+  }
+
+  return (
+    lastError || {
+      ok: false,
+      status: 500,
+      error: "Nebula UI Studio: unknown error while calling Pencil endpoint.",
+    }
+  );
 }
