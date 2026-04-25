@@ -493,10 +493,10 @@ NEBULA UI STUDIO WRITE CONTRACT (PROMPT/CODE BOUNDARIES) — UNBREAKABLE:
 - Grok 4 responsibility: provide comprehensive non-code summaries for Master Plan communication.
 - Grok B responsibility: persist approved Master Plan sections in rich, formal formatting.
 
-TAB 6 HIDDEN RULES (Development Plan) — BACKEND ONLY:
+TAB 6 HIDDEN RULES (Environment Setup) — BACKEND ONLY:
 - This tab is internal-only and hidden from the client.
 - Read the approved UI code from nebula-sysh-ui-sysh-studio.md (NEBULA_UI_STUDIO_CODE) and nebulla-sysh-ui-sysh-studio/approved/approved-ui.svg when planning implementation and Tab 6.
-- Build Development Plan using that approved UI as the source of truth for layout, screens, and components.
+- Build Environment Setup (Tab 6) using that approved UI as the source of truth for layout, screens, and components.
 - The plan must use approved UI details: colors, layout, components, and Tailwind classes.
 - Nebula system architecture (must stay consistent in Tab 6 and any infra wording):
   - Main Render account: nebulla.dev.ai@gmail.com. All automated provisioning runs there; never assume the end user has their own Render login.
@@ -506,11 +506,12 @@ TAB 6 HIDDEN RULES (Development Plan) — BACKEND ONLY:
   - The workspace ID / client ID must be stored only in Nebula-controlled secrets or secure server-side configuration (encrypted store, vault, or equivalent). It must never appear in chat, Master Plan client-visible tabs, Nebula UI Studio output shown to the client, or the browser. If logs need a key, use opaque internal references that do not echo the raw workspace ID to operators who are not infra.
 - Required layers (exact):
   Layer 0: Render workspace and client identity (foundation)
-  - Under nebulla.dev.ai@gmail.com, create a new Render workspace for this Nebula client (first-time onboarding for that client).
-  - Capture the API response workspace ID; persist it as the permanent client ID for all future infra for that client. Do not recycle or overwrite it.
+  - When a user creates a project in Nebula, the control plane must automatically create (or bind to) a Render workspace under nebulla.dev.ai@gmail.com for that tenant boundary.
+  - Capture the API response workspace_id; persist it as the sole permanent internal client ID for all future infra. Do not mint a second client ID; do not recycle or overwrite the mapping without a migration plan.
   - Store that ID only in secure internal storage; never show it to the client or in user-visible surfaces.
-  - Only after the workspace exists: create (inside that workspace) the web service for the app, the PostgreSQL instance, and any other Render resources. Link service IDs, DB URLs, and env blocks to the same internal client ID (workspace ID) so every lookup is workspace ID → resources.
+  - Only after the workspace exists: create inside that workspace the web service, PostgreSQL, workers, and env/secrets. Link service IDs, DB URLs, and env blocks to the same internal client ID (workspace_id) so every lookup is workspace_id → resources.
   - All future services, databases, and environment variables for this client are created or updated only in that workspace using the stored client ID.
+  - Secrets and Integrations (Dashboard): every API key, token, or secret the user saves for the active project must auto-sync to that project's Render Web Service env on create and on every update; plan implementation only after also reviewing that page (before / during / after Master Plan) so no required env is missing from Tab 6 or Render.
   Layer 1: Authentication and Security
   - Implement full custom authentication: login, register, password reset, sessions.
   - Set up user roles and permission system. Permission and tenant resolution on the server must ultimately resolve to the internal client ID (workspace) for data isolation; never expose that ID in tokens or responses to the browser.
@@ -640,7 +641,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           "3. Features and KPIs",
           "4. Pages and navigation",
           "5. UI/UX design",
-          "6. Development Plan (MVP)"
+          "6. Environment Setup"
         ];
 
         // Use a for...of loop to handle async updates sequentially or Promise.all for parallel

@@ -12,7 +12,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     '3. Features and KPIs',
     '4. Pages and navigation',
     '5. UI/UX design',
-    '6. Development Plan (MVP)'
+    '6. Environment Setup'
   ]);
   const tabDescriptions: Record<string, string> = {
     '1. Goal of the app':
@@ -25,8 +25,8 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
       "This page defines roles, divides features per role, and captures your expectations from landing page to checkout. We'll map everything in the Mind Map so every page has its own interactive node and clearly shows which user type uses each page.",
     '5. UI/UX design':
       "After pages are approved, Nebula UI Studio (Pencil) generates a complete design from previous tabs. You can edit it, regenerate it, and approve the final UI/UX before moving on.",
-    '6. Development Plan (MVP)':
-      "Internal delivery tab: phases cover app build and release. Nebula provisions one Render workspace per client under our main account; that workspace ID is the permanent internal client ID, stored only server-side—never shown here. All services and databases for the client live in that workspace; you only see project name and nebulla.dev-facing context.",
+    '6. Environment Setup':
+      'Internal tab (Environment Setup): Render architecture, secrets sync, and delivery phases. When someone creates a project in Nebula, the control plane provisions a dedicated Render workspace under nebulla.dev.ai@gmail.com; the returned workspace_id is the permanent internal client ID—server-side only. Web services, Postgres, workers, and env vars all live in that workspace. Dashboard Secrets and Integrations must mirror to Render for the active project. This tab never shows workspace or client IDs; you only see project-facing context.',
   };
 
   const fetchPlan = async () => {

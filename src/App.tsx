@@ -1033,7 +1033,7 @@ export default function App() {
           <button 
             onClick={() => { setDashboardTab('secrets'); setShowPencilStudio(false); setShowMindMap(false); setShowMasterPlan(false); }}
             className={`transition-all ${dashboardTab === 'secrets' ? 'text-cyan-300' : 'text-slate-500 hover:text-cyan-300'}`}
-            title="Secrets & Integrations"
+            title="Secrets and Integrations"
           >
             <Key className="w-5 h-5" />
           </button>
@@ -1200,7 +1200,7 @@ export default function App() {
                   <span className="no-bold">
                     {dashboardTab === 'projects' ? 'User Projects' :
                      dashboardTab === 'project-settings' ? 'Project Settings' :
-                     dashboardTab === 'secrets' ? 'Secrets & Integrations' : 'User Settings'}
+                     dashboardTab === 'secrets' ? 'Secrets and Integrations' : 'User Settings'}
                   </span>
                 </>
               ) : showPencilStudio ? (

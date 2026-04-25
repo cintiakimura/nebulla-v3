@@ -39,7 +39,7 @@ export function Dashboard({
           </span>
           {activeTab === 'projects' ? 'User Projects' :
            activeTab === 'project-settings' ? 'Project Settings' :
-           activeTab === 'secrets' ? 'Secrets & Integrations' : 'User Settings'}
+           activeTab === 'secrets' ? 'Secrets and Integrations' : 'User Settings'}
         </h2>
       </div>
 
@@ -284,7 +284,7 @@ function SecretsTab() {
   return (
     <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
       <div>
-        <h3 className="text-xl font-headline text-cyan-300 mb-1">Secrets & Integrations</h3>
+        <h3 className="text-xl font-headline text-cyan-300 mb-1">Secrets and Integrations</h3>
         <p className="text-sm text-slate-500 mb-6">Manage API keys, environment variables, and third-party connections.</p>
       </div>
 

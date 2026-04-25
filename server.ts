@@ -155,7 +155,7 @@ No approved UI code yet.
       3: "3. Features and KPIs",
       4: "4. Pages and navigation",
       5: "5. UI/UX design",
-      6: "6. Development Plan (MVP)"
+      6: "6. Environment Setup"
     };
 
     const tabName = tabNames[tabIndex as number];
@@ -733,7 +733,7 @@ const MASTER_PLAN_SECTION_TITLES = [
   "3. Features and KPIs",
   "4. Pages and navigation",
   "5. UI/UX design",
-  "6. Development Plan (MVP)",
+  "6. Environment Setup",
 ] as const;
 
 function extractGrokBSummaries(responseText: string): Partial<Record<number, string>> {
