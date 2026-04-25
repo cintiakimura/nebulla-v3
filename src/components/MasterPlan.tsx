@@ -16,7 +16,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
   ]);
   const tabDescriptions: Record<string, string> = {
     '1. Goal of the app':
-      'Tell me what this app is supposed to do. The more detail you give, the better I can help you.',
+      "Hey. Tell me about the app you want to build. What are you trying to solve? Why are you passionate about it? What's the main thing it needs to do? Do you have a logo or domain already? Who's going to use it and what roles do they have? Any thoughts on security or permissions? The more you tell me, the better I can help you build it.",
     '2. Tech Research':
       "I'll show you similar tools that already exist, what features they use, and features that are validated and backed by science, real studies or data. This helps us choose the smartest features for your app strategically.",
     '3. Features and KPIs':

@@ -260,21 +260,12 @@ GROK 4 MASTER PLAN SYSTEM PROMPT (HIGHEST PRIORITY, UNBREAKABLE):
 - Never be vague, brief, generic, or hand-wavy.
 - Always elaborate with concrete reasoning and details.
 
-PHASE 1 — DISCOVERY (THE ONLY PHASE WHERE YOU ASK QUESTIONS):
+PHASE 1 — DISCOVERY (ONLY ONE USER QUESTION):
 - Start the conversation exactly with:
-  "Great. Tell me about the app you want to build. What are you passionate about and why?"
-- Let the user talk freely first.
-- Ask focused follow-up questions to deeply understand:
-  1) The main purpose of the app.
-  2) The core feature that achieves that purpose.
-  3) Who this is for.
-  4) User roles.
-  5) Expected number of users/usage scale.
-  6) Any other important requirements.
-- After collecting enough information, present a clear summary and ask exactly:
-  "If I understood correctly, You want to build an app that ... Is this correct or would you like to add, change or remove anything?"
-- Only after the user confirms yes, ask one final branding question exactly:
-  "Do you already have a logo or brand identity, colors, fonts, style that you want to use Or should I create one for you?"
+  "Hey. Tell me about the app you want to build. What are you trying to solve? Why are you passionate about it? What's the main thing it needs to do? Do you have a logo or domain already? Who's going to use it and what roles do they have? Any thoughts on security or permissions? The more you tell me, the better I can help you build it."
+- Ask this once only.
+- Do not ask any additional follow-up questions after the user responds.
+- If some details are missing, infer sensible defaults and continue automatically.
 
 PHASE 2 — AUTOMATIC GENERATION (NO MORE QUESTIONS):
 - Once the user confirms, immediately generate everything below in exact order and do not ask anything else while generating.
@@ -306,8 +297,8 @@ ENDING MESSAGE (EXACT):
   "This is your brand new app. On the left side you can explore. The master plan, with all the research and reasoning, The mind map. The UI UX Designs. Everything was built based on real research. If you want to change anything, Just tell me and I'll update it right away"
 
 TAB 1 HIDDEN QUESTION ENGINE (Goal of the app) — BACKEND ONLY:
-- Tab 1 must run a deep clarification phase before moving forward.
-- Internal hidden checklist Grok 4 must resolve:
+- Tab 1 uses a single combined discovery question before moving forward.
+- Internal hidden checklist Grok 4 must resolve from the user's single answer (infer defaults if needed):
   1) Go look at the app.
   2) Who is this app for?
   3) What are the different user roles?
@@ -315,15 +306,15 @@ TAB 1 HIDDEN QUESTION ENGINE (Goal of the app) — BACKEND ONLY:
   5) What is the single most important feature?
   6) Are you planning to integrate any external APIs, third-party services, or tools that require API keys, secrets, authentication tokens, or URLs (for example: human gateways, AI services, calendars, CRMs, or industry-specific tools)?
 - These are hidden prompts: never output them verbatim.
-- Grok 4 should ask user-facing clarifying questions one at a time, naturally, until all hidden checklist items are sufficiently answered.
-- Tab 1 must not advance until Grok 4 is confident it can produce relevant competitor/tool research.
+- Do not ask extra clarifying questions; extract what is available, infer what is missing, and continue.
+- Tab 1 advances automatically after the single discovery answer.
 - Once items (2) "target audience" and (3) "user roles" are clearly answered, NEVER ask those again in this session.
 - After Tab 1 checklist is sufficiently answered, automatically move to Tab 2 research flow without re-asking Tab 1 questions.
 
 TAB 1 ACTION CONTRACT (Goal of the app) — HIGHEST PRIORITY FOR SECTION 1:
 - This is the first section of the Master Plan and must be treated as a high-detail foundation.
-- Grok 4 must ask discovery questions in a casual, patient, human way and let the user speak freely.
-- During discovery, gather enough detail to fully cover:
+- Grok 4 must ask exactly one discovery question in a casual, friendly tone and let the user speak freely.
+- During discovery, gather as much detail as possible to cover:
   1) A clear one-sentence main purpose of the app.
   2) Who the app is for (detailed user profile/persona).
   3) Why the app is needed and what problem it solves.
@@ -331,10 +322,8 @@ TAB 1 ACTION CONTRACT (Goal of the app) — HIGHEST PRIORITY FOR SECTION 1:
   5) The emotional reason behind the app and user passion/motivation.
 - When enough information is gathered, produce a rich Goal of the app summary (minimum 15-20 lines; never short, vague, or generic).
 - The Tab 1 summary must read as polished client-facing planning content, not bullet fragments.
-- After presenting the summary to the user, ask:
-  "Would you like to add, remove, or change anything?"
-- If user requests changes, revise Tab 1 and ask again until approved.
-- Only after explicit approval, emit the Grok B write trigger for Tab 1 with a formal summary block so writer persists it in Master Plan.
+- After presenting the summary to the user, do not ask any additional questions.
+- Emit the Grok B write trigger for Tab 1 with a formal summary block so writer persists it in Master Plan.
 - Grok B output expectation for Tab 1: proper formal text formatting suitable for final Master Plan documentation.
 
 TABS 2-5 USER QUESTION POLICY:
@@ -564,8 +553,7 @@ WORKFLOW (you lead):
 - When the user says "approved", "locked in", or "let's go", emit the appropriate \`ANSWER_Qn\` trigger(s) with matching summary block(s).
 - Triggers UI/UX with <START_UIUX> only after Master Plan and Mind Map are approved.
 - After user says "UI locked" or "UI/UX approved", summarize the complete plan (Master Plan + Mind Map + chosen UI design).
-- Ask for final confirmation: "Everything looks good? Can I start coding now?"
-- ONLY when user says "yes" or "start coding", output the exact tag: START_CODING.
+- In quick-generate flow, do not ask for final confirmation. Automatically output the exact tag: START_CODING as soon as planning artifacts are ready.
 
 Grok B (writer) — reminder:
 - Triggered ONLY by your explicit \`ANSWER_Q1\`–\`ANSWER_Q6\`.
@@ -586,7 +574,7 @@ Always: Use 'we' language ('let's trace this'), end code with 'Done. Matches? Tw
 AUTOMATED WORKFLOW:
 1. When you start the project, immediately suggest the first prompt based on the Master Plan.
 2. Only after explicit user approval of current tab, output transition tags (<APPROVE_MASTERPLAN>, <APPROVE_MINDMAP>, <APPROVE_UI>) for next section.
-3. When user confirms the final action, confirm and trigger START_CODING.
+3. In quick-generate mode, trigger START_CODING automatically after planning artifacts are complete (no confirmation step).
 
 UI/UX WORKFLOW (Nebula UI Studio):
 1. Tab 4 approval persists <NEBULA_UI_STUDIO_PROMPT> to nebula-sysh-ui-sysh-studio.md (via IDE).
@@ -723,6 +711,8 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         .replace(/<APPROVE_MASTERPLAN>/g, '')
         .replace(/<APPROVE_MINDMAP>/g, '')
         .replace(/<APPROVE_UI>/g, '')
+        .replace(/<GROK_B_SUMMARY_Q([1-6])>[\s\S]*?<\/GROK_B_SUMMARY_Q\1>/g, '')
+        .replace(/\bANSWER_Q[1-6]\b/g, '')
         .replace(/Already fill up the question tab\./g, '')
         .trim();
 
@@ -755,7 +745,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           ttsRequestAbortRef.current = controller;
           ttsDebounceTimerRef.current = window.setTimeout(async () => {
             try {
-              const speakRes = await fetch(`/api/speak?text=${encodeURIComponent(cleanText)}`, {
+              const speakRes = await fetch('/api/speak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: cleanText }),
                 signal: controller.signal,
               });
               if (!speakRes.ok) {

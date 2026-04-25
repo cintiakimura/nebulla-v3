@@ -35,4 +35,4 @@ The workspace + Postgres database is created on Render.
 When the code is deployed to that workspace, the schema is automatically applied to the database.
 
 Important:
-The person responsible for adding the schema is Grok Code (during Phase 0 – Foundation on Render not other provider
+The person responsible for adding the schema is Grok Code during Phase 0 – Foundation on Render not other provider

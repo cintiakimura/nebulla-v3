@@ -684,7 +684,7 @@ export default function App() {
     };
     if (kind === 'quick') {
       send(
-        'Quick generate: I want a short conversation with you first about the app, then please auto-generate the full product (Master Plan through UI) based on what we agree in chat.'
+        "Quick generate: fully automatic mode. Ask me only this one question and nothing else: Hey. Tell me about the app you want to build. What are you trying to solve? Why are you passionate about it? What's the main thing it needs to do? Do you have a logo or domain already? Who's going to use it and what roles do they have? Any thoughts on security or permissions? The more you tell me, the better I can help you build it. After I answer, automatically run the full project workflow and start building without asking for confirmation."
       );
       return;
     }

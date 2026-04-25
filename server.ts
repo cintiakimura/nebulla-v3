@@ -500,7 +500,12 @@ try {
     (a, b) => a - b
   );
   const summaries = extractGrokBSummaries(responseText);
-  const summaryTabs = Object.keys(summaries)
+  const blockFallbackSummaries = extractSummariesFromMasterPlanBlock(responseText);
+  const mergedSummaries: Partial<Record<number, string>> = {
+    ...blockFallbackSummaries,
+    ...summaries,
+  };
+  const summaryTabs = Object.keys(mergedSummaries)
     .map((k) => parseInt(k, 10))
     .filter((n) => Number.isInteger(n) && n >= 1 && n <= 6)
     .sort((a, b) => a - b);
@@ -509,7 +514,7 @@ try {
     const targetTabs = answerTabs.length > 0 ? answerTabs : summaryTabs;
     const summaryEntries = targetTabs
       .map((idx) => {
-        const summary = summaries[idx];
+        const summary = mergedSummaries[idx];
         return summary ? ({ tabIndex: idx, summary } as const) : null;
       })
       .filter((entry): entry is { tabIndex: number; summary: string } => entry !== null);
@@ -581,16 +586,18 @@ try {
     }
   });
 
-  app.get("/api/speak", async (req, res) => {
-    const text = req.query.text as string;
+  const handleSpeak = async (req: express.Request, res: express.Response) => {
+    const textFromQuery = typeof req.query.text === "string" ? req.query.text : "";
+    const textFromBody = typeof req.body?.text === "string" ? req.body.text : "";
+    const text = (textFromBody || textFromQuery || "").trim();
     if (!text) return res.status(400).json({ error: "Text is required" });
-    
+
     try {
       const audio = await speak(text);
       res.set({
         "Content-Type": "audio/mpeg",
         "Content-Length": audio.length.toString(),
-        "Cache-Control": "public, max-age=3600"
+        "Cache-Control": "public, max-age=3600",
       });
       res.send(audio);
     } catch (error) {
@@ -601,7 +608,10 @@ try {
       });
       res.status(500).json({ error: "TTS failed" });
     }
-  });
+  };
+
+  app.get("/api/speak", handleSpeak);
+  app.post("/api/speak", handleSpeak);
 
   registerGuardianRoutes(app);
   app.use(guardianExpressErrorHandler);
@@ -744,6 +754,31 @@ function extractGrokBSummaries(responseText: string): Partial<Record<number, str
     const tabIndex = parseInt(m[1], 10);
     const summary = m[2].trim();
     if (summary) out[tabIndex] = summary;
+  }
+  return out;
+}
+
+function extractSummariesFromMasterPlanBlock(responseText: string): Partial<Record<number, string>> {
+  const out: Partial<Record<number, string>> = {};
+  const blockMatch = responseText.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/i);
+  if (!blockMatch) return out;
+  const newPlanContent = blockMatch[1].trim();
+  if (!newPlanContent) return out;
+
+  for (let i = 0; i < MASTER_PLAN_SECTION_TITLES.length; i++) {
+    const title = MASTER_PLAN_SECTION_TITLES[i];
+    const nextTitle = MASTER_PLAN_SECTION_TITLES[i + 1];
+    const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : null;
+    const regex = new RegExp(
+      `(?:###\\s*|\\*\\*|\\b)${escapedTitle}[\\s\\S]*?(?=(?:###\\s*|\\*\\*|\\b)${escapedNextTitle || "$"})`,
+      "i"
+    );
+    const match = newPlanContent.match(regex);
+    if (!match) continue;
+    let content = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, "i"), "").trim();
+    content = content.replace(/^[:\-\s]+/, "");
+    if (content) out[i + 1] = content;
   }
   return out;
 }
