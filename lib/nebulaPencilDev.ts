@@ -194,6 +194,23 @@ export async function callPencilMockupsGenerate(params: {
   }
   }
 
+  const fallbackMsg = lastError?.ok === false ? lastError.error : "";
+  // Hard fail-safe: if Pencil endpoint keeps returning HTML/404, keep UI flow usable.
+  if (
+    /non-api html response|<html|<!doctype html|engine error: 404/i.test(fallbackMsg)
+  ) {
+    return {
+      ok: true,
+      demoMode: true,
+      svg: loadBundledDemoMockupSvg(),
+      raw: {
+        warning:
+          "Live Pencil endpoint returned HTML/404. Served bundled demo SVG instead.",
+        originalError: fallbackMsg,
+      },
+    };
+  }
+
   return (
     lastError || {
       ok: false,
