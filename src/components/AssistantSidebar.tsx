@@ -495,7 +495,7 @@ NEBULA UI STUDIO WRITE CONTRACT (PROMPT/CODE BOUNDARIES) — UNBREAKABLE:
 
 TAB 6 HIDDEN RULES (Environment Setup) — BACKEND ONLY:
 - This tab is internal-only and hidden from the client.
-- Pre-coding read sequence is mandatory and strict: read `project-workflow.md` first, then `master-plan.json`, then `environment-setup.md`, then `nebula-sysh-ui-sysh-studio.md`, then `project-execution-rules.md`; also review the active project's Secrets and Integrations page before starting implementation.
+- Pre-coding read sequence is mandatory and strict: read project-workflow.md first, then master-plan.json, then environment-setup.md, then nebula-sysh-ui-sysh-studio.md, then project-execution-rules.md; also review the active project's Secrets and Integrations page before starting implementation.
 - Read the approved UI code from nebula-sysh-ui-sysh-studio.md (NEBULA_UI_STUDIO_CODE) and nebulla-sysh-ui-sysh-studio/approved/approved-ui.svg when planning implementation and Tab 6.
 - Build Environment Setup (Tab 6) using that approved UI as the source of truth for layout, screens, and components.
 - The plan must use approved UI details: colors, layout, components, and Tailwind classes.
