@@ -90,6 +90,7 @@ export function AssistantSidebar({
   const ttsRequestAbortRef = useRef<AbortController | null>(null);
   const ttsObjectUrlRef = useRef<string | null>(null);
   const ttsDebounceTimerRef = useRef<number | null>(null);
+  const q1ExecutionTriggeredRef = useRef(false);
 
   const stopLiveRecognitionSafe = () => {
     const r = liveRecognitionRef.current;
@@ -674,6 +675,51 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       // GROK 4.1 Behavior: Sync Mind Map from Master Plan when finished
       if (fullResponse.includes('<FINISH_MASTERPLAN>') && (window as any).syncMindMapFromMasterPlan) {
         await (window as any).syncMindMapFromMasterPlan();
+      }
+
+      // Auto-trigger: after Q1 approval, execute project-execution-rules.md with Grok 4.
+      if (/\bANSWER_Q1\b/i.test(fullResponse) && hasExplicitApproval && !q1ExecutionTriggeredRef.current) {
+        q1ExecutionTriggeredRef.current = true;
+        setBuildQueue((prev) => [...prev, 'Auto-trigger: executing project-execution-rules.md']);
+        try {
+          const executeData = await fetchJson<{
+            choices?: { message?: { content?: string } }[];
+          }>('/api/grok/execute-project-rules', {
+            method: 'POST',
+            headers: grokHeaders,
+            body: JSON.stringify({
+              userId,
+              projectName,
+              messages: [
+                ...messages.slice(-8).map((m) => ({
+                  role: m.role === 'model' ? 'assistant' : m.role,
+                  content: m.text,
+                })),
+                { role: 'assistant', content: fullResponse },
+              ],
+            }),
+          });
+          const autoResponse = executeData.choices?.[0]?.message?.content || '';
+          const autoClean = autoResponse
+            .replace(/<REASONING>[\s\S]*?<\/REASONING>/g, '')
+            .replace(/<GROK_B_SUMMARY_Q([1-6])>[\s\S]*?<\/GROK_B_SUMMARY_Q\1>/g, '')
+            .trim();
+          if (autoClean) {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'system', text: 'Auto-trigger complete: project execution rules loaded.' },
+              { role: 'model', text: autoClean, fullText: autoResponse },
+            ]);
+          }
+        } catch (e: any) {
+          console.error('Auto-trigger execution failed:', e);
+          setMessages((prev) => [
+            ...prev,
+            { role: 'system', text: `Auto-trigger failed: ${e?.message || 'Could not execute project rules.'}` },
+          ]);
+        } finally {
+          setBuildQueue((prev) => prev.slice(0, -1));
+        }
       }
 
       // GROK 4.1 Behavior: Trigger UI/UX Workflow

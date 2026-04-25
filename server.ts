@@ -534,80 +534,199 @@ No approved UI code yet.
     }
   });
 
-app.post("/api/grok/chat", async (req, res) => {
-const { messages, grokApiKey: bodyGrokKey, userId, projectName } = req.body || {};
-const headerKey =
-  typeof req.headers["x-grok-api-key"] === "string"
-    ? req.headers["x-grok-api-key"].trim()
-    : "";
-const apiKey =
-  headerKey ||
-  (typeof bodyGrokKey === "string" ? bodyGrokKey.trim() : "") ||
-  process.env.GROK_API_KEY ||
-  "";
-
-if (!apiKey) {
-  console.error("GROK_API_KEY is not set (env, X-Grok-Api-Key header, or Settings)");
-  return res.status(401).json({
-    error:
-      "Grok API key is missing. Add GROK_API_KEY to your .env file, restart the server, or save your key under Dashboard → Secrets (stored in this browser only).",
-  });
-}
-
-// Basic validation of key format
-if (apiKey.length < 20) {
-  const helpMsg = "Your GROK_API_KEY appears to be invalid. Please check it in the Settings menu.";
-  console.error(`Invalid GROK_API_KEY format detected: ${helpMsg}`);
-  return res.status(400).json({ error: helpMsg });
-}
-
-const convUserId =
-  typeof userId === "string" && userId.trim() ? userId.trim() : "anonymous";
-const convProject =
-  typeof projectName === "string" && projectName.trim()
-    ? projectName.trim()
-    : "Untitled Project";
-
-let messagesForApi: { role: string; content?: string }[] = Array.isArray(messages)
-  ? messages
-  : [];
-try {
-  const memory = buildMemorySystemContent(convUserId, convProject);
-  messagesForApi = injectMemoryIntoMessages(messagesForApi, memory);
-} catch (memErr) {
-  console.error("Conversation memory load failed:", memErr);
-}
-
-try {
-  // Everything now runs on GROK 4.1 Fast Reasoning
-  const model = 'grok-4-1-fast-reasoning';
-  
-  const response = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: messagesForApi,
-      stream: false
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`GROK API error (${response.status}):`, errorText);
+  const readWorkflowFileSafe = (relPath: string): string => {
     try {
-      const errorData = JSON.parse(errorText);
-      return res.status(response.status).json(errorData);
+      const fp = path.join(process.cwd(), relPath);
+      if (!fs.existsSync(fp)) return `[missing] ${relPath}`;
+      const raw = fs.readFileSync(fp, "utf8");
+      return raw.length > 20000 ? `${raw.slice(0, 20000)}\n...[truncated]` : raw;
     } catch (e) {
-      return res.status(response.status).json({ error: errorText });
+      return `[error reading ${relPath}] ${e instanceof Error ? e.message : String(e)}`;
     }
-  }
+  };
 
-  const data = await response.json();
-  let responseText = data.choices?.[0]?.message?.content || '';
+  const buildProjectWorkflowExecutionContext = (): string => {
+    const order = [
+      "project-workflow.md",
+      "master-plan.json",
+      "environment-setup.md",
+      "nebula-sysh-ui-sysh-studio.md",
+      "project-execution-rules.md",
+    ];
+    return order.map((p) => `\n=== ${p} ===\n${readWorkflowFileSafe(p)}`).join("\n");
+  };
+
+  app.post("/api/grok/execute-project-rules", async (req, res) => {
+    const { messages, grokApiKey: bodyGrokKey, userId, projectName } = req.body || {};
+    const headerKey =
+      typeof req.headers["x-grok-api-key"] === "string"
+        ? req.headers["x-grok-api-key"].trim()
+        : "";
+    const apiKey =
+      headerKey ||
+      (typeof bodyGrokKey === "string" ? bodyGrokKey.trim() : "") ||
+      process.env.GROK_API_KEY ||
+      "";
+
+    if (!apiKey) {
+      return res.status(401).json({
+        error:
+          "Grok API key is missing. Add GROK_API_KEY to your .env file, restart the server, or save your key under Dashboard → Secrets (stored in this browser only).",
+      });
+    }
+    if (apiKey.length < 20) {
+      return res.status(400).json({
+        error: "Your GROK_API_KEY appears to be invalid. Please check it in the Settings menu.",
+      });
+    }
+
+    const convUserId =
+      typeof userId === "string" && userId.trim() ? userId.trim() : "anonymous";
+    const convProject =
+      typeof projectName === "string" && projectName.trim() ? projectName.trim() : "Untitled Project";
+
+    try {
+      const workflowContext = buildProjectWorkflowExecutionContext();
+      const memory = buildMemorySystemContent(convUserId, convProject);
+      const incomingMessages: { role: string; content?: string }[] = Array.isArray(messages) ? messages : [];
+      const baseMessages = injectMemoryIntoMessages(incomingMessages, memory);
+      const executionSystemPrompt = `Execute project workflow and project-execution-rules strictly.
+Read and follow this context in exact order:
+${workflowContext}
+
+Rules:
+- Trigger source is Q1 approved.
+- Start execution immediately; no extra confirmation.
+- If coding should start now, include START_CODING in your response.
+- Do not output generic planning chat.`;
+
+      const response = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "grok-4-1-fast-reasoning",
+          messages: [{ role: "system", content: executionSystemPrompt }, ...baseMessages.slice(-12)],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return res.status(response.status).json({ error: errorText });
+      }
+      const data = await response.json();
+      return res.json(data);
+    } catch (error) {
+      console.error("Error running project execution rules:", error);
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to execute project rules",
+      });
+    }
+  });
+
+  app.post("/api/grok/chat", async (req, res) => {
+    const { messages, grokApiKey: bodyGrokKey, userId, projectName } = req.body || {};
+    const headerKey =
+      typeof req.headers["x-grok-api-key"] === "string"
+        ? req.headers["x-grok-api-key"].trim()
+        : "";
+    const apiKey =
+      headerKey ||
+      (typeof bodyGrokKey === "string" ? bodyGrokKey.trim() : "") ||
+      process.env.GROK_API_KEY ||
+      "";
+
+    if (!apiKey) {
+      console.error("GROK_API_KEY is not set (env, X-Grok-Api-Key header, or Settings)");
+      return res.status(401).json({
+        error:
+          "Grok API key is missing. Add GROK_API_KEY to your .env file, restart the server, or save your key under Dashboard → Secrets (stored in this browser only).",
+      });
+    }
+    if (apiKey.length < 20) {
+      const helpMsg = "Your GROK_API_KEY appears to be invalid. Please check it in the Settings menu.";
+      console.error(`Invalid GROK_API_KEY format detected: ${helpMsg}`);
+      return res.status(400).json({ error: helpMsg });
+    }
+
+    const convUserId =
+      typeof userId === "string" && userId.trim() ? userId.trim() : "anonymous";
+    const convProject =
+      typeof projectName === "string" && projectName.trim() ? projectName.trim() : "Untitled Project";
+
+    let messagesForApi: { role: string; content?: string }[] = Array.isArray(messages) ? messages : [];
+    try {
+      const memory = buildMemorySystemContent(convUserId, convProject);
+      messagesForApi = injectMemoryIntoMessages(messagesForApi, memory);
+    } catch (memErr) {
+      console.error("Conversation memory load failed:", memErr);
+    }
+
+    try {
+      const response = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "grok-4-1-fast-reasoning",
+          messages: messagesForApi,
+          stream: false,
+        }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`GROK API error (${response.status}):`, errorText);
+        try {
+          const errorData = JSON.parse(errorText);
+          return res.status(response.status).json(errorData);
+        } catch {
+          return res.status(response.status).json({ error: errorText });
+        }
+      }
+
+      const data = await response.json();
+      let responseText = data.choices?.[0]?.message?.content || "";
+
+      if (/\bSTART_CODING\b/i.test(responseText)) {
+        const workflowContext = buildProjectWorkflowExecutionContext();
+        const codeModel = process.env.GROK_CODE_MODEL?.trim() || "grok-code-fast-1";
+        const codeSystemPrompt = `You are now in strict coding mode.
+Follow project workflow and project-execution-rules exactly.
+Use this context:
+${workflowContext}
+Return implementation-focused output only.`;
+        try {
+          const codeRes = await fetch("https://api.x.ai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: codeModel,
+              messages: [{ role: "system", content: codeSystemPrompt }, ...messagesForApi.slice(-12)],
+              stream: false,
+            }),
+          });
+          if (codeRes.ok) {
+            const codeData = await codeRes.json();
+            const codeText = codeData.choices?.[0]?.message?.content || "";
+            if (codeText.trim()) {
+              responseText = codeText;
+              data.choices = [{ message: { content: codeText } }];
+            }
+          } else {
+            console.error("[GROK CODE] handoff failed:", await codeRes.text());
+          }
+        } catch (e) {
+          console.error("[GROK CODE] handoff error:", e);
+        }
+      }
 
   // Grok B (writer): run as soon as meaningful summary content appears.
   // ANSWER_Qn still works, but summaries alone are enough to start writing immediately.
