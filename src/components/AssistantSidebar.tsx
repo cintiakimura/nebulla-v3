@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { ChevronDown, Hand, Mic, Paperclip, Send } from 'lucide-react';
 import { VoiceLinesIcon } from './VoiceLinesIcon';
 import { Logo } from './Logo';
 import { fetchJson, readResponseJson } from '../lib/apiFetch';
@@ -1177,7 +1178,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 {msg.reasoning && (
                   <details className="mt-2 border-t border-white/5 pt-2 group">
                     <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-400 uppercase tracking-widest font-headline list-none flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[12px] transition-transform group-open:rotate-180">expand_more</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform group-open:rotate-180" aria-hidden />
                       Reasoning
                     </summary>
                     <div className="mt-2 text-[11px] text-slate-500 font-mono bg-white/5 p-2 rounded border border-white/5 whitespace-pre-wrap">
@@ -1251,28 +1252,28 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
               <button
                 type="button"
                 onClick={toggleLive}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35 ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35 ${
                   isLive
                     ? 'border-red-500/35 bg-red-500/15 text-red-300 shadow-[0_0_12px_rgba(248,113,113,0.15)]'
                     : 'border-white/10 bg-white/5 text-slate-400 hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-300'
                 }`}
                 title={isLive ? 'End talk (hands-free)' : 'Start talk (hands-free)'}
               >
-                <VoiceLinesIcon className="h-4 w-4" active={isLive} />
+                <VoiceLinesIcon className="h-4 w-4 shrink-0" active={isLive} />
               </button>
               <button
                 type="button"
                 onClick={interruptAiSpeech}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-500 transition-colors hover:border-amber-500/25 hover:bg-amber-500/10 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30"
+                className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-slate-500 transition-colors hover:border-amber-500/25 hover:bg-amber-500/10 hover:text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30"
                 title="Interrupt speech and listen again"
               >
-                <span className="material-symbols-outlined text-[18px]">front_hand</span>
+                <Hand className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
               </button>
               <button
                 type="button"
                 onClick={toggleTextRecording}
                 disabled={isAiSpeaking || isLoading}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35 disabled:cursor-not-allowed disabled:opacity-35 ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35 disabled:cursor-not-allowed disabled:opacity-35 ${
                   isRecordingText
                     ? 'border-red-500/35 bg-red-500/15 text-red-300 shadow-[0_0_12px_rgba(248,113,113,0.15)]'
                     : 'border-white/10 bg-white/5 text-slate-400 hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-300'
@@ -1287,17 +1288,17 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                         : 'Dictate text'
                 }
               >
-                <span className="material-symbols-outlined text-[18px]">mic</span>
+                <Mic className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
               </button>
             </div>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => alert('File upload initiated.')}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-400 transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35"
+                className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-slate-400 transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/35"
                 title="Attach file"
               >
-                <span className="material-symbols-outlined text-[18px]">attach_file</span>
+                <Paperclip className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
               </button>
               <button
                 type="button"
@@ -1305,7 +1306,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 disabled={isLoading || !inputText.trim()}
                 title="Send message"
                 aria-busy={isLoading}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 disabled:cursor-not-allowed ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 disabled:cursor-not-allowed ${
                   isLoading
                     ? 'border-cyan-500/40 bg-cyan-500/20 text-cyan-100'
                     : inputText.trim()
@@ -1319,7 +1320,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                     aria-hidden
                   />
                 ) : (
-                  <span className="material-symbols-outlined text-[18px]">send</span>
+                  <Send className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
                 )}
               </button>
             </div>
