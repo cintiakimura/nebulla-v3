@@ -1,5 +1,5 @@
 /**
- * Render-first backend: PostgreSQL (Render) + cookie sessions + email/password + GitHub OAuth.
+ * Render-first backend: PostgreSQL (Render) + cookie sessions + username/password + GitHub OAuth.
  * Mount with mountRenderStack(app) from server.ts.
  */
 
@@ -44,6 +44,46 @@ function normalizeEmail(email: unknown): string | null {
   const t = email.trim().toLowerCase();
   if (!t || t.length > 254 || !EMAIL_RE.test(t)) return null;
   return t;
+}
+
+const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{2,31}$/;
+const USERNAME_RESERVED = new Set([
+  "admin",
+  "root",
+  "system",
+  "api",
+  "null",
+  "undefined",
+  "nebulla",
+  "support",
+  "www",
+]);
+
+/** Sign-up / username-password login identifier (no email required). */
+function normalizeUsername(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const t = raw.trim().toLowerCase();
+  if (!t || t.length > 32 || !USERNAME_RE.test(t)) return null;
+  if (USERNAME_RESERVED.has(t)) return null;
+  return t;
+}
+
+type UserRowForWorkspace = {
+  provider: string;
+  provider_user_id: string;
+  email: string | null;
+};
+
+/** Stable key for one-workspace-per-account mapping in `nebula_client_workspaces`. */
+function workspaceOwnerKeyForProvisioning(row: UserRowForWorkspace): string | null {
+  if (row.provider === "username") {
+    const u = normalizeUsername(row.provider_user_id);
+    if (!u) return null;
+    return normalizeEmail(`${u}@nebulla.user`);
+  }
+  const fromCol = row.email ? normalizeEmail(row.email) : null;
+  if (fromCol) return fromCol;
+  return normalizeEmail(row.provider_user_id);
 }
 
 function validateNewPassword(password: unknown): string | null {
@@ -107,6 +147,8 @@ export function getRenderPublicConfig() {
   const db = Boolean(process.env.DATABASE_URL?.trim());
   return {
     cloudStorageReady: db,
+    credentialsAuthReady: db,
+    /** @deprecated use credentialsAuthReady */
     emailAuthReady: db,
     githubOAuthReady: Boolean(
       process.env.GITHUB_CLIENT_ID?.trim() && process.env.GITHUB_CLIENT_SECRET?.trim()
@@ -296,11 +338,14 @@ export async function mountRenderStack(app: Express) {
 
   const ensureWorkspaceForUser = async (uid: string): Promise<{ id: string; name: string }> => {
     if (!p) throw new Error("Database not configured");
-    const userRes = await p.query(`SELECT email FROM nebula_users WHERE id = $1`, [uid]);
-    const userRow = userRes.rows[0] as { email: string | null } | undefined;
-    if (!userRow?.email) throw new Error("User email is required to provision workspace.");
-    const normalizedEmail = normalizeEmail(userRow.email);
-    if (!normalizedEmail) throw new Error("User email is invalid for workspace provisioning.");
+    const userRes = await p.query(
+      `SELECT provider, provider_user_id, email FROM nebula_users WHERE id = $1`,
+      [uid]
+    );
+    const userRow = userRes.rows[0] as UserRowForWorkspace | undefined;
+    if (!userRow) throw new Error("User not found for workspace provisioning.");
+    const ownerKey = workspaceOwnerKeyForProvisioning(userRow);
+    if (!ownerKey) throw new Error("Cannot resolve workspace owner identity for this account.");
 
     const existingByUser = await p.query(
       `SELECT workspace_id, workspace_name FROM nebula_client_workspaces WHERE user_id = $1`,
@@ -312,30 +357,30 @@ export async function mountRenderStack(app: Express) {
       return { id: byUser.workspace_id, name: byUser.workspace_name };
     }
 
-    const existingByEmail = await p.query(
+    const existingByOwner = await p.query(
       `SELECT user_id, workspace_id, workspace_name
        FROM nebula_client_workspaces
        WHERE LOWER(email) = LOWER($1)
        LIMIT 1`,
-      [normalizedEmail]
+      [ownerKey]
     );
-    const byEmail = existingByEmail.rows[0] as
+    const byOwner = existingByOwner.rows[0] as
       | { user_id: string; workspace_id: string; workspace_name: string }
       | undefined;
-    if (byEmail?.workspace_id) {
-      if (byEmail.user_id !== uid) {
+    if (byOwner?.workspace_id) {
+      if (byOwner.user_id !== uid) {
         await p.query(
           `UPDATE nebula_client_workspaces
            SET user_id = $1, email = $2, updated_at = NOW()
            WHERE user_id = $3`,
-          [uid, normalizedEmail, byEmail.user_id]
+          [uid, ownerKey, byOwner.user_id]
         );
       }
-      await p.query(`UPDATE nebula_projects SET workspace_id = $2 WHERE user_id = $1`, [uid, byEmail.workspace_id]);
-      return { id: byEmail.workspace_id, name: byEmail.workspace_name };
+      await p.query(`UPDATE nebula_projects SET workspace_id = $2 WHERE user_id = $1`, [uid, byOwner.workspace_id]);
+      return { id: byOwner.workspace_id, name: byOwner.workspace_name };
     }
 
-    const workspaceName = normalizeWorkspaceNameFromEmail(normalizedEmail);
+    const workspaceName = normalizeWorkspaceNameFromEmail(ownerKey);
     const created = await createRenderWorkspace(workspaceName);
     await p.query(
       `INSERT INTO nebula_client_workspaces (user_id, email, workspace_id, workspace_name, render_payload, updated_at)
@@ -346,7 +391,7 @@ export async function mountRenderStack(app: Express) {
            workspace_name = EXCLUDED.workspace_name,
            render_payload = EXCLUDED.render_payload,
            updated_at = NOW()`,
-      [uid, normalizedEmail, created.id, created.name, JSON.stringify(created.raw ?? {})]
+      [uid, ownerKey, created.id, created.name, JSON.stringify(created.raw ?? {})]
     );
     await p.query(`UPDATE nebula_projects SET workspace_id = $2 WHERE user_id = $1`, [uid, created.id]);
     return { id: created.id, name: created.name };
@@ -359,16 +404,27 @@ export async function mountRenderStack(app: Express) {
     }
     try {
       const r = await p.query(
-        `SELECT id, email, display_name, avatar_url FROM nebula_users WHERE id = $1`,
+        `SELECT id, provider, provider_user_id, email, display_name, avatar_url FROM nebula_users WHERE id = $1`,
         [uid]
       );
-      const row = r.rows[0];
+      const row = r.rows[0] as {
+        id: string;
+        provider: string;
+        provider_user_id: string;
+        email: string | null;
+        display_name: string | null;
+        avatar_url: string | null;
+      };
       if (!row) return res.json({ user: null });
+      const sessionEmail =
+        row.provider === "username"
+          ? row.display_name || row.provider_user_id
+          : row.email || row.provider_user_id;
       res.json({
         user: {
           uid: row.id,
           displayName: row.display_name,
-          email: row.email,
+          email: sessionEmail,
           photoURL: row.avatar_url,
         },
       });
@@ -493,24 +549,34 @@ export async function mountRenderStack(app: Express) {
     }
   });
 
-  // --- Email + password ---
+  // --- Username + password (no email required for new accounts) ---
   app.post("/api/auth/register", async (req, res) => {
     if (!p) return res.status(503).json({ error: "Database not configured" });
-    const email = normalizeEmail(req.body?.email);
+    const rawUser =
+      typeof req.body?.username === "string"
+        ? req.body.username
+        : typeof req.body?.email === "string"
+          ? req.body.email
+          : "";
+    const username = normalizeUsername(rawUser);
     const pwErr = validateNewPassword(req.body?.password);
     const remember = Boolean(req.body?.remember);
-    if (!email) return res.status(400).json({ error: "Valid email is required." });
+    if (!username) {
+      return res.status(400).json({
+        error:
+          "Username must be 3–32 characters, start with a letter or number, and use only letters, numbers, underscores, or hyphens.",
+      });
+    }
     if (pwErr) return res.status(400).json({ error: pwErr });
     const password = req.body.password as string;
-    const display =
-      email.split("@")[0].slice(0, 80).replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "User";
+    const display = (typeof rawUser === "string" ? rawUser.trim() : username).slice(0, 80) || username;
     try {
       const hash = await hashPassword(password);
       const ins = await p.query(
         `INSERT INTO nebula_users (provider, provider_user_id, email, display_name, avatar_url, password_hash)
-         VALUES ('email', $1, $2, $3, NULL, $4)
+         VALUES ('username', $1, NULL, $2, NULL, $3)
          RETURNING id`,
-        [email, email, display, hash]
+        [username, display, hash]
       );
       const userId = ins.rows[0].id as string;
       await ensureWorkspaceForUser(userId);
@@ -519,7 +585,7 @@ export async function mountRenderStack(app: Express) {
     } catch (e: unknown) {
       const err = e as { code?: string };
       if (err?.code === "23505") {
-        return res.status(409).json({ error: "An account with this email already exists." });
+        return res.status(409).json({ error: "That username is already taken." });
       }
       console.error("[nebula] register:", e);
       return res.status(500).json({ error: "Registration failed." });
@@ -528,20 +594,39 @@ export async function mountRenderStack(app: Express) {
 
   app.post("/api/auth/login", async (req, res) => {
     if (!p) return res.status(503).json({ error: "Database not configured" });
-    const email = normalizeEmail(req.body?.email);
+    const rawLogin =
+      typeof req.body?.username === "string"
+        ? req.body.username
+        : typeof req.body?.email === "string"
+          ? req.body.email
+          : "";
     const password = req.body?.password;
     const remember = Boolean(req.body?.remember);
-    if (!email || typeof password !== "string") {
-      return res.status(400).json({ error: "Email and password are required." });
+    if (!String(rawLogin).trim() || typeof password !== "string") {
+      return res.status(400).json({ error: "Username and password are required." });
     }
     try {
-      const r = await p.query(
-        `SELECT id, password_hash FROM nebula_users WHERE provider = 'email' AND provider_user_id = $1`,
-        [email]
-      );
-      const row = r.rows[0] as { id: string; password_hash: string | null } | undefined;
+      const u = normalizeUsername(rawLogin);
+      let row: { id: string; password_hash: string | null } | undefined;
+      if (u) {
+        const r = await p.query(
+          `SELECT id, password_hash FROM nebula_users WHERE provider = 'username' AND provider_user_id = $1`,
+          [u]
+        );
+        row = r.rows[0] as { id: string; password_hash: string | null } | undefined;
+      }
+      if (!row) {
+        const em = normalizeEmail(String(rawLogin).trim());
+        if (em) {
+          const r2 = await p.query(
+            `SELECT id, password_hash FROM nebula_users WHERE provider = 'email' AND provider_user_id = $1`,
+            [em]
+          );
+          row = r2.rows[0] as { id: string; password_hash: string | null } | undefined;
+        }
+      }
       if (!row?.password_hash || !(await verifyPassword(password, row.password_hash))) {
-        return res.status(401).json({ error: "Invalid email or password." });
+        return res.status(401).json({ error: "Invalid username or password." });
       }
       await ensureWorkspaceForUser(row.id);
       setSessionCookie(res, signSession(row.id), remember);
@@ -600,10 +685,7 @@ export async function mountRenderStack(app: Express) {
         return res.status(400).json({ error: "This reset link is invalid or has expired. Request a new one." });
       }
       const hash = await hashPassword(password);
-      await p.query(`UPDATE nebula_users SET password_hash = $1 WHERE id = $2 AND provider = 'email'`, [
-        hash,
-        row.user_id,
-      ]);
+      await p.query(`UPDATE nebula_users SET password_hash = $1 WHERE id = $2`, [hash, row.user_id]);
       await p.query(`UPDATE nebula_password_resets SET used_at = NOW() WHERE id = $1`, [row.id]);
       await p.query(`DELETE FROM nebula_password_resets WHERE user_id = $1 AND id <> $2`, [row.user_id, row.id]);
       return res.json({ ok: true });

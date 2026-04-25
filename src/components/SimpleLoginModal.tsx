@@ -1,19 +1,16 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { readResponseJson } from '../lib/apiFetch';
 
 export function SimpleLoginModal({
   open,
   onClose,
-  cloudStorageReady,
   onSignedIn,
 }: {
   open: boolean;
   onClose: () => void;
-  cloudStorageReady: boolean;
-  onSignedIn: () => void;
+  onSignedIn: (profile: { username: string; password: string }) => void;
 }) {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -21,7 +18,7 @@ export function SimpleLoginModal({
 
   useEffect(() => {
     if (!open) {
-      setEmail('');
+      setUsername('');
       setPassword('');
       setBusy(false);
       setError('');
@@ -31,60 +28,19 @@ export function SimpleLoginModal({
 
   if (!open) return null;
 
-  const runJson = async (path: string, body: object) => {
-    const res = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(body),
-    });
-    const data = await readResponseJson<{ error?: string }>(res);
-    return { res, data };
-  };
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!cloudStorageReady) {
-      setError('Server database is not configured (DATABASE_URL).');
+    const trimmed = username.trim();
+    if (!trimmed || !password) {
+      setError('Username and password are required.');
       return;
     }
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || !password) {
-      setError('Email and password are required.');
-      return;
-    }
-
     setBusy(true);
-    try {
-      if (mode === 'signup') {
-        const register = await runJson('/api/auth/register', {
-          email: normalizedEmail,
-          password,
-          remember: true,
-        });
-        if (!register.res.ok) {
-          setError(register.data.error || 'Could not create account.');
-          return;
-        }
-      } else {
-        const login = await runJson('/api/auth/login', {
-          email: normalizedEmail,
-          password,
-          remember: true,
-        });
-        if (!login.res.ok) {
-          setError(login.data.error || 'Login failed.');
-          return;
-        }
-      }
-      onSignedIn();
-      onClose();
-    } catch {
-      setError('Network error.');
-    } finally {
-      setBusy(false);
-    }
+    // Local-only profile entry: no backend authentication calls.
+    onSignedIn({ username: trimmed, password });
+    setBusy(false);
+    onClose();
   };
 
   return (
@@ -94,7 +50,7 @@ export function SimpleLoginModal({
           <div>
             <h2 className="text-2xl font-headline text-slate-100 font-normal">Login</h2>
             <p className="text-slate-400 text-sm leading-relaxed">
-              Use your email and password. If this is your first time, your account is created automatically.
+              Enter a username and password to continue. This is a local app profile form (no backend authentication).
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1" aria-label="Close">
@@ -130,21 +86,24 @@ export function SimpleLoginModal({
             </button>
           </div>
           <div>
-            <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">Email</label>
+            <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">Username</label>
             <input
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
-              placeholder="you@example.com"
+              placeholder="your_name"
             />
+            <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+              3–32 characters; start with a letter or number; then letters, numbers, underscores, or hyphens.
+            </p>
           </div>
           <div>
             <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">Password</label>
             <input
               type="password"
-              autoComplete="current-password"
+              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"

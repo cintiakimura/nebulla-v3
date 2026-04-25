@@ -20,10 +20,7 @@ import {
   getCloudProject,
   upsertCloudProject,
   deleteCloudProject,
-  fetchSessionUser,
-  logoutNebula,
 } from './lib/nebulaCloud';
-import type { NebulaSessionUser } from './lib/nebulaCloud';
 import { readResponseJson } from './lib/apiFetch';
 import { installNebulaGuardianClient } from './lib/nebulaGuardianClient';
 import {
@@ -39,6 +36,7 @@ import {
 } from './lib/nebulaProjectStore';
 
 const ACTIVE_CLOUD_PROJECT_NAME_KEY = 'nebula_active_cloud_project_name';
+const LOCAL_PROFILE_KEY = 'nebulla_local_profile';
 import { 
   Folder, 
   FileCode, 
@@ -221,7 +219,6 @@ export default function App() {
     : null;
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [pendingProjectFlow, setPendingProjectFlow] = useState<NewProjectFlowKind | null>(null);
-  const [sessionReloadNonce, setSessionReloadNonce] = useState(0);
 
   const [deviceUserId] = useState(() => {
     if (typeof window === 'undefined') return 'anonymous';
@@ -353,71 +350,29 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (localDevUser) {
-      setUser(localDevUser);
-      hydrateGuestWorkspace();
-      return;
-    }
-
-    if (config === null) {
-      hydrateGuestWorkspace();
-      return;
-    }
-
-    if (!config.cloudStorageReady) {
-      hydrateGuestWorkspace();
-      return;
-    }
-
-    const mapNebulaUser = (u: NebulaSessionUser | null): MockUser | null =>
-      u
-        ? {
-            uid: u.uid,
-            displayName: u.displayName,
-            email: u.email,
-            photoURL: u.photoURL,
-            role: u.role ?? 'user',
-          }
-        : null;
-
-    const loadCloudOrGuest = async () => {
-      const sessionUser = await fetchSessionUser();
-      const mapped = mapNebulaUser(sessionUser);
-      setUser(mapped);
-
-      if (!mapped) {
-        hydrateGuestWorkspace();
-        return;
+    const loadLocalProfile = (): MockUser | null => {
+      if (typeof window === 'undefined') return null;
+      try {
+        const raw = localStorage.getItem(LOCAL_PROFILE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { username?: string };
+        const username = typeof parsed?.username === 'string' ? parsed.username.trim() : '';
+        if (!username) return null;
+        return {
+          uid: `local:${username.toLowerCase()}`,
+          displayName: username,
+          email: username,
+          photoURL: null,
+          role: 'user',
+        };
+      } catch {
+        return null;
       }
-
-      const rows = await listCloudProjects();
-      if (!rows.length) {
-        hydrateGuestWorkspace();
-        return;
-      }
-
-      setProjectsSource('cloud');
-      setProjectListUi(
-        rows.map((r) => ({ key: r.name, name: r.name, updatedAt: r.updated_at || new Date().toISOString() }))
-      );
-      const activeName = localStorage.getItem(ACTIVE_CLOUD_PROJECT_NAME_KEY);
-      const preferred = activeName ? rows.find((r) => r.name === activeName) : undefined;
-      const pick = preferred ?? rows[0];
-      if (pick.pages) setPages(pick.pages as typeof initialPages);
-      if (pick.edges) setEdges(pick.edges as typeof initialEdges);
-      if (pick.name) setProjectName(pick.name);
-      localStorage.setItem(
-        'nebula_project_default',
-        JSON.stringify({
-          pages: pick.pages ?? [],
-          edges: pick.edges ?? [],
-          projectName: pick.name,
-        })
-      );
     };
 
-    void loadCloudOrGuest();
-  }, [localDevUser, config, sessionReloadNonce]);
+    setUser(localDevUser ?? loadLocalProfile());
+    hydrateGuestWorkspace();
+  }, [localDevUser, config]);
 
   useEffect(() => {
     fetch(`/api/fs/list?path=${encodeURIComponent(currentPath)}`)
@@ -717,7 +672,11 @@ export default function App() {
   }, [pendingProjectFlow, user, localDevUser]);
 
   const handleLogout = async () => {
-    await logoutNebula();
+    try {
+      localStorage.removeItem(LOCAL_PROFILE_KEY);
+    } catch {
+      // ignore localStorage unavailability
+    }
     setUser(null);
     setProjectsSource('guest');
     hydrateGuestWorkspace();
@@ -1584,8 +1543,22 @@ export function NebulaInterface() {
       <SimpleLoginModal
         open={showLoginModal}
         onClose={() => setShowLoginModal(false)}
-        cloudStorageReady={Boolean(config?.cloudStorageReady)}
-        onSignedIn={() => setSessionReloadNonce((n) => n + 1)}
+        onSignedIn={({ username }) => {
+          const trimmed = username.trim();
+          if (!trimmed) return;
+          try {
+            localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify({ username: trimmed }));
+          } catch {
+            // ignore localStorage failures
+          }
+          setUser({
+            uid: `local:${trimmed.toLowerCase()}`,
+            displayName: trimmed,
+            email: trimmed,
+            photoURL: null,
+            role: 'user',
+          });
+        }}
       />
     </div>
   );
