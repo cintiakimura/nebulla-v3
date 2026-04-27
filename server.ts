@@ -24,8 +24,12 @@ import {
   buildNebulaUiStudioPromptBody,
   callPencilMockupsGenerate,
 } from "./lib/nebulaPencilDev";
+import { getNebullaPersistRoot, getNebulaProjectDocsRoot } from "./lib/nebulaWorkspaceRoot";
 
-dotenv.config({ path: path.join(process.cwd(), ".env") });
+const REPO_ROOT = getNebullaPersistRoot();
+const NEBULA_PROJECT_ROOT = getNebulaProjectDocsRoot(REPO_ROOT);
+
+dotenv.config({ path: path.join(REPO_ROOT, ".env") });
 
 export const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -71,13 +75,15 @@ async function startServer() {
   });
 
   // Master Plan Update Logic (Clean JSON-based storage)
-  const masterPlanPath = path.join(process.cwd(), "master-plan.json");
-  const nebulaUiStudioPath = path.join(process.cwd(), "nebula-sysh-ui-sysh-studio.md");
+  const masterPlanPath = path.join(NEBULA_PROJECT_ROOT, "master-plan.json");
+  const nebulaUiStudioPath = path.join(NEBULA_PROJECT_ROOT, "nebula-sysh-ui-sysh-studio.md");
   /** On-disk folder for approved UI exports (alongside the markdown manifest). */
-  const nebulaUiStudioOutputDir = path.join(process.cwd(), "nebulla-sysh-ui-sysh-studio");
+  const nebulaUiStudioOutputDir = path.join(NEBULA_PROJECT_ROOT, "nebulla-sysh-ui-sysh-studio");
 
   const readSkillDesignSystemExcerpt = (): string => {
-    const skillPath = path.join(process.cwd(), "SKILL.md");
+    const skillPath = fs.existsSync(path.join(NEBULA_PROJECT_ROOT, "SKILL.md"))
+      ? path.join(NEBULA_PROJECT_ROOT, "SKILL.md")
+      : path.join(REPO_ROOT, "SKILL.md");
     if (!fs.existsSync(skillPath)) return "";
     try {
       let raw = fs.readFileSync(skillPath, "utf8").replace(/^---[\s\S]*?---\s*/m, "").trim();
@@ -183,7 +189,7 @@ No approved UI code yet.
   // Silent Writer Endpoint
   app.post("/api/write-spec", (req, res) => {
     const { content } = req.body;
-    const specPath = path.join(process.cwd(), "Nebula Architecture Spec.md");
+    const specPath = path.join(NEBULA_PROJECT_ROOT, "Nebula Architecture Spec.md");
     try {
       fs.writeFileSync(specPath, content, "utf8");
       res.json({ success: true });
@@ -197,10 +203,10 @@ No approved UI code yet.
   app.get("/api/fs/list", (req, res) => {
     try {
       const pathParam = req.query.path as string || ".";
-      const targetDir = path.resolve(process.cwd(), pathParam);
+      const targetDir = path.resolve(REPO_ROOT, pathParam);
       
       // Security: Ensure the target directory is within the project root
-      if (!targetDir.startsWith(process.cwd())) {
+      if (!targetDir.startsWith(REPO_ROOT)) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -246,10 +252,10 @@ No approved UI code yet.
       const filePath = req.query.path as string;
       if (!filePath) return res.status(400).json({ error: "Path is required" });
 
-      const targetFile = path.resolve(process.cwd(), filePath);
+      const targetFile = path.resolve(REPO_ROOT, filePath);
       
       // Security: Ensure the target file is within the project root
-      if (!targetFile.startsWith(process.cwd())) {
+      if (!targetFile.startsWith(REPO_ROOT)) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -272,7 +278,7 @@ No approved UI code yet.
     }
     
     // Execute the command in the current working directory
-    exec(command, { cwd: process.cwd(), timeout: 30000 }, (error, stdout, stderr) => {
+    exec(command, { cwd: REPO_ROOT, timeout: 30000 }, (error, stdout, stderr) => {
       let output = "";
       if (stdout) output += stdout;
       if (stderr) output += stderr;
@@ -536,7 +542,7 @@ No approved UI code yet.
 
   const readWorkflowFileSafe = (relPath: string): string => {
     try {
-      const fp = path.join(process.cwd(), relPath);
+      const fp = path.join(NEBULA_PROJECT_ROOT, relPath);
       if (!fs.existsSync(fp)) return `[missing] ${relPath}`;
       const raw = fs.readFileSync(fp, "utf8");
       return raw.length > 20000 ? `${raw.slice(0, 20000)}\n...[truncated]` : raw;
@@ -547,11 +553,10 @@ No approved UI code yet.
 
   const buildProjectWorkflowExecutionContext = (): string => {
     const order = [
-      "project-workflow.md",
+      "project-execution-rules.md",
       "master-plan.json",
       "environment-setup.md",
       "nebula-sysh-ui-sysh-studio.md",
-      "project-execution-rules.md",
     ];
     return order.map((p) => `\n=== ${p} ===\n${readWorkflowFileSafe(p)}`).join("\n");
   };
@@ -590,7 +595,7 @@ No approved UI code yet.
       const memory = buildMemorySystemContent(convUserId, convProject);
       const incomingMessages: { role: string; content?: string }[] = Array.isArray(messages) ? messages : [];
       const baseMessages = injectMemoryIntoMessages(incomingMessages, memory);
-      const executionSystemPrompt = `Execute project workflow and project-execution-rules strictly.
+      const executionSystemPrompt = `Execute project-execution-rules.md strictly (single orchestration file).
 Read and follow this context in exact order:
 ${workflowContext}
 
@@ -696,7 +701,7 @@ Rules:
         const workflowContext = buildProjectWorkflowExecutionContext();
         const codeModel = process.env.GROK_CODE_MODEL?.trim() || "grok-code-fast-1";
         const codeSystemPrompt = `You are now in strict coding mode.
-Follow project workflow and project-execution-rules exactly.
+Follow project-execution-rules.md exactly (single orchestration file).
 Use this context:
 ${workflowContext}
 Return implementation-focused output only.`;
@@ -876,7 +881,7 @@ Return implementation-focused output only.`;
     });
     app.use((vite.middlewares) as any);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.join(REPO_ROOT, "dist");
     const spaIndexHtml = path.join(distPath, "index.html");
     const sendSpaIndex = (_req: express.Request, res: express.Response) => {
       res.sendFile(spaIndexHtml);

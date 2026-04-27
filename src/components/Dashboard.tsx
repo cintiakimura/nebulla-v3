@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Github, FolderOpen, Trash2, Sparkles, Users, FileText, Upload, Save } from 'lucide-react';
+import { Github, FolderOpen, Trash2, Sparkles, Users, FileText, Upload, Save, Globe } from 'lucide-react';
 import { NEBULLA_GROK_KEY_STORAGE } from '../lib/grokKey';
 
-export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | 'secrets';
+export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | 'secrets' | 'dns';
 
 interface DashboardProps {
   activeTab: DashboardTab;
@@ -35,11 +35,13 @@ export function Dashboard({
           <span className="material-symbols-outlined">
             {activeTab === 'projects' ? 'grid_view' :
              activeTab === 'project-settings' ? 'dns' :
-             activeTab === 'secrets' ? 'key' : 'settings'}
+             activeTab === 'secrets' ? 'key' :
+             activeTab === 'dns' ? 'public' : 'settings'}
           </span>
-          {activeTab === 'projects' ? 'User Projects' :
+          {activeTab === 'projects' ? 'My Projects' :
            activeTab === 'project-settings' ? 'Project Settings' :
-           activeTab === 'secrets' ? 'Secrets and Integrations' : 'User Settings'}
+           activeTab === 'secrets' ? 'Secrets and Integrations' :
+           activeTab === 'dns' ? 'DNS & domain' : 'User Settings'}
         </h2>
       </div>
 
@@ -59,6 +61,7 @@ export function Dashboard({
           )}
           {activeTab === 'project-settings' && <ProjectSettingsTab />}
           {activeTab === 'secrets' && <SecretsTab />}
+          {activeTab === 'dns' && <DnsTab />}
           {activeTab === 'user-settings' && <UserSettingsTab />}
         </div>
       </div>
@@ -253,6 +256,50 @@ function ProjectSettingsTab() {
       <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/10 rounded-xl bg-white/5">
         <span className="material-symbols-outlined text-slate-600 text-4xl mb-4">settings_suggest</span>
         <p className="text-slate-500 text-sm font-headline">No settings configured for this project yet.</p>
+      </div>
+    </div>
+  );
+}
+
+function DnsTab() {
+  const [customDomain, setCustomDomain] = useState('');
+
+  return (
+    <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
+      <div>
+        <h3 className="text-xl font-headline text-cyan-300 mb-1 flex items-center gap-2">
+          <Globe className="w-6 h-6" />
+          DNS & domain
+        </h3>
+        <p className="text-sm text-slate-500 mb-6">
+          Point your domain at the deployed Render service. Values here are for planning only until your control plane syncs them to Render.
+        </p>
+      </div>
+
+      <div className="space-y-4 rounded-xl border border-white/10 bg-white/5 p-6">
+        <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline">Custom domain</label>
+        <input
+          type="text"
+          value={customDomain}
+          onChange={(e) => setCustomDomain(e.target.value)}
+          placeholder="app.example.com"
+          className="mt-1 w-full max-w-md bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+        />
+      </div>
+
+      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-6 text-sm text-slate-300 space-y-3">
+        <p className="font-headline text-cyan-200">Typical setup</p>
+        <ul className="list-disc pl-5 space-y-2 text-slate-400">
+          <li>
+            <strong className="text-slate-300">Apex / root domain:</strong> use Render’s recommended ALIAS/ANAME or flattened CNAME to your service hostname (see Render dashboard for the exact target).
+          </li>
+          <li>
+            <strong className="text-slate-300">Subdomain:</strong> add a <code className="text-cyan-300/90">CNAME</code> from your subdomain to the Render service hostname shown for this project.
+          </li>
+          <li>
+            After DNS propagates, set <code className="text-cyan-300/90">PUBLIC_SITE_URL</code> on the Web Service to the final HTTPS origin and redeploy.
+          </li>
+        </ul>
       </div>
     </div>
   );

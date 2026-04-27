@@ -5,10 +5,11 @@
 
 import fs from "fs";
 import path from "path";
+import { getNebullaPersistRoot } from "./lib/nebulaWorkspaceRoot";
 
 export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_MEMORY_PROMPT_CHARS = 100_000;
-export const CONVERSATION_LOGS_ROOT = path.join(process.cwd(), "conversation-logs");
+export const CONVERSATION_LOGS_ROOT = path.join(getNebullaPersistRoot(), "conversation-logs");
 const WRITER_AUDIT_FILE = path.join(CONVERSATION_LOGS_ROOT, "writer-audit.jsonl");
 
 export type LogRole = "user" | "assistant" | "system";

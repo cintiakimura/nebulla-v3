@@ -5,6 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { getNebullaProductLayoutRoot } from "./nebulaWorkspaceRoot";
 
 export const DEFAULT_PENCIL_MOCKUPS_URL = "https://api.pencil.dev/v1/mockups/generate";
 
@@ -56,7 +57,8 @@ export function useBundledDemoMockupWithoutKey(): boolean {
 }
 
 export function loadBundledDemoMockupSvg(cwd: string = process.cwd()): string {
-  const file = path.join(cwd, "templates", "nebula-ui-studio-demo-mockup.svg");
+  const productRoot = getNebullaProductLayoutRoot(cwd);
+  const file = path.join(productRoot, "templates", "nebula-ui-studio-demo-mockup.svg");
   try {
     return fs.readFileSync(file, "utf8");
   } catch {

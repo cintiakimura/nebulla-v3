@@ -7,8 +7,9 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import type { Express, NextFunction, Request, Response } from "express";
+import { getNebullaPersistRoot } from "../lib/nebulaWorkspaceRoot";
 
-const DATA_DIR = path.join(process.cwd(), "guardian-data");
+const DATA_DIR = path.join(getNebullaPersistRoot(), "guardian-data");
 const STORE_PATH = path.join(DATA_DIR, "knowledge.json");
 
 export type GuardianCategory =
