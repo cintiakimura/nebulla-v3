@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Lock, Save, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { readResponseJson } from '../lib/apiFetch';
@@ -16,7 +16,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
   ]);
   const tabDescriptions: Record<string, string> = {
     '1. Goal of the app':
-      "Hey. Tell me about the app you want to build. What are you trying to solve? Why are you passionate about it? What's the main thing it needs to do? Do you have a logo or domain already? Who's going to use it and what roles do they have? Any thoughts on security or permissions? The more you tell me, the better I can help you build it.",
+      'Nebula Partner asks one question at a time (see project-execution-rules.md §4). First question: the single core feature your app must deliver. Then who it is for, roles, security, scale, competitors, integrations—each in its own turn. When ready, Nebula asks if there is anything else to add; after your answer, chat stops, the Master Plan is filled, and Code Mode opens project-execution-rules.md.',
     '2. Tech Research':
       "I'll show you similar tools that already exist, what features they use, and features that are validated and backed by science, real studies or data. This helps us choose the smartest features for your app strategically.",
     '3. Features and KPIs':
@@ -29,7 +29,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
       'Internal tab (Environment Setup): Render architecture, secrets sync, and delivery phases. When someone creates a project in Nebula, the control plane provisions a dedicated Render workspace under nebulla.dev.ai@gmail.com; the returned workspace_id is the permanent internal client ID—server-side only. Web services, Postgres, workers, and env vars all live in that workspace. Dashboard Secrets and Integrations must mirror to Render for the active project. This tab never shows workspace or client IDs; you only see project-facing context.',
   };
 
-  const fetchPlan = async () => {
+  const fetchPlan = useCallback(async () => {
     try {
       const res = await fetch('/api/master-plan/read');
       if (res.ok) {
@@ -43,11 +43,17 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
       console.error("Error fetching master plan:", err);
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchPlan();
-  }, []);
+    void fetchPlan();
+  }, [fetchPlan]);
+
+  useEffect(() => {
+    const onRefresh = () => void fetchPlan();
+    window.addEventListener('nebula-master-plan-updated', onRefresh);
+    return () => window.removeEventListener('nebula-master-plan-updated', onRefresh);
+  }, [fetchPlan]);
 
   // Expose updateSection to window for Grok B to use if needed
   useEffect(() => {

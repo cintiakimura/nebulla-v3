@@ -16,12 +16,14 @@ import { MindMap } from './components/MindMap';
 import { PencilStudio } from './components/PencilStudio';
 import { Dashboard, type DashboardTab } from './components/Dashboard';
 import { AssistantSidebar } from './components/AssistantSidebar';
+import { ExecutionRulesViewer } from './components/ExecutionRulesViewer';
 import { Logo } from './components/Logo';
 
 type MainPanel =
   | 'nebula-ui-studio'
   | 'mind-map'
   | 'master-plan'
+  | 'project-rules'
   | 'my-projects'
   | 'secrets'
   | 'project-settings'
@@ -31,6 +33,7 @@ const PANEL_LABEL: Record<MainPanel, string> = {
   'nebula-ui-studio': 'Nebulla UI Studio',
   'mind-map': 'Mind Map',
   'master-plan': 'Master Plan',
+  'project-rules': 'Project execution rules (code mode)',
   'my-projects': 'My Projects',
   secrets: 'Secrets',
   'project-settings': 'Project Settings',
@@ -94,6 +97,43 @@ function App() {
     pencilMockupsReady?: boolean;
     nebulaUiStudioDemo?: boolean;
   }>({});
+
+  const [codeMode, setCodeMode] = useState(false);
+  const [executionRulesPath, setExecutionRulesPath] = useState('nebula-project/project-execution-rules.md');
+
+  useEffect(() => {
+    (window as unknown as { openMasterPlan?: () => void }).openMasterPlan = () => {
+      setMainPanel('master-plan');
+    };
+    (window as unknown as { openMasterPlanTab?: (n: number) => void }).openMasterPlanTab = (tabNumber: number) => {
+      setMainPanel('master-plan');
+      try {
+        localStorage.setItem('nebula_master_plan_open_tab', String(tabNumber));
+      } catch {
+        /* ignore */
+      }
+      window.dispatchEvent(new CustomEvent('nebula-open-master-plan-tab', { detail: { tabNumber } }));
+    };
+    (window as unknown as { openCodingMode?: (relPath?: string) => void }).openCodingMode = (relPath?: string) => {
+      setCodeMode(true);
+      if (relPath && typeof relPath === 'string' && relPath.trim()) {
+        setExecutionRulesPath(relPath.trim());
+      } else {
+        setExecutionRulesPath('nebula-project/project-execution-rules.md');
+      }
+      setMainPanel('project-rules');
+    };
+    return () => {
+      const w = window as unknown as {
+        openMasterPlan?: () => void;
+        openMasterPlanTab?: (n: number) => void;
+        openCodingMode?: (p?: string) => void;
+      };
+      delete w.openMasterPlan;
+      delete w.openMasterPlanTab;
+      delete w.openCodingMode;
+    };
+  }, []);
 
   useEffect(() => {
     fetch('/api/config')
@@ -211,6 +251,18 @@ function App() {
             <MasterPlan onClose={() => setMainPanel('mind-map')} pagesText={pagesText} />
           </div>
         );
+      case 'project-rules':
+        return (
+          <div className="flex-1 min-h-0 h-full p-4 overflow-hidden flex flex-col">
+            <ExecutionRulesViewer
+              filePath={executionRulesPath}
+              onExitCodeMode={() => {
+                setCodeMode(false);
+                setMainPanel('master-plan');
+              }}
+            />
+          </div>
+        );
       case 'my-projects':
       case 'secrets':
       case 'project-settings':
@@ -326,7 +378,16 @@ function App() {
           </div>
         </section>
 
-        <AssistantSidebar width={340} userId="anonymous" projectName={projectName} />
+        <AssistantSidebar
+          width={340}
+          userId="anonymous"
+          projectName={projectName}
+          codeMode={codeMode}
+          onExitCodeMode={() => {
+            setCodeMode(false);
+            setMainPanel('master-plan');
+          }}
+        />
       </main>
     </div>
   );
