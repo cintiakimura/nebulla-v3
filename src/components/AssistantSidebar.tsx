@@ -1164,7 +1164,52 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
 
       if (cleanCode) {
-        setMessages((prev) => [...prev, { role: 'model', text: cleanCode, fullText: codeText }]);
+        setChatStatus('Grok Code returned output. Applying file changes…');
+        try {
+          const apply = await fetchJson<{
+            success?: boolean;
+            written?: string[];
+            skipped?: string[];
+            parsedBlocks?: number;
+            usedFallbackPath?: string;
+            error?: string;
+          }>('/api/files/apply-generated', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: cleanCode }),
+          });
+          if (apply.error) {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'system', text: `Code returned, but files were not applied: ${apply.error}` },
+            ]);
+            setChatStatus('Grok returned code, but file apply failed.');
+          } else {
+            const writtenCount = Array.isArray(apply.written) ? apply.written.length : 0;
+            const skippedCount = Array.isArray(apply.skipped) ? apply.skipped.length : 0;
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: 'system',
+                text:
+                  writtenCount > 0
+                    ? `Applied ${writtenCount} file(s)${skippedCount ? `, skipped ${skippedCount}` : ''}${
+                        apply.usedFallbackPath ? ` (fallback path: ${apply.usedFallbackPath})` : ''
+                      }.`
+                    : 'No file blocks detected in output; nothing was written.',
+              },
+            ]);
+            setChatStatus(
+              writtenCount > 0
+                ? `Grok Code applied ${writtenCount} file(s).`
+                : 'Grok Code returned text, but no writable file blocks were found.',
+            );
+          }
+        } catch (applyErr: unknown) {
+          const msg = applyErr instanceof Error ? applyErr.message : 'Failed to apply files';
+          setMessages((prev) => [...prev, { role: 'system', text: `File apply error: ${msg}` }]);
+          setChatStatus('Grok returned code, but apply step failed.');
+        }
       } else if (!data.codeError) {
         setMessages((prev) => [...prev, { role: 'system', text: 'Grok Code returned empty output.' }]);
       }

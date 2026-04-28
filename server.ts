@@ -317,6 +317,33 @@ No approved UI code yet.
       let m2: RegExpExecArray | null;
       while ((m2 = reHeader.exec(raw)) !== null) addBlock(m2[1], m2[2]);
 
+      // Pattern 3: Raw multi-file format:
+      // src/main.jsx
+      // <code...>
+      // src/App.jsx
+      // <code...>
+      const pathLine = /^\s*(?:\.\/)?([A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+\.[A-Za-z0-9]+)\s*$/;
+      const lines = raw.replace(/\r\n/g, "\n").split("\n");
+      let currentPath: string | null = null;
+      let currentBody: string[] = [];
+      const flushCurrent = () => {
+        if (!currentPath) return;
+        const body = currentBody.join("\n").trim();
+        if (body) addBlock(currentPath, body);
+        currentPath = null;
+        currentBody = [];
+      };
+      for (const line of lines) {
+        const m = line.match(pathLine);
+        if (m) {
+          flushCurrent();
+          currentPath = m[1];
+          continue;
+        }
+        if (currentPath) currentBody.push(line);
+      }
+      flushCurrent();
+
       let fallbackPath: string | null = null;
       if (blocks.length === 0) {
         const trimmed = raw.trim();
