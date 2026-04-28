@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileCode, FolderGit2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileCode, FolderGit2, FolderOpen, RefreshCw } from 'lucide-react';
 import { readResponseJson } from '../lib/apiFetch';
 
 type Overview = {
@@ -14,6 +14,8 @@ type Overview = {
 };
 
 const PREVIEW_MAX_BYTES = 96 * 1024;
+type FileMeta = { size: number; mtimeMs: number; status?: string };
+type TreeNode = { name: string; path: string; children: TreeNode[]; isFile: boolean };
 
 function statusLabel(status: string): string {
   const s = status.replace(/\s/g, '');
@@ -34,6 +36,45 @@ function statusTone(status: string): string {
   return 'text-slate-400';
 }
 
+function buildTree(paths: string[]): TreeNode[] {
+  const root: TreeNode = { name: '', path: '', children: [], isFile: false };
+  const byPath = new Map<string, TreeNode>();
+  byPath.set('', root);
+
+  const sorted = [...new Set(paths)].sort((a, b) => a.localeCompare(b));
+  for (const fullPath of sorted) {
+    const clean = fullPath.replace(/^\/+|\/+$/g, '');
+    if (!clean) continue;
+    const parts = clean.split('/').filter(Boolean);
+    let acc = '';
+    let parent = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      acc = acc ? `${acc}/${part}` : part;
+      const isFile = i === parts.length - 1;
+      let node = byPath.get(acc);
+      if (!node) {
+        node = { name: part, path: acc, children: [], isFile };
+        byPath.set(acc, node);
+        parent.children.push(node);
+      } else if (isFile) {
+        node.isFile = true;
+      }
+      parent = node;
+    }
+  }
+
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    });
+    nodes.forEach((n) => sortNodes(n.children));
+  };
+  sortNodes(root.children);
+  return root.children;
+}
+
 export function SourceControlPanel() {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,6 +82,7 @@ export function SourceControlPanel() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +147,70 @@ export function SourceControlPanel() {
   const scaffoldSet = new Set((data?.workspaceScaffold?.files ?? []).map((f) => f.relativePath));
   const nebulaFilesOutsideScaffold =
     data?.nebulaFiles.filter((f) => !scaffoldSet.has(f.relativePath)) ?? [];
+  const workspaceFiles = data?.workspaceScaffold?.files ?? [];
+  const workspaceMeta = new Map(workspaceFiles.map((f) => [f.relativePath, { size: f.size, mtimeMs: f.mtimeMs } as FileMeta]));
+  const nebulaMeta = new Map(nebulaFilesOutsideScaffold.map((f) => [f.relativePath, { size: f.size, mtimeMs: f.mtimeMs } as FileMeta]));
+  const gitMeta = new Map((data?.git?.entries ?? []).map((e) => [e.path, { size: 0, mtimeMs: 0, status: e.status } as FileMeta]));
+  const workspaceTree = buildTree(workspaceFiles.map((f) => f.relativePath));
+  const gitTree = buildTree((data?.git?.entries ?? []).map((e) => e.path));
+  const nebulaTree = buildTree(nebulaFilesOutsideScaffold.map((f) => f.relativePath));
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
+  };
+
+  const renderTree = (nodes: TreeNode[], meta: Map<string, FileMeta>, depth = 0) => (
+    <ul className="space-y-0.5">
+      {nodes.map((node) => {
+        if (!node.isFile) {
+          const expanded = expandedFolders[node.path] ?? depth < 1;
+          return (
+            <li key={node.path}>
+              <button
+                type="button"
+                onClick={() => toggleFolder(node.path)}
+                className="w-full text-left rounded-md px-2 py-1 flex gap-2 items-center hover:bg-white/5 border border-transparent"
+              >
+                {expanded ? (
+                  <ChevronDown className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-hidden />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-hidden />
+                )}
+                <FolderOpen className="w-3.5 h-3.5 shrink-0 text-cyan-300/80" aria-hidden />
+                <span className="text-xs text-slate-300 truncate flex-1">{node.name}</span>
+              </button>
+              {expanded ? <div className="pl-4">{renderTree(node.children, meta, depth + 1)}</div> : null}
+            </li>
+          );
+        }
+        const m = meta.get(node.path);
+        const status = m?.status;
+        return (
+          <li key={node.path}>
+            <button
+              type="button"
+              onClick={() => void openPreview(node.path, m?.size ?? 0)}
+              className={`w-full text-left rounded-md px-2 py-1 flex gap-2 items-center hover:bg-white/5 ${
+                selectedPath === node.path ? 'bg-cyan-500/10 border border-cyan-500/20' : 'border border-transparent'
+              }`}
+            >
+              <FileCode className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-hidden />
+              <span className="text-xs text-slate-300 truncate flex-1 font-mono">{node.name}</span>
+              {status ? (
+                <span className={`text-[10px] font-mono shrink-0 ${statusTone(status)}`} title={statusLabel(status)}>
+                  {status}
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-600 shrink-0 tabular-nums" title={m?.mtimeMs ? fmtTime(m.mtimeMs) : ''}>
+                  {typeof m?.size === 'number' ? `${m.size} B` : ''}
+                </span>
+              )}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
 
   return (
     <div className="flex-1 min-h-0 h-full flex flex-col bg-[#040f1a]/40 border border-white/5 rounded-lg overflow-hidden">
@@ -155,25 +261,7 @@ export function SourceControlPanel() {
                     index.html, package.json, vite.config.ts, server.ts, SKILL.md, src/, pages/, packages/, .env
                   </p>
                 )}
-                <ul className="space-y-0.5">
-                  {data.workspaceScaffold.files.map((f) => (
-                    <li key={f.relativePath}>
-                      <button
-                        type="button"
-                        onClick={() => void openPreview(f.relativePath, f.size)}
-                        className={`w-full text-left rounded-md px-2 py-1 flex gap-2 items-center hover:bg-white/5 ${
-                          selectedPath === f.relativePath ? 'bg-cyan-500/10 border border-cyan-500/20' : 'border border-transparent'
-                        }`}
-                      >
-                        <FileCode className="w-3.5 h-3.5 shrink-0 text-emerald-500/80" aria-hidden />
-                        <span className="text-xs text-slate-300 truncate flex-1 font-mono">{f.relativePath}</span>
-                        <span className="text-[10px] text-slate-600 shrink-0 tabular-nums" title={fmtTime(f.mtimeMs)}>
-                          {f.size} B
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                {renderTree(workspaceTree, workspaceMeta)}
               </section>
             ) : null}
 
@@ -187,27 +275,7 @@ export function SourceControlPanel() {
                 ) : data.git.entries.length === 0 ? (
                   <p className="text-xs text-slate-500">Working tree clean — no local changes.</p>
                 ) : (
-                  <ul className="space-y-1">
-                    {data.git.entries.map((e) => (
-                      <li key={`${e.status}-${e.path}`}>
-                        <button
-                          type="button"
-                          onClick={() => void openPreview(e.path, 0)}
-                          className="w-full text-left rounded-md px-2 py-1.5 hover:bg-white/5 flex gap-2 items-start group"
-                        >
-                          <span
-                            className={`shrink-0 font-mono text-[10px] w-7 ${statusTone(e.status)}`}
-                            title={statusLabel(e.status)}
-                          >
-                            {e.status}
-                          </span>
-                          <span className="text-xs text-slate-300 break-all group-hover:text-cyan-200/95">
-                            {e.path}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  renderTree(gitTree, gitMeta)
                 )}
               </section>
             ) : (
@@ -229,34 +297,13 @@ export function SourceControlPanel() {
               {!nebulaFilesOutsideScaffold.length ? (
                 <p className="text-xs text-slate-500">No other files under project docs root yet.</p>
               ) : (
-                <ul className="space-y-0.5">
-                  {nebulaFilesOutsideScaffold.map((f) => (
-                    <li key={f.relativePath}>
-                      <button
-                        type="button"
-                        onClick={() => void openPreview(f.relativePath, f.size)}
-                        className={`w-full text-left rounded-md px-2 py-1 flex gap-2 items-center hover:bg-white/5 ${
-                          selectedPath === f.relativePath ? 'bg-cyan-500/10 border border-cyan-500/20' : 'border border-transparent'
-                        }`}
-                      >
-                        <FileCode className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-hidden />
-                        <span className="text-xs text-slate-300 truncate flex-1 font-mono">{f.relativePath}</span>
-                        <span
-                          className="text-[10px] text-slate-600 shrink-0 tabular-nums"
-                          title={fmtTime(f.mtimeMs)}
-                        >
-                          {f.size} B
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                renderTree(nebulaTree, nebulaMeta)
               )}
             </section>
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col bg-black/20">
+        <div className="flex-1 min-h-0 flex flex-col bg-[#0a1628]/75">
           <div className="shrink-0 px-3 py-2 border-b border-white/10 text-[10px] text-slate-500 font-mono truncate">
             {selectedPath ? selectedPath : 'Select a file to preview'}
           </div>

@@ -15,6 +15,9 @@
 **4. Initial Conversation Flow (Tab 1 — no deviation)**
 
 - Grok asks **exactly one** short question per assistant turn (never multiple questions in the same message).
+- During this Initial Conversation, the user may answer by typing **or** by using **Open Talk mic** (voice). Voice input is treated exactly like typed prompt input and must be processed with the same priority.
+- The experience must feel like one fluid conversation: while this phase is active, the user sees **only Tab 1 (Initial Conversation)**.
+- All other tabs/features (Mind Map, Master Plan, UI Studio, Secrets, Settings, etc.) remain hidden/locked during this phase.
 - **First question (exact wording, alone in that message):**  
   "What's the main thing your app should do—if you had to describe it in one core feature, what would it be?"
 - In **later turns only**, still **one question at a time**, until Grok has covered as needed: who it is for; user roles and permissions; security (sensitive data, HIPAA, copyrights) if relevant; scale; competitors or similar products; external APIs or integrations requiring keys.
@@ -25,6 +28,7 @@
   1. Fill the **entire** Master Plan (all sections the product uses) via the IDE’s persisted Master Plan mechanism (`<START_MASTERPLAN>` … `</END_MASTERPLAN>` in the Nebula Partner integration).
   2. Emit `START_CODING` / `<START_CODING>` so the IDE switches to **Code Mode**, disables Nebula Partner chat, and **automatically opens** `nebula-project/project-execution-rules.md` in the main workspace.
 - In **Code Mode**, Grok produces **only** files and folders (real paths and contents)—no chat, no narration, no questions—following this document through Phase 0 onward until that phase completes. Normal chat resumes only under **Phase 5** after the first full delivery.
+- **Tab reveal rule:** reveal the remaining tabs only **after first-generation development is completed** (end of first full delivery), then continue with normal iterative workflow.
 
 **12. Database Schema Generation from Pages & Navigation**
 
@@ -86,6 +90,7 @@ The person responsible for adding the schema is Grok Code during Phase 0 – Fou
 This phase applies after the first complete version has been generated and delivered. From this point forward, development continues through normal chat.
 
 When the user asks for changes, additions, or modifications:
+- The user may provide requests by typing or by using **Open Talk mic**; treat voice input exactly the same as typed prompt input.
 - First, give a short, clear summary of your understanding of their request
 - Then, present a brief plan (prompt) of what you will change
 - Finally, show a "Go" button labeled "Apply Changes"

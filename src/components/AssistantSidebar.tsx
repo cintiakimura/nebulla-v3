@@ -254,7 +254,7 @@ ARCHITECTURE (do not contradict):
 
 NEUBULA PLATFORM RULES:
 - Default product architecture: **Render PostgreSQL + Render Web Service** (Nebulla-hosted API). Do not push unrelated external vendors (Firebase, Supabase, other clouds, etc.) unless the user explicitly says they already use one.
-- **Coding vs conversation:** You cannot chat with the user and "talk through" code in the same turn as implementation. When you are outputting repo code (after START_CODING or when the message is primarily implementation), output **only** code and minimal comments—no preamble, no recap, no questions in that same message.
+- **Coding vs conversation:** You cannot chat with the user and "talk through" code in the same turn as implementation. When you are outputting repo code (after START_CODING or when the message is primarily implementation), output **only** real code artifacts (file paths + file contents / diffs / executable commands) and minimal inline comments—no preamble, no recap, no questions, no plain-text implementation summaries in that same message.
 
 MANDATORY LOCAL WORKFLOW RULES (localhost:3000):
 - We run three agents:

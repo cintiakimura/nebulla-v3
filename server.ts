@@ -1035,7 +1035,14 @@ Strict rules:
 
 A short pre-coding summary was just saved to master-plan.json under the key "${PRE_CODING_SUMMARY_KEY}" (it appears again inside the master-plan snapshot below).
 
-Follow project-execution-rules.md strictly. Use the workflow context in order. Output implementation-focused content (files, diffs, concrete steps)—not a repeat of the entire orchestration document.
+Follow project-execution-rules.md strictly. Use the workflow context in order.
+
+CRITICAL OUTPUT CONTRACT (no deviation):
+- Output real code artifacts only (concrete files/diffs/commands) that can be applied directly.
+- Do NOT output plain-language planning, recap, policy restatement, or narrative explanation.
+- If a file must be created/updated, include explicit path + full content or patch for that file.
+- Prefer one or more clear file blocks over prose.
+- If information is missing, make minimal safe assumptions and proceed with best-effort code.
 
 ${workflowContext}`;
 
@@ -1221,7 +1228,13 @@ ${answer.slice(0, 8000)}`;
 Follow project-execution-rules.md exactly (single orchestration file).
 Use this context:
 ${workflowContext}
-Return implementation-focused output only.`;
+
+CRITICAL OUTPUT CONTRACT (no deviation):
+- Output real code artifacts only (concrete files/diffs/commands) that can be applied directly.
+- Do NOT output plain-language planning, recap, policy restatement, or narrative explanation.
+- If a file must be created/updated, include explicit path + full content or patch for that file.
+- Prefer one or more clear file blocks over prose.
+- If information is missing, make minimal safe assumptions and proceed with best-effort code.`;
         try {
           const codeRes = await fetch("https://api.x.ai/v1/chat/completions", {
             method: "POST",

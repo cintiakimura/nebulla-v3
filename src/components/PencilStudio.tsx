@@ -368,7 +368,7 @@ export function PencilStudio({
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {generations.map((gen, idx) => (
                 <div key={idx} className="p-4 rounded-2xl border border-white/5" onClick={() => setCurrentIndex(idx)}>
-                  <img src={gen.dataUrl} alt={`Variation ${idx + 1}`} className="w-full min-h-[160px] object-contain bg-black/20 rounded-lg" />
+                  <img src={gen.dataUrl} alt={`Variation ${idx + 1}`} className="w-full min-h-[160px] object-contain bg-[#0a1628]/60 rounded-lg" />
                   <button
                     type="button"
                     onClick={(e) => {
@@ -462,10 +462,10 @@ export function PencilStudio({
                   onChange={(e) => setCodeDraft(e.target.value)}
                   disabled={!manualToolsEnabled}
                   spellCheck={false}
-                  className="min-h-[200px] lg:min-h-[260px] w-full font-mono text-[11px] leading-relaxed bg-black/50 border border-white/10 rounded-xl p-4 text-slate-200 focus:border-cyan-500/40 outline-none resize-y disabled:opacity-40"
+                  className="min-h-[200px] lg:min-h-[260px] w-full font-mono text-[11px] leading-relaxed bg-[#0a1628]/95 border border-white/10 rounded-xl p-4 text-slate-200 focus:border-cyan-500/40 outline-none resize-y disabled:opacity-40"
                   placeholder="SVG source (Grok-generated). Edit here, then Save changes."
                 />
-                <div className="flex-1 bg-black/40 rounded-2xl border border-white/5 overflow-hidden relative min-h-[220px]">
+                <div className="flex-1 bg-[#0a1628]/90 rounded-2xl border border-white/5 overflow-hidden relative min-h-[220px]">
                   {generations[currentIndex] ? (
                     <img
                       src={generations[currentIndex].dataUrl}
