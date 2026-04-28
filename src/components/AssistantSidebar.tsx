@@ -16,6 +16,41 @@ import { Logo } from './Logo';
 import { fetchJson, readResponseJson } from '../lib/apiFetch';
 import { getStoredGrokApiKey } from '../lib/grokKey';
 
+const MASTER_PLAN_TITLES = [
+  '1. Goal of the app',
+  '2. Tech Research',
+  '3. Features and KPIs',
+  '4. Pages and navigation',
+  '5. UI/UX design',
+  '6. Environment Setup',
+] as const;
+
+function splitMasterPlanSectionsFromBlock(block: string): Partial<Record<number, string>> {
+  const lines = block.split('\n');
+  const out: Partial<Record<number, string>> = {};
+  let current: number | null = null;
+  const headingRe = /^\s{0,3}(?:#{2,4}\s*)?(\d)\.\s*(Goal of the app|Tech Research|Features and KPIs|Pages and navigation|UI\/UX design|Environment Setup)\s*$/i;
+  for (const line of lines) {
+    const m = line.match(headingRe);
+    if (m) {
+      current = Number(m[1]);
+      if (current >= 1 && current <= 6 && !out[current]) out[current] = '';
+      continue;
+    }
+    if (current) out[current] = `${out[current] ?? ''}${line}\n`;
+  }
+  for (let i = 1; i <= 6; i++) {
+    const raw = (out[i] ?? '').trim();
+    if (!raw) continue;
+    // Hard guard: never persist orchestration/rules dump into a user-facing tab.
+    if (/Project Execution Rules|INITIAL ONBOARDING|START_CODING|AUTOMATED WORKFLOW|TAB \d HIDDEN RULES/i.test(raw)) {
+      continue;
+    }
+    out[i] = raw;
+  }
+  return out;
+}
+
 export function AssistantSidebar({
   width = 320,
   userId = 'anonymous',
@@ -189,6 +224,11 @@ export function AssistantSidebar({
       setAboutAppInput('');
     }
     setIsLoading(true);
+    setChatStatus(
+      opts?.onboardingAutopilot
+        ? 'Grok 4 is collecting onboarding context and preparing the Master Plan…'
+        : 'Grok 4 is analyzing your request…',
+    );
     
     // Clear auto-send timer if it was active
     if (autoSendTimerRef.current) {
@@ -615,37 +655,17 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       const rawAssistantContent = data.choices?.[0]?.message?.content || '';
       const planningPhase = data.choices?.[0]?.message?.planningPhase || '';
       const masterPlanSource = planningPhase || rawAssistantContent;
+      setChatStatus('Grok 4 response received. Syncing Master Plan updates…');
 
       // GROK 4.1 Behavior: Immediate Frontend Master Plan Update
       const masterPlanMatch = masterPlanSource.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
       if (masterPlanMatch && (window as any).updateMasterPlanSection) {
         const newPlanContent = masterPlanMatch[1].trim();
-        const sections = [
-          "1. Goal of the app",
-          "2. Tech Research",
-          "3. Features and KPIs",
-          "4. Pages and navigation",
-          "5. UI/UX design",
-          "6. Environment Setup"
-        ];
-
-        // Use a for...of loop to handle async updates sequentially or Promise.all for parallel
-        const updatePromises = sections.map(async (title, i) => {
-          const nextTitle = sections[i + 1];
-          const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const escapedNextTitle = nextTitle ? nextTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
-          
-          const regex = new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}[\\s\\S]*?(?=(?:###\\s*|\\*\\*|\\b)${escapedNextTitle || '$'})`, 'i');
-          const match = newPlanContent.match(regex);
-          
-          if (match) {
-            let content = match[0].replace(new RegExp(`(?:###\\s*|\\*\\*|\\b)${escapedTitle}`, 'i'), '').trim();
-            content = content.replace(/^[:\-\s]+/, '');
-            if (content) {
-              // Call the frontend update function for immediate re-render and backend persistence
-              await (window as any).updateMasterPlanSection(i + 1, content);
-            }
-          }
+        const parsed = splitMasterPlanSectionsFromBlock(newPlanContent);
+        const updatePromises = MASTER_PLAN_TITLES.map(async (_title, i) => {
+          const sectionNumber = i + 1;
+          const content = (parsed[sectionNumber] ?? '').trim();
+          if (content) await (window as any).updateMasterPlanSection(sectionNumber, content);
         });
 
         await Promise.all(updatePromises);
@@ -685,7 +705,8 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         !/<\s*START_MASTERPLAN\b|\bSTART_CODING\b|<\s*START_CODING\s*>/i.test(masterPlanSource)
       ) {
         q1ExecutionTriggeredRef.current = true;
-        setBuildQueue((prev) => [...prev, 'Auto-trigger: executing project-execution-rules.md']);
+        setBuildQueue((prev) => [...prev, 'Auto-trigger: running first generation coding']);
+        setChatStatus('Grok 4 approved Q1. Running rules and preparing first-generation coding…');
         try {
           const executeData = await fetchJson<{
             choices?: { message?: { content?: string } }[];
@@ -709,11 +730,19 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             .replace(/<REASONING>[\s\S]*?<\/REASONING>/g, '')
             .replace(/<GROK_B_SUMMARY_Q([1-6])>[\s\S]*?<\/GROK_B_SUMMARY_Q\1>/g, '')
             .trim();
-          if (autoClean) {
+          const hasCodingTag = /<\s*START_CODING\s*>|\bSTART_CODING\b/i.test(autoResponse);
+          if (hasCodingTag) {
+            setChatStatus('Coding mode detected. Opening project execution rules in code mode…');
+            if ((window as any).openCodingMode) {
+              (window as any).openCodingMode('nebula-project/project-execution-rules.md');
+            }
+          } else if (autoClean) {
             setMessages((prev) => [
               ...prev,
-              { role: 'system', text: 'Auto-trigger complete: project execution rules loaded.' },
-              { role: 'model', text: autoClean, fullText: autoResponse },
+              {
+                role: 'system',
+                text: 'Rules execution returned planning output only; use Go to start Grok Code if coding has not begun.',
+              },
             ]);
           }
         } catch (e: any) {
@@ -724,6 +753,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           ]);
         } finally {
           setBuildQueue((prev) => prev.slice(0, -1));
+          window.setTimeout(() => setChatStatus(null), 3000);
         }
       }
 
@@ -770,6 +800,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       // VOICE (Grok A / TTS): speak after a short delay; skip when this turn is coding-only (Grok 4 must not narrate while shipping code)
       const isCodingTurn = /<\s*START_CODING\s*>|\bSTART_CODING\b/.test(masterPlanSource);
       if (isCodingTurn && (window as any).openCodingMode) {
+        setChatStatus('Grok switched to coding mode. Opening project rules file…');
         (window as any).openCodingMode('nebula-project/project-execution-rules.md');
       }
 
@@ -878,6 +909,9 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         setAboutAppActive(false);
         setChatStatus('Automatic planning finished. Review Master Plan and code mode if opened.');
         window.setTimeout(() => setChatStatus(null), 6000);
+      } else if (!isCodingTurn) {
+        setChatStatus('Grok response complete.');
+        window.setTimeout(() => setChatStatus(null), 2000);
       }
     } catch (error: any) {
       console.error("GROK API Error:", error);

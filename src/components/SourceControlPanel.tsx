@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, FileCode, FolderGit2, FolderOpen, RefreshCw } from 'lucide-react';
 import { readResponseJson } from '../lib/apiFetch';
 
@@ -83,6 +83,8 @@ export function SourceControlPanel() {
   const [preview, setPreview] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [leftPanePct, setLeftPanePct] = useState(42);
+  const splitDragRef = useRef<{ startX: number; startPct: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,6 +113,30 @@ export function SourceControlPanel() {
     window.addEventListener('nebula-master-plan-updated', onRefresh);
     return () => window.removeEventListener('nebula-master-plan-updated', onRefresh);
   }, [load]);
+
+  useEffect(() => {
+    const onMove = (ev: MouseEvent) => {
+      const d = splitDragRef.current;
+      if (!d) return;
+      const deltaPx = ev.clientX - d.startX;
+      const win = window.innerWidth || 1;
+      const deltaPct = (deltaPx / win) * 100;
+      const next = Math.min(70, Math.max(25, d.startPct + deltaPct));
+      setLeftPanePct(next);
+    };
+    const onUp = () => {
+      if (!splitDragRef.current) return;
+      splitDragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
 
   const openPreview = async (relativePath: string, size: number) => {
     setSelectedPath(relativePath);
@@ -240,7 +266,10 @@ export function SourceControlPanel() {
       ) : null}
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
-        <div className="min-h-0 lg:w-[42%] lg:max-w-md flex flex-col border-b lg:border-b-0 lg:border-r border-white/10 overflow-hidden">
+        <div
+          className="min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-white/10 overflow-hidden"
+          style={{ width: `min(100%, ${leftPanePct}%)` }}
+        >
           <div className="flex-1 overflow-y-auto p-3 space-y-6">
             {loading && !data ? (
               <p className="text-xs text-slate-500">Loading repository state…</p>
@@ -302,6 +331,15 @@ export function SourceControlPanel() {
             </section>
           </div>
         </div>
+        <div
+          className="hidden lg:block w-1 shrink-0 cursor-col-resize bg-white/5 hover:bg-cyan-500/30 transition-colors"
+          onMouseDown={(ev) => {
+            splitDragRef.current = { startX: ev.clientX, startPct: leftPanePct };
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          }}
+          title="Drag to resize panels"
+        />
 
         <div className="flex-1 min-h-0 flex flex-col bg-[#0a1628]/75">
           <div className="shrink-0 px-3 py-2 border-b border-white/10 text-[10px] text-slate-500 font-mono truncate">

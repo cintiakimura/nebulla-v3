@@ -878,7 +878,9 @@ Rules:
 - Trigger source is Q1 approved.
 - Start execution immediately; no extra confirmation.
 - If coding should start now, include START_CODING in your response.
-- Do not output generic planning chat.`;
+- Do not output generic planning chat.
+- Never paste or restate the full "project-execution-rules.md" content in user-facing output.
+- If producing <START_MASTERPLAN>, include only canonical tab content (sections 1..6), never orchestration policy text.`;
 
       const response = await fetch("https://api.x.ai/v1/chat/completions", {
         method: "POST",
@@ -1172,6 +1174,10 @@ Output in ONE reply, in this order:
 3) <START_CODING>
 
 Optional: include ANSWER_Qn + <GROK_B_SUMMARY_Qn> for tabs as needed. After the tags, no extra user-visible prose.
+
+Hard guard:
+- Never copy/paste orchestration policy text from project-execution-rules.md into any Master Plan section.
+- Master Plan sections must contain product-specific app content only (goal/research/features/pages/ui/environment), not internal workflow instructions.
 
 Workflow reference (read order; do not paste verbatim into chat output):
 ${wf}

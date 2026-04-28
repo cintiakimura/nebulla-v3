@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Rocket,
   ArrowRight,
@@ -81,6 +81,8 @@ export function PencilStudio({
     analyzing: boolean;
   } | null>(null);
   const [applyBusy, setApplyBusy] = useState(false);
+  const [editorHeight, setEditorHeight] = useState(260);
+  const editorDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const dirty = codeDraft !== codeSaved;
@@ -289,6 +291,28 @@ export function PencilStudio({
     }
   };
 
+  useEffect(() => {
+    const onMove = (ev: MouseEvent) => {
+      const d = editorDragRef.current;
+      if (!d) return;
+      const delta = ev.clientY - d.startY;
+      const next = Math.min(520, Math.max(180, d.startHeight + delta));
+      setEditorHeight(next);
+    };
+    const onUp = () => {
+      if (!editorDragRef.current) return;
+      editorDragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
   return (
     <div className="flex flex-col min-h-0 h-full w-full bg-[#020810] overflow-hidden">
       <div className="h-14 border-b border-white/5 bg-white/5 flex items-center px-8 justify-between shrink-0">
@@ -462,8 +486,18 @@ export function PencilStudio({
                   onChange={(e) => setCodeDraft(e.target.value)}
                   disabled={!manualToolsEnabled}
                   spellCheck={false}
-                  className="min-h-[200px] lg:min-h-[260px] w-full font-mono text-[11px] leading-relaxed bg-[#0a1628]/95 border border-white/10 rounded-xl p-4 text-slate-200 focus:border-cyan-500/40 outline-none resize-y disabled:opacity-40"
+                  className="w-full font-mono text-[11px] leading-relaxed bg-[#0a1628]/95 border border-white/10 rounded-xl p-4 text-slate-200 focus:border-cyan-500/40 outline-none resize-none disabled:opacity-40"
+                  style={{ height: `${editorHeight}px` }}
                   placeholder="SVG source (Grok-generated). Edit here, then Save changes."
+                />
+                <div
+                  className="h-1.5 -mt-1 -mb-1 rounded bg-white/10 hover:bg-cyan-500/40 cursor-row-resize transition-colors"
+                  onMouseDown={(ev) => {
+                    editorDragRef.current = { startY: ev.clientY, startHeight: editorHeight };
+                    document.body.style.cursor = 'row-resize';
+                    document.body.style.userSelect = 'none';
+                  }}
+                  title="Drag to resize editor and preview"
                 />
                 <div className="flex-1 bg-[#0a1628]/90 rounded-2xl border border-white/5 overflow-hidden relative min-h-[220px]">
                   {generations[currentIndex] ? (
