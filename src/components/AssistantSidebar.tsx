@@ -41,9 +41,13 @@ function splitMasterPlanSectionsFromBlock(block: string): Partial<Record<number,
   }
   for (let i = 1; i <= 6; i++) {
     const raw = (out[i] ?? '').trim();
-    if (!raw) continue;
+    if (!raw) {
+      delete out[i];
+      continue;
+    }
     // Hard guard: never persist orchestration/rules dump into a user-facing tab.
     if (/Project Execution Rules|INITIAL ONBOARDING|START_CODING|AUTOMATED WORKFLOW|TAB \d HIDDEN RULES/i.test(raw)) {
+      delete out[i];
       continue;
     }
     out[i] = raw;
@@ -658,8 +662,12 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       setChatStatus('Grok 4 response received. Syncing Master Plan updates…');
 
       // GROK 4.1 Behavior: Immediate Frontend Master Plan Update
+      // Guard: during onboarding autopilot / coding handoff, keep Master Plan writes backend-only.
+      const backendOnlyMasterPlanTurn =
+        Boolean(opts?.onboardingAutopilot) ||
+        /<\s*START_CODING\s*>|\bSTART_CODING\b/i.test(masterPlanSource);
       const masterPlanMatch = masterPlanSource.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
-      if (masterPlanMatch && (window as any).updateMasterPlanSection) {
+      if (masterPlanMatch && (window as any).updateMasterPlanSection && !backendOnlyMasterPlanTurn) {
         const newPlanContent = masterPlanMatch[1].trim();
         const parsed = splitMasterPlanSectionsFromBlock(newPlanContent);
         const updatePromises = MASTER_PLAN_TITLES.map(async (_title, i) => {
@@ -674,6 +682,9 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         } catch {
           /* ignore */
         }
+      } else if (masterPlanMatch && backendOnlyMasterPlanTurn) {
+        // Explicit status so user knows this is intentionally backend-only.
+        setChatStatus('Master Plan captured in backend only (hidden during first-generation flow).');
       }
 
       // GROK 4.1 Behavior: Automated Workflow Transitions
@@ -696,6 +707,56 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       if (masterPlanSource.includes('<FINISH_MASTERPLAN>') && (window as any).syncMindMapFromMasterPlan) {
         await (window as any).syncMindMapFromMasterPlan();
       }
+
+      const runGoCodePipeline = async (codingSource: string, note?: string) => {
+        if ((window as any).openCodingMode) {
+          (window as any).openCodingMode('nebula-project/project-execution-rules.md');
+        }
+        setChatStatus('Grok Code is starting implementation…');
+        const goHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (storedGrok) goHeaders['X-Grok-Api-Key'] = storedGrok;
+        const goPayloadMessages = [
+          ...messages.slice(-8).map((m) => ({
+            role: m.role === 'model' ? 'assistant' : m.role,
+            content: m.text,
+          })),
+          { role: 'assistant' as const, content: codingSource },
+          { role: 'user' as const, content: 'START_CODING — begin implementation now.' },
+        ];
+        try {
+          const goData = await fetchJson<{
+            choices?: { message?: { content?: string } }[];
+            codeError?: string;
+            error?: string;
+          }>('/api/grok/go-code', {
+            method: 'POST',
+            headers: goHeaders,
+            body: JSON.stringify({
+              userId,
+              projectName,
+              messages: goPayloadMessages,
+              userNote: note || undefined,
+            }),
+          });
+          const goText = goData.choices?.[0]?.message?.content?.trim() || '';
+          if (goData.error || goData.codeError) {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'system', text: `Grok Code error: ${goData.error || goData.codeError}` },
+            ]);
+            setChatStatus('Grok Code failed. Check error details.');
+          } else if (goText) {
+            setMessages((prev) => [...prev, { role: 'model', text: goText, fullText: goText }]);
+            setChatStatus('Grok Code is running and returned implementation output.');
+          } else {
+            setChatStatus('Grok Code started, but returned no output yet.');
+          }
+        } catch (goErr: unknown) {
+          const msg = goErr instanceof Error ? goErr.message : 'Unknown go-code failure';
+          setMessages((prev) => [...prev, { role: 'system', text: `Grok Code start failed: ${msg}` }]);
+          setChatStatus('Could not start Grok Code.');
+        }
+      };
 
       // Auto-trigger: after Q1 approval, execute project-execution-rules.md with Grok 4.
       if (
@@ -733,12 +794,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           const hasCodingTag = /<\s*START_CODING\s*>|\bSTART_CODING\b/i.test(autoResponse);
           if (hasCodingTag) {
             setChatStatus('Coding mode detected. Opening project execution rules in code mode…');
-            if ((window as any).openCodingMode) {
-              (window as any).openCodingMode('nebula-project/project-execution-rules.md');
-            }
+            await runGoCodePipeline(autoResponse, textToSend);
           } else if (autoClean) {
             setMessages((prev) => [
               ...prev,
+              { role: 'model', text: autoClean, fullText: autoResponse },
               {
                 role: 'system',
                 text: 'Rules execution returned planning output only; use Go to start Grok Code if coding has not begun.',
@@ -801,7 +861,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       const isCodingTurn = /<\s*START_CODING\s*>|\bSTART_CODING\b/.test(masterPlanSource);
       if (isCodingTurn && (window as any).openCodingMode) {
         setChatStatus('Grok switched to coding mode. Opening project rules file…');
-        (window as any).openCodingMode('nebula-project/project-execution-rules.md');
+        await runGoCodePipeline(masterPlanSource, textToSend);
       }
 
       if (cleanText && !isCodingTurn) {
@@ -1422,11 +1482,6 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       <div className="p-4 border-b border-white/5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-13 font-headline text-slate-300 no-bold">Nebula Partner</span>
-          {codeMode && (
-            <span className="text-[10px] font-headline uppercase tracking-wider px-2 py-0.5 rounded border border-amber-500/35 bg-amber-500/10 text-amber-200">
-              Code mode
-            </span>
-          )}
           {isLive && <span className="flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse"></span>}
         </div>
       </div>
@@ -1438,9 +1493,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         </div>
       )}
 
-      {chatStatus ? (
-        <div className="shrink-0 px-4 py-1.5 border-b border-white/5 bg-black/35">
-          <p className="text-[10px] leading-snug text-slate-500 font-mono">{chatStatus}</p>
+      {(chatStatus || isLoading) ? (
+        <div className="shrink-0 px-4 py-1.5 border-b border-white/5 bg-black/25">
+          <p className="text-[10px] leading-snug text-slate-500 font-mono">
+            {chatStatus || 'Grok is working…'}
+          </p>
         </div>
       ) : null}
 
@@ -1475,23 +1532,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             </button>
           </div>
         ) : null}
-        {codeMode ? (
-          <div className="rounded-xl border border-cyan-500/25 bg-cyan-950/25 p-4 text-sm text-slate-300 text-center space-y-3">
-            <p className="font-headline text-cyan-300">Chat disabled</p>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Grok is in Code Mode per <span className="font-mono text-cyan-200/90">project-execution-rules.md</span>. Use the center panel for the orchestration file; output should be files and folders only until this phase completes.
-            </p>
-            {onExitCodeMode ? (
-              <button
-                type="button"
-                onClick={onExitCodeMode}
-                className="text-xs px-3 py-2 rounded-lg border border-white/15 text-slate-200 hover:border-cyan-500/40 hover:bg-cyan-500/10"
-              >
-                Exit code mode
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        {codeMode ? <div className="h-1" /> : null}
         {!codeMode && !aboutAppActive &&
           messages.map((msg, idx) => (
           <div key={idx} className={`p-3 rounded-xl max-w-[90%] border ${
@@ -1578,7 +1619,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             className="min-h-[5rem] max-h-[55vh] w-full resize-y rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 text-13 text-slate-200 no-bold placeholder:text-slate-600 transition-colors focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40"
             placeholder={
               codeMode
-                ? 'Code mode — chat disabled'
+                ? 'Development running…'
                 : isLive
                   ? 'Listening or type here…'
                   : 'Message Nebula Partner…'
