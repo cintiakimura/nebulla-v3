@@ -317,6 +317,21 @@ No approved UI code yet.
       let m2: RegExpExecArray | null;
       while ((m2 = reHeader.exec(raw)) !== null) addBlock(m2[1], m2[2]);
 
+      let fallbackPath: string | null = null;
+      if (blocks.length === 0) {
+        const trimmed = raw.trim();
+        // Heuristic fallback when model returns a single raw file body with no path wrapper.
+        if (/function\s+App\s*\(|export\s+default\s+App|<Route\s+path=|react-router/i.test(trimmed)) {
+          fallbackPath = "src/App.tsx";
+        } else if (/^<!DOCTYPE html>/i.test(trimmed) || /<html[\s>]/i.test(trimmed)) {
+          fallbackPath = "index.html";
+        } else if (/^import\s+.*from\s+['"][^'"]+['"]/m.test(trimmed) && /export\s+default/m.test(trimmed)) {
+          fallbackPath = "src/App.tsx";
+        }
+        if (fallbackPath) {
+          addBlock(fallbackPath, trimmed);
+        }
+      }
       if (blocks.length === 0) {
         return res.status(422).json({
           error:
@@ -347,7 +362,13 @@ No approved UI code yet.
         written.push(b.relativePath);
       }
 
-      res.json({ success: true, written, skipped, parsedBlocks: blocks.length });
+      res.json({
+        success: true,
+        written,
+        skipped,
+        parsedBlocks: blocks.length,
+        usedFallbackPath: fallbackPath || undefined,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to apply generated files" });
     }

@@ -756,6 +756,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 written?: string[];
                 skipped?: string[];
                 parsedBlocks?: number;
+                usedFallbackPath?: string;
                 error?: string;
               }>('/api/files/apply-generated', {
                 method: 'POST',
@@ -782,7 +783,9 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                     role: 'system',
                     text:
                       writtenCount > 0
-                        ? `Applied ${writtenCount} file(s)${skippedCount ? `, skipped ${skippedCount}` : ''}.`
+                        ? `Applied ${writtenCount} file(s)${skippedCount ? `, skipped ${skippedCount}` : ''}${
+                            apply.usedFallbackPath ? ` (fallback path: ${apply.usedFallbackPath})` : ''
+                          }.`
                         : 'No file blocks detected in output; nothing was written.',
                   },
                 ]);
@@ -798,7 +801,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
               setMessages((prev) => [...prev, { role: 'system', text: `File apply error: ${msg}` }]);
               setChatStatus('Grok returned code, but apply step failed.');
             }
-            setMessages((prev) => [...prev, { role: 'model', text: goText, fullText: goText }]);
+            // Keep code mode discreet: report status, avoid dumping full generated code into chat.
           } else {
             stopRealtimeCodingStatus();
             setChatStatus('Grok Code started, but returned no output yet.');
