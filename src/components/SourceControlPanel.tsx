@@ -6,11 +6,6 @@ type Overview = {
   nebulaProjectRoot: string;
   nebulaFiles: { relativePath: string; size: number; mtimeMs: number }[];
   git: { branch: string; entries: { status: string; path: string }[]; error?: string } | null;
-  workspaceScaffold?: {
-    rootRelative: string;
-    recentlyCreated: string[];
-    files: { relativePath: string; size: number; mtimeMs: number }[];
-  };
 };
 
 const PREVIEW_MAX_BYTES = 96 * 1024;
@@ -170,8 +165,14 @@ export function SourceControlPanel() {
     }
   };
 
-  const gitMeta = new Map((data?.git?.entries ?? []).map((e) => [e.path, { size: 0, mtimeMs: 0, status: e.status } as FileMeta]));
-  const gitTree = buildTree((data?.git?.entries ?? []).map((e) => e.path));
+  const gitStatusByPath = new Map((data?.git?.entries ?? []).map((e) => [e.path, e.status]));
+  const fileMeta = new Map(
+    (data?.nebulaFiles ?? []).map((f) => [
+      f.relativePath,
+      { size: f.size, mtimeMs: f.mtimeMs, status: gitStatusByPath.get(f.relativePath) } as FileMeta,
+    ]),
+  );
+  const filesTree = buildTree((data?.nebulaFiles ?? []).map((f) => f.relativePath));
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
@@ -238,7 +239,7 @@ export function SourceControlPanel() {
           <div>
             <h2 className="text-sm font-headline tracking-wide">Source control</h2>
             <p className="text-[10px] text-slate-500 font-mono">
-              Git changes + files under <span className="text-cyan-500/80">{data?.nebulaProjectRoot ?? 'nebula-project'}</span>
+              Local workspace: <span className="text-cyan-500/80">{data?.nebulaProjectRoot ?? 'not set'}</span>
             </p>
           </div>
         </div>
@@ -267,6 +268,17 @@ export function SourceControlPanel() {
               <p className="text-xs text-slate-500">Loading repository state…</p>
             ) : null}
 
+            {data ? (
+              <section>
+                <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">Workspace files</h3>
+                {data.nebulaFiles.length === 0 ? (
+                  <p className="text-xs text-slate-500">No files in selected workspace folder yet.</p>
+                ) : (
+                  renderTree(filesTree, fileMeta)
+                )}
+              </section>
+            ) : null}
+
             {data?.git ? (
               <section>
                 <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
@@ -277,7 +289,7 @@ export function SourceControlPanel() {
                 ) : data.git.entries.length === 0 ? (
                   <p className="text-xs text-slate-500">Working tree clean — no local changes.</p>
                 ) : (
-                  renderTree(gitTree, gitMeta)
+                  <p className="text-xs text-slate-400">Git changes are marked in the workspace tree using status badges.</p>
                 )}
               </section>
             ) : (
@@ -313,7 +325,7 @@ export function SourceControlPanel() {
               </pre>
             ) : (
               <p className="text-xs text-slate-600">
-                Click a path under Git changes to load contents from the server (read-only).
+                Click a file path under Workspace files to load contents from the server (read-only).
               </p>
             )}
           </div>

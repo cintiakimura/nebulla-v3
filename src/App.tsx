@@ -114,6 +114,11 @@ function App() {
   ]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalBusy, setTerminalBusy] = useState(false);
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
+  const [workspaceInput, setWorkspaceInput] = useState('');
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [workspaceChecked, setWorkspaceChecked] = useState(false);
 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [assistantWidth, setAssistantWidth] = useState(() => {
@@ -172,6 +177,90 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!enteredApp) return;
+    let cancelled = false;
+    const loadActiveWorkspace = async () => {
+      setWorkspaceBusy(true);
+      setWorkspaceError(null);
+      try {
+        const res = await fetch('/api/workspace/active');
+        const data = await readResponseJson<{ activePath?: string | null; configuredPath?: string | null; error?: string }>(res);
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (cancelled) return;
+        const active = typeof data.activePath === 'string' && data.activePath.trim() ? data.activePath.trim() : null;
+        setWorkspacePath(active);
+        setWorkspaceInput(active || (typeof data.configuredPath === 'string' ? data.configuredPath : ''));
+      } catch (e) {
+        if (!cancelled) {
+          setWorkspaceError(e instanceof Error ? e.message : 'Failed to load active workspace');
+          setWorkspacePath(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setWorkspaceBusy(false);
+          setWorkspaceChecked(true);
+        }
+      }
+    };
+    void loadActiveWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, [enteredApp]);
+
+  const applyWorkspacePath = useCallback(async () => {
+    const pathToSet = workspaceInput.trim();
+    if (!pathToSet || workspaceBusy) return;
+    setWorkspaceBusy(true);
+    setWorkspaceError(null);
+    try {
+      const res = await fetch('/api/workspace/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: pathToSet }),
+      });
+      const data = await readResponseJson<{ activePath?: string; error?: string }>(res);
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const active = typeof data.activePath === 'string' ? data.activePath : pathToSet;
+      setWorkspacePath(active);
+      setWorkspaceInput(active);
+      setTerminalOutput((prev) => [...prev, `[workspace] active folder set to ${active}`]);
+      window.dispatchEvent(new CustomEvent('nebula-master-plan-updated'));
+    } catch (e) {
+      setWorkspaceError(e instanceof Error ? e.message : 'Could not set workspace path');
+      setWorkspacePath(null);
+    } finally {
+      setWorkspaceBusy(false);
+      setWorkspaceChecked(true);
+    }
+  }, [workspaceBusy, workspaceInput]);
+
+  const pickWorkspaceFolder = useCallback(async () => {
+    if (workspaceBusy) return;
+    const picker = (window as Window & { showDirectoryPicker?: () => Promise<{ name?: string }> }).showDirectoryPicker;
+    if (!picker) {
+      setWorkspaceError('Native folder picker is not available in this browser. Please paste the folder path.');
+      return;
+    }
+    try {
+      setWorkspaceError(null);
+      const handle = await picker();
+      const suggested = typeof handle?.name === 'string' && handle.name.trim() ? handle.name.trim() : '';
+      if (suggested) {
+        setWorkspaceInput((prev) => {
+          if (prev.trim()) return prev;
+          return `/Users/${suggested}`;
+        });
+      }
+      setWorkspaceError('Folder selected. Paste the full absolute path if it was not auto-filled, then click "Set active folder".');
+    } catch (e) {
+      const err = e as DOMException;
+      if (err?.name === 'AbortError') return;
+      setWorkspaceError(e instanceof Error ? e.message : 'Could not open folder picker');
+    }
+  }, [workspaceBusy]);
+
+  useEffect(() => {
     const onMove = (e: MouseEvent) => {
       const d = resizeDrag.current;
       if (!d) return;
@@ -214,7 +303,7 @@ function App() {
   const runTerminalCommand = useCallback(
     async (command: string) => {
       const cmd = command.trim();
-      if (!cmd || terminalBusy) return;
+      if (!cmd || terminalBusy || !workspacePath) return;
       setTerminalBusy(true);
       setTerminalOutput((prev) => [...prev, `$ ${cmd}`]);
       try {
@@ -236,7 +325,7 @@ function App() {
         setTerminalBusy(false);
       }
     },
-    [terminalBusy],
+    [terminalBusy, workspacePath],
   );
 
   const handleSaveToMasterPlan = useCallback(() => {
@@ -406,6 +495,68 @@ function App() {
     return <LandingPage onEnter={() => setEnteredApp(true)} />;
   }
 
+  if (!workspacePath) {
+    return (
+      <div className="h-screen min-h-0 flex flex-col overflow-hidden bg-[#020C17] text-slate-100">
+        <header className="h-16 shrink-0 border-b border-white/10 bg-[#040f1a]/70 backdrop-blur flex items-center justify-between px-6">
+          <div className="flex items-center gap-3">
+            <Logo className="w-9 h-9" />
+            <div>
+              <p className="text-cyan-300 font-headline text-lg leading-tight">nebulla beta</p>
+              <p className="text-slate-400 text-xs leading-tight">Select local app folder first</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEnteredApp(false)}
+            className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30"
+          >
+            Back to Landing
+          </button>
+        </header>
+        <main className="flex-1 min-h-0 flex items-center justify-center px-6">
+          <section className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#040f1a]/70 p-6 md:p-8 space-y-5">
+            <h1 className="text-xl text-cyan-200 font-headline">Open your local product folder</h1>
+            <p className="text-sm text-slate-300">
+              Before generating any app code, choose a local folder on your computer. Nebulla will create frontend, backend,
+              and database files only inside that folder.
+            </p>
+            <label className="block space-y-2">
+              <span className="text-xs uppercase tracking-wider text-slate-500">Local folder absolute path</span>
+              <input
+                value={workspaceInput}
+                onChange={(e) => setWorkspaceInput(e.target.value)}
+                placeholder="/Users/you/Projects/Accountant"
+                className="w-full rounded-lg border border-white/15 bg-[#081425] px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500/60"
+                disabled={workspaceBusy}
+              />
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void pickWorkspaceFolder()}
+                disabled={workspaceBusy}
+                className="px-4 py-2 rounded-lg border border-white/20 bg-white/5 text-slate-200 text-sm disabled:opacity-40"
+              >
+                Choose folder
+              </button>
+              <button
+                type="button"
+                onClick={() => void applyWorkspacePath()}
+                disabled={workspaceBusy || !workspaceInput.trim()}
+                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-500/15 text-cyan-100 text-sm disabled:opacity-40"
+              >
+                {workspaceBusy ? 'Setting folder…' : 'Set active folder'}
+              </button>
+              {workspaceChecked && workspaceBusy ? <span className="text-xs text-slate-500">Validating folder…</span> : null}
+            </div>
+            {workspaceError ? <p className="text-sm text-red-300/90">{workspaceError}</p> : null}
+          </section>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen min-h-0 flex flex-col overflow-hidden bg-[#020C17] text-slate-100">
       <header className="h-16 shrink-0 border-b border-white/10 bg-[#040f1a]/70 backdrop-blur flex items-center justify-between px-6">
@@ -515,8 +666,8 @@ function App() {
               <input
                 value={terminalInput}
                 onChange={(e) => setTerminalInput(e.target.value)}
-                disabled={terminalBusy}
-                placeholder={terminalBusy ? 'Running…' : 'Type a command and press Enter'}
+                disabled={terminalBusy || !workspacePath}
+                placeholder={terminalBusy ? 'Running…' : workspacePath ? 'Type a command and press Enter' : 'Select workspace first'}
                 className="w-full bg-transparent text-xs text-slate-200 outline-none placeholder:text-slate-600"
               />
               <button
@@ -535,7 +686,7 @@ function App() {
               </button>
             </form>
             <div className="h-6 border-t border-white/5 px-3 flex items-center text-[10px] text-slate-500">
-              cwd: /Users/cintiakimura/nebulla-v3
+              cwd: {workspacePath}
             </div>
           </div>
         </section>

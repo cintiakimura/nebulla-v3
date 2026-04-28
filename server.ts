@@ -37,6 +37,49 @@ import { getNebullaPersistRoot, getNebulaProjectDocsRoot } from "./lib/nebulaWor
 
 const REPO_ROOT = getNebullaPersistRoot();
 const NEBULA_PROJECT_ROOT = getNebulaProjectDocsRoot(REPO_ROOT);
+const ACTIVE_WORKSPACE_FILE = path.join(NEBULA_PROJECT_ROOT, ".active-workspace.json");
+
+type ActiveWorkspaceState = { activePath: string; updatedAt: string };
+
+const readActiveWorkspaceState = (): ActiveWorkspaceState | null => {
+  try {
+    if (!fs.existsSync(ACTIVE_WORKSPACE_FILE)) return null;
+    const parsed = JSON.parse(fs.readFileSync(ACTIVE_WORKSPACE_FILE, "utf8"));
+    const activePath = typeof parsed?.activePath === "string" ? parsed.activePath.trim() : "";
+    if (!activePath) return null;
+    return {
+      activePath: path.resolve(activePath),
+      updatedAt: typeof parsed?.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writeActiveWorkspaceState = (activePath: string): ActiveWorkspaceState => {
+  const next: ActiveWorkspaceState = { activePath: path.resolve(activePath), updatedAt: new Date().toISOString() };
+  fs.writeFileSync(ACTIVE_WORKSPACE_FILE, JSON.stringify(next, null, 2), "utf8");
+  return next;
+};
+
+const getActiveWorkspaceRoot = (): string | null => {
+  const state = readActiveWorkspaceState();
+  if (!state) return null;
+  if (!fs.existsSync(state.activePath)) return null;
+  try {
+    if (!fs.statSync(state.activePath).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return state.activePath;
+};
+
+const resolveWorkspaceRelative = (workspaceRoot: string, relativePath: string): string => {
+  const clean = String(relativePath || "").trim().replace(/^\.\/+/, "");
+  const target = path.resolve(workspaceRoot, clean);
+  if (!target.startsWith(workspaceRoot)) throw new Error("Access denied");
+  return target;
+};
 
 dotenv.config({ path: path.join(REPO_ROOT, ".env") });
 
@@ -70,6 +113,7 @@ async function startServer() {
     const render = getRenderPublicConfig();
     const publicSiteUrl = process.env.PUBLIC_SITE_URL?.trim() || "";
     const pencilKey = resolvePencilApiKey();
+    const activeWorkspace = getActiveWorkspaceRoot();
     res.json({
       ...render,
       publicSiteUrl,
@@ -80,7 +124,35 @@ async function startServer() {
       hasGrokWriterKey: writer.length >= 20,
       pencilMockupsReady: Boolean(pencilKey),
       nebulaUiStudioDemo: Boolean(!pencilKey && useBundledDemoMockupWithoutKey()),
+      hasActiveWorkspace: Boolean(activeWorkspace),
+      activeWorkspacePath: activeWorkspace || null,
     });
+  });
+
+  app.get("/api/workspace/active", (_req, res) => {
+    const activePath = getActiveWorkspaceRoot();
+    const persisted = readActiveWorkspaceState();
+    res.json({
+      activePath,
+      configuredPath: persisted?.activePath || null,
+      exists: Boolean(activePath),
+    });
+  });
+
+  app.post("/api/workspace/active", (req, res) => {
+    const rawPath = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+    if (!rawPath) return res.status(400).json({ error: "path is required" });
+    const abs = path.resolve(rawPath);
+    if (!fs.existsSync(abs)) return res.status(404).json({ error: "Folder not found" });
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(abs);
+    } catch {
+      return res.status(400).json({ error: "Cannot access folder" });
+    }
+    if (!stat.isDirectory()) return res.status(400).json({ error: "Path must be a folder" });
+    const saved = writeActiveWorkspaceState(abs);
+    res.json({ success: true, activePath: saved.activePath, updatedAt: saved.updatedAt });
   });
 
   // Master Plan Update Logic (Clean JSON-based storage)
@@ -225,14 +297,11 @@ No approved UI code yet.
   // Example backend function: read file system
   app.get("/api/fs/list", (req, res) => {
     try {
+      const workspaceRoot = getActiveWorkspaceRoot();
+      if (!workspaceRoot) return res.status(409).json({ error: "No active workspace selected" });
       const pathParam = req.query.path as string || ".";
-      const targetDir = path.resolve(REPO_ROOT, pathParam);
+      const targetDir = resolveWorkspaceRelative(workspaceRoot, pathParam);
       
-      // Security: Ensure the target directory is within the project root
-      if (!targetDir.startsWith(REPO_ROOT)) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
       if (!fs.existsSync(targetDir)) {
         return res.status(404).json({ error: "Directory not found" });
       }
@@ -272,15 +341,12 @@ No approved UI code yet.
 
   app.get("/api/files/content", (req, res) => {
     try {
+      const workspaceRoot = getActiveWorkspaceRoot();
+      if (!workspaceRoot) return res.status(409).json({ error: "No active workspace selected" });
       const filePath = req.query.path as string;
       if (!filePath) return res.status(400).json({ error: "Path is required" });
 
-      const targetFile = path.resolve(REPO_ROOT, filePath);
-      
-      // Security: Ensure the target file is within the project root
-      if (!targetFile.startsWith(REPO_ROOT)) {
-        return res.status(403).json({ error: "Access denied" });
-      }
+      const targetFile = resolveWorkspaceRelative(workspaceRoot, filePath);
 
       if (!fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
         return res.status(404).json({ error: "File not found" });
@@ -295,6 +361,8 @@ No approved UI code yet.
 
   app.post("/api/files/apply-generated", (req, res) => {
     try {
+      const workspaceRoot = getActiveWorkspaceRoot();
+      if (!workspaceRoot) return res.status(409).json({ error: "No active workspace selected" });
       const raw = typeof req.body?.content === "string" ? req.body.content : "";
       if (!raw.trim()) return res.status(400).json({ error: "content is required" });
 
@@ -379,8 +447,8 @@ No approved UI code yet.
           skipped.push(b.relativePath);
           continue;
         }
-        const target = path.resolve(REPO_ROOT, b.relativePath);
-        if (!target.startsWith(REPO_ROOT)) {
+        const target = path.resolve(workspaceRoot, b.relativePath);
+        if (!target.startsWith(workspaceRoot)) {
           skipped.push(b.relativePath);
           continue;
         }
@@ -401,86 +469,12 @@ No approved UI code yet.
     }
   });
 
-  /** Default app scaffold under nebula-project (pages, packages, Vite-style stubs). Idempotent. */
-  function ensureNebulaWorkspaceScaffold(): { rootRelative: string; created: string[] } {
-    const created: string[] = [];
-    const base = path.join(NEBULA_PROJECT_ROOT, "workspace");
-    const mkdir = (abs: string) => {
-      if (!fs.existsSync(abs)) {
-        fs.mkdirSync(abs, { recursive: true });
-        created.push(path.relative(REPO_ROOT, abs).replace(/\\/g, "/"));
-      }
-    };
-    const writeIfMissing = (relFromRepo: string, content: string) => {
-      const abs = path.join(REPO_ROOT, relFromRepo);
-      mkdir(path.dirname(abs));
-      if (!fs.existsSync(abs)) {
-        fs.writeFileSync(abs, content, "utf8");
-        created.push(relFromRepo.replace(/\\/g, "/"));
-      }
-    };
-
-    mkdir(base);
-    mkdir(path.join(base, "src"));
-    mkdir(path.join(base, "pages"));
-    mkdir(path.join(base, "packages"));
-
-    const rootRel = "nebula-project/workspace";
-    writeIfMissing(
-      `${rootRel}/index.html`,
-      `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title></title>
-</head>
-<body></body>
-</html>
-`
-    );
-    writeIfMissing(
-      `${rootRel}/package.json`,
-      `{
-  "name": "workspace",
-  "private": true,
-  "version": "0.0.0"
-}
-`
-    );
-    writeIfMissing(
-      `${rootRel}/vite.config.ts`,
-      `import { defineConfig } from "vite";
-
-export default defineConfig({});
-`
-    );
-    writeIfMissing(`${rootRel}/server.ts`, ``);
-    writeIfMissing(`${rootRel}/SKILL.md`, ``);
-    writeIfMissing(`${rootRel}/src/main.ts`, ``);
-    writeIfMissing(
-      `${rootRel}/pages/index.html`,
-      `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title></title></head>
-<body></body>
-</html>
-`
-    );
-    writeIfMissing(`${rootRel}/packages/.gitkeep`, ``);
-    writeIfMissing(`${rootRel}/.env`, ``);
-
-    return { rootRelative: rootRel, created };
-  }
-
-  function collectNebulaProjectFiles(): { relativePath: string; size: number; mtimeMs: number }[] {
+  function collectWorkspaceFiles(workspaceRoot: string): { relativePath: string; size: number; mtimeMs: number }[] {
     const out: { relativePath: string; size: number; mtimeMs: number }[] = [];
-    /** Always list `nebula-project/` when present — never walk full REPO_ROOT if docs root fell back to cwd. */
-    const root = path.join(REPO_ROOT, "nebula-project");
-    if (!fs.existsSync(root)) return out;
+    if (!fs.existsSync(workspaceRoot)) return out;
 
-    const stack: string[] = [root];
-    while (stack.length > 0 && out.length < 500) {
+    const stack: string[] = [workspaceRoot];
+    while (stack.length > 0 && out.length < 3000) {
       const dir = stack.pop()!;
       let dirents: fs.Dirent[];
       try {
@@ -489,14 +483,14 @@ export default defineConfig({});
         continue;
       }
       for (const d of dirents) {
-        if (d.name.startsWith(".")) continue;
+        if (d.name === ".git" || d.name === "node_modules") continue;
         const abs = path.join(dir, d.name);
         if (d.isDirectory()) {
           stack.push(abs);
         } else {
           try {
             const st = fs.statSync(abs);
-            const rel = path.relative(REPO_ROOT, abs).replace(/\\/g, "/");
+            const rel = path.relative(workspaceRoot, abs).replace(/\\/g, "/");
             out.push({ relativePath: rel, size: st.size, mtimeMs: st.mtimeMs });
           } catch {
             /* skip */
@@ -526,14 +520,15 @@ export default defineConfig({});
     return entries;
   }
 
-  /** Git status + flat file list under nebula-project (for IDE Source Control). */
+  /** Git status + workspace tree for user-selected local folder. */
   app.get("/api/source-control/overview", async (_req, res) => {
     try {
-      const scaffold = ensureNebulaWorkspaceScaffold();
-      const nebulaFiles = collectNebulaProjectFiles();
-      const nebulaProjectRelative = fs.existsSync(path.join(REPO_ROOT, "nebula-project"))
-        ? "nebula-project"
-        : path.relative(REPO_ROOT, NEBULA_PROJECT_ROOT).replace(/\\/g, "/") || ".";
+      const workspaceRoot = getActiveWorkspaceRoot();
+      if (!workspaceRoot) {
+        return res.status(409).json({ error: "No active workspace selected" });
+      }
+      const nebulaFiles = collectWorkspaceFiles(workspaceRoot);
+      const nebulaProjectRelative = workspaceRoot;
 
       let git: {
         branch: string;
@@ -541,16 +536,16 @@ export default defineConfig({});
         error?: string;
       } | null = null;
 
-      if (fs.existsSync(path.join(REPO_ROOT, ".git"))) {
+      if (fs.existsSync(path.join(workspaceRoot, ".git"))) {
         try {
           const { stdout: branchOut } = await execFileAsync(
             "git",
-            ["-C", REPO_ROOT, "branch", "--show-current"],
+            ["-C", workspaceRoot, "branch", "--show-current"],
             { maxBuffer: 1024 * 1024, encoding: "utf8" }
           );
           const { stdout: porcOut } = await execFileAsync(
             "git",
-            ["-C", REPO_ROOT, "status", "--porcelain", "-u"],
+            ["-C", workspaceRoot, "status", "--porcelain", "-u"],
             { maxBuffer: 10 * 1024 * 1024, encoding: "utf8" }
           );
           git = {
@@ -566,18 +561,10 @@ export default defineConfig({});
         }
       }
 
-      const scaffoldPrefix = `${scaffold.rootRelative.replace(/\/$/, "")}/`;
-      const workspaceScaffoldFiles = nebulaFiles.filter((f) => f.relativePath.startsWith(scaffoldPrefix));
-
       res.json({
         nebulaProjectRoot: nebulaProjectRelative,
         nebulaFiles,
         git,
-        workspaceScaffold: {
-          rootRelative: scaffold.rootRelative,
-          recentlyCreated: scaffold.created,
-          files: workspaceScaffoldFiles,
-        },
       });
     } catch (err: unknown) {
       console.error("/api/source-control/overview:", err);
@@ -591,9 +578,13 @@ export default defineConfig({});
     if (!command) {
       return res.status(400).json({ output: "No command provided" });
     }
+    const workspaceRoot = getActiveWorkspaceRoot();
+    if (!workspaceRoot) {
+      return res.status(409).json({ output: "No active workspace selected. Set a local folder first." });
+    }
     
     // Execute the command in the current working directory
-    exec(command, { cwd: REPO_ROOT, timeout: 30000 }, (error, stdout, stderr) => {
+    exec(command, { cwd: workspaceRoot, timeout: 30000 }, (error, stdout, stderr) => {
       let output = "";
       if (stdout) output += stdout;
       if (stderr) output += stderr;
