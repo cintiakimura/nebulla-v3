@@ -245,14 +245,10 @@ function App() {
     try {
       setWorkspaceError(null);
       const handle = await picker();
-      const suggested = typeof handle?.name === 'string' && handle.name.trim() ? handle.name.trim() : '';
-      if (suggested) {
-        setWorkspaceInput((prev) => {
-          if (prev.trim()) return prev;
-          return `/Users/${suggested}`;
-        });
-      }
-      setWorkspaceError('Folder selected. Paste the full absolute path if it was not auto-filled, then click "Set active folder".');
+      const selectedName = typeof handle?.name === 'string' && handle.name.trim() ? handle.name.trim() : 'selected folder';
+      setWorkspaceError(
+        `Folder "${selectedName}" selected. Browser security does not expose full local path here, so paste the absolute path (example: /Users/yourname/Documents/${selectedName}) then click "Set active folder".`,
+      );
     } catch (e) {
       const err = e as DOMException;
       if (err?.name === 'AbortError') return;
