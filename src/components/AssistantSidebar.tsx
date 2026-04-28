@@ -718,12 +718,12 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         const goHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
         if (storedGrok) goHeaders['X-Grok-Api-Key'] = storedGrok;
         const goPayloadMessages = [
-          ...messages.slice(-8).map((m) => ({
-            role: m.role === 'model' ? 'assistant' : m.role,
-            content: m.text,
-          })),
-          { role: 'assistant' as const, content: codingSource },
-          { role: 'user' as const, content: 'START_CODING — begin implementation now.' },
+          { role: 'assistant' as const, content: codingSource.slice(0, 12000) },
+          {
+            role: 'user' as const,
+            content:
+              'START_CODING — begin implementation now. Output file artifacts only (paths + file bodies), no conversational text.',
+          },
         ];
         try {
           const goData = await fetchJson<{
@@ -1099,20 +1099,13 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
     const grokHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
     if (storedGrok) grokHeaders['X-Grok-Api-Key'] = storedGrok;
 
-    const history = messages
-      .filter((m) => m.role === 'user' || m.role === 'model' || m.role === 'system')
-      .slice(-9)
-      .map((m) => ({
-        role: m.role === 'model' ? 'assistant' : m.role,
-        content: m.text,
-      }));
     const payloadMessages = [
-      ...history,
       {
         role: 'user' as const,
-        content: userNote
-          ? `Go — start Grok Code. Session focus: ${userNote}`
-          : 'Go — start Grok Code: write a short pre-coding summary to master-plan.json first, then implement per project-execution-rules.md.',
+        content:
+          userNote && userNote.trim()
+            ? `START_CODING — implement now. Session focus: ${userNote}. Output file artifacts only (paths + file bodies), no conversation.`
+            : 'START_CODING — implement now per project-execution-rules.md and master-plan.json. Output file artifacts only (paths + file bodies), no conversation.',
       },
     ];
 

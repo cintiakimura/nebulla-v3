@@ -23,6 +23,7 @@ import { AssistantSidebar } from './components/AssistantSidebar';
 import { ExecutionRulesViewer } from './components/ExecutionRulesViewer';
 import { Logo } from './components/Logo';
 import { SourceControlPanel } from './components/SourceControlPanel';
+import { readResponseJson } from './lib/apiFetch';
 
 type MainPanel =
   | 'nebula-ui-studio'
@@ -107,6 +108,12 @@ function App() {
 
   const [codeMode, setCodeMode] = useState(false);
   const [executionRulesPath, setExecutionRulesPath] = useState('nebula-project/project-execution-rules.md');
+  const [terminalOutput, setTerminalOutput] = useState<string[]>([
+    '$ npm run dev',
+    'Ready — use the left sidebar to switch views.',
+  ]);
+  const [terminalInput, setTerminalInput] = useState('');
+  const [terminalBusy, setTerminalBusy] = useState(false);
 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [assistantWidth, setAssistantWidth] = useState(() => {
@@ -203,6 +210,34 @@ function App() {
     });
     return `PAGES & NAVIGATION\n\n${lines.join('\n')}`;
   }, [pages]);
+
+  const runTerminalCommand = useCallback(
+    async (command: string) => {
+      const cmd = command.trim();
+      if (!cmd || terminalBusy) return;
+      setTerminalBusy(true);
+      setTerminalOutput((prev) => [...prev, `$ ${cmd}`]);
+      try {
+        const res = await fetch('/api/terminal/exec', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: cmd }),
+        });
+        const data = await readResponseJson<{ output?: string; error?: string }>(res);
+        if (!res.ok) {
+          setTerminalOutput((prev) => [...prev, data.error || `Command failed (${res.status})`]);
+        } else {
+          const out = typeof data.output === 'string' ? data.output.trimEnd() : '';
+          setTerminalOutput((prev) => [...prev, out || '[ok]']);
+        }
+      } catch (e) {
+        setTerminalOutput((prev) => [...prev, e instanceof Error ? e.message : 'Terminal request failed']);
+      } finally {
+        setTerminalBusy(false);
+      }
+    },
+    [terminalBusy],
+  );
 
   const handleSaveToMasterPlan = useCallback(() => {
     try {
@@ -459,9 +494,48 @@ function App() {
               <Terminal className="w-4 h-4" />
               Terminal
             </div>
-            <div className="flex-1 p-3 font-mono text-xs text-slate-400 overflow-y-auto">
-              <div className="text-cyan-400">$ npm run dev</div>
-              <div>Ready — use the left sidebar to switch views. No route changes.</div>
+            <div className="flex-1 p-3 font-mono text-xs text-slate-400 overflow-y-auto whitespace-pre-wrap">
+              {terminalOutput.map((line, i) => (
+                <div key={i} className={line.startsWith('$ ') ? 'text-cyan-400' : ''}>
+                  {line}
+                </div>
+              ))}
+            </div>
+            <form
+              className="h-9 border-t border-white/10 px-3 flex items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!terminalInput.trim()) return;
+                const cmd = terminalInput;
+                setTerminalInput('');
+                void runTerminalCommand(cmd);
+              }}
+            >
+              <span className="text-cyan-400 font-mono text-xs">$</span>
+              <input
+                value={terminalInput}
+                onChange={(e) => setTerminalInput(e.target.value)}
+                disabled={terminalBusy}
+                placeholder={terminalBusy ? 'Running…' : 'Type a command and press Enter'}
+                className="w-full bg-transparent text-xs text-slate-200 outline-none placeholder:text-slate-600"
+              />
+              <button
+                type="submit"
+                disabled={terminalBusy || !terminalInput.trim()}
+                className="text-[10px] px-2 py-1 rounded border border-white/15 text-slate-300 disabled:opacity-40"
+              >
+                Run
+              </button>
+              <button
+                type="button"
+                className="text-[10px] px-2 py-1 rounded border border-white/10 text-slate-500 hover:text-slate-300"
+                onClick={() => setTerminalOutput([])}
+              >
+                Clear
+              </button>
+            </form>
+            <div className="h-6 border-t border-white/5 px-3 flex items-center text-[10px] text-slate-500">
+              cwd: /Users/cintiakimura/nebulla-v3
             </div>
           </div>
         </section>
