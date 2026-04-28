@@ -293,6 +293,66 @@ No approved UI code yet.
     }
   });
 
+  app.post("/api/files/apply-generated", (req, res) => {
+    try {
+      const raw = typeof req.body?.content === "string" ? req.body.content : "";
+      if (!raw.trim()) return res.status(400).json({ error: "content is required" });
+
+      type FileBlock = { relativePath: string; body: string };
+      const blocks: FileBlock[] = [];
+
+      const addBlock = (p: string, b: string) => {
+        const cleanedPath = p.trim().replace(/^["'`]+|["'`]+$/g, "").replace(/^\.\/+/, "");
+        if (!cleanedPath) return;
+        blocks.push({ relativePath: cleanedPath, body: b.replace(/\r\n/g, "\n") });
+      };
+
+      // Pattern 1: ```file:path/to/file.ext ... ```
+      const reInline = /```(?:file|filepath)\s*:\s*([^\n`]+)\n([\s\S]*?)```/gi;
+      let m1: RegExpExecArray | null;
+      while ((m1 = reInline.exec(raw)) !== null) addBlock(m1[1], m1[2]);
+
+      // Pattern 2: File: path/to/file.ext \n ```lang ... ```
+      const reHeader = /(?:^|\n)\s*(?:File|FILE)\s*:\s*([^\n]+)\n```[^\n]*\n([\s\S]*?)```/g;
+      let m2: RegExpExecArray | null;
+      while ((m2 = reHeader.exec(raw)) !== null) addBlock(m2[1], m2[2]);
+
+      if (blocks.length === 0) {
+        return res.status(422).json({
+          error:
+            "No file blocks found. Expected format: ```file:path/to/file.ext ...``` or `File: path` followed by fenced code.",
+        });
+      }
+
+      const deny = /(^|\/)\.git(\/|$)|(^|\/)\.cursor(\/|$)|(^|\/)node_modules(\/|$)/i;
+      const written: string[] = [];
+      const skipped: string[] = [];
+      const seen = new Set<string>();
+
+      for (const b of blocks) {
+        if (seen.has(b.relativePath)) continue;
+        seen.add(b.relativePath);
+
+        if (deny.test(b.relativePath) || b.relativePath.includes("..")) {
+          skipped.push(b.relativePath);
+          continue;
+        }
+        const target = path.resolve(REPO_ROOT, b.relativePath);
+        if (!target.startsWith(REPO_ROOT)) {
+          skipped.push(b.relativePath);
+          continue;
+        }
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, b.body, "utf8");
+        written.push(b.relativePath);
+      }
+
+      res.json({ success: true, written, skipped, parsedBlocks: blocks.length });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to apply generated files" });
+    }
+  });
+
   /** Default app scaffold under nebula-project (pages, packages, Vite-style stubs). Idempotent. */
   function ensureNebulaWorkspaceScaffold(): { rootRelative: string; created: string[] } {
     const created: string[] = [];

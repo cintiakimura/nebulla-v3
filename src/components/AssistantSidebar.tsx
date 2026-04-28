@@ -142,6 +142,7 @@ export function AssistantSidebar({
   const [isLoading, setIsLoading] = useState(false);
   /** Small status line for multi-step flows (e.g. Go → Grok 4 summary → Grok Code). */
   const [chatStatus, setChatStatus] = useState<string | null>(null);
+  const codingStatusTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     isLiveRef.current = isLive;
@@ -712,7 +713,8 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         if ((window as any).openCodingMode) {
           (window as any).openCodingMode('nebula-project/project-execution-rules.md');
         }
-        setChatStatus('Grok Code is starting implementation…');
+        startRealtimeCodingStatus('Grok Code starting implementation');
+        setMessages((prev) => [...prev, { role: 'system', text: 'Grok Code started. Building implementation now…' }]);
         const goHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
         if (storedGrok) goHeaders['X-Grok-Api-Key'] = storedGrok;
         const goPayloadMessages = [
@@ -740,18 +742,69 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           });
           const goText = goData.choices?.[0]?.message?.content?.trim() || '';
           if (goData.error || goData.codeError) {
+            stopRealtimeCodingStatus();
             setMessages((prev) => [
               ...prev,
               { role: 'system', text: `Grok Code error: ${goData.error || goData.codeError}` },
             ]);
             setChatStatus('Grok Code failed. Check error details.');
           } else if (goText) {
+            try {
+              startRealtimeCodingStatus('Applying generated files');
+              const apply = await fetchJson<{
+                success?: boolean;
+                written?: string[];
+                skipped?: string[];
+                parsedBlocks?: number;
+                error?: string;
+              }>('/api/files/apply-generated', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: goText }),
+              });
+              if (apply.error) {
+                stopRealtimeCodingStatus();
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    role: 'system',
+                    text: `Code returned, but files were not applied: ${apply.error}`,
+                  },
+                ]);
+                setChatStatus('Grok returned code, but file apply failed.');
+              } else {
+                stopRealtimeCodingStatus();
+                const writtenCount = Array.isArray(apply.written) ? apply.written.length : 0;
+                const skippedCount = Array.isArray(apply.skipped) ? apply.skipped.length : 0;
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    role: 'system',
+                    text:
+                      writtenCount > 0
+                        ? `Applied ${writtenCount} file(s)${skippedCount ? `, skipped ${skippedCount}` : ''}.`
+                        : 'No file blocks detected in output; nothing was written.',
+                  },
+                ]);
+                setChatStatus(
+                  writtenCount > 0
+                    ? `Grok Code applied ${writtenCount} file(s).`
+                    : 'Grok Code returned text, but no writable file blocks were found.',
+                );
+              }
+            } catch (applyErr: unknown) {
+              stopRealtimeCodingStatus();
+              const msg = applyErr instanceof Error ? applyErr.message : 'Failed to apply files';
+              setMessages((prev) => [...prev, { role: 'system', text: `File apply error: ${msg}` }]);
+              setChatStatus('Grok returned code, but apply step failed.');
+            }
             setMessages((prev) => [...prev, { role: 'model', text: goText, fullText: goText }]);
-            setChatStatus('Grok Code is running and returned implementation output.');
           } else {
+            stopRealtimeCodingStatus();
             setChatStatus('Grok Code started, but returned no output yet.');
           }
         } catch (goErr: unknown) {
+          stopRealtimeCodingStatus();
           const msg = goErr instanceof Error ? goErr.message : 'Unknown go-code failure';
           setMessages((prev) => [...prev, { role: 'system', text: `Grok Code start failed: ${msg}` }]);
           setChatStatus('Could not start Grok Code.');
@@ -974,6 +1027,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         window.setTimeout(() => setChatStatus(null), 2000);
       }
     } catch (error: any) {
+      stopRealtimeCodingStatus();
       console.error("GROK API Error:", error);
       if (opts?.onboardingAutopilot) {
         setAboutAppActive(false);
@@ -983,6 +1037,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    return () => stopRealtimeCodingStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAboutAppGo = () => {
     const answer = aboutAppInput.trim();
@@ -1466,6 +1525,23 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
     resumeListeningAfterOutgoingTtsRef.current();
   };
 
+  const stopRealtimeCodingStatus = () => {
+    if (codingStatusTimerRef.current) {
+      window.clearInterval(codingStatusTimerRef.current);
+      codingStatusTimerRef.current = null;
+    }
+  };
+
+  const startRealtimeCodingStatus = (label: string) => {
+    stopRealtimeCodingStatus();
+    const startedAt = Date.now();
+    setChatStatus(`${label} • 0s`);
+    codingStatusTimerRef.current = window.setInterval(() => {
+      const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+      setChatStatus(`${label} • ${elapsed}s`);
+    }, 1000);
+  };
+
   const showGrokSetupHint =
     !getStoredGrokApiKey() && serverHasGrokKey === false;
 
@@ -1513,7 +1589,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
               onChange={(e) => setAboutAppInput(e.target.value)}
               disabled={isLoading}
               rows={5}
-              className="w-full min-h-[6rem] max-h-[50vh] resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-13 text-slate-200 focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:opacity-50"
+              className="w-full min-h-[6rem] max-h-[50vh] resize rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-13 text-slate-200 focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:opacity-50"
               placeholder="Describe your core feature…"
               aria-label="About your app"
             />
@@ -1533,7 +1609,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           </div>
         ) : null}
         {codeMode ? <div className="h-1" /> : null}
-        {!codeMode && !aboutAppActive &&
+        {!aboutAppActive &&
           messages.map((msg, idx) => (
           <div key={idx} className={`p-3 rounded-xl max-w-[90%] border ${
             msg.role === 'user' 
@@ -1577,7 +1653,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             )}
           </div>
         ))}
-        {!codeMode && !aboutAppActive && isLoading && (
+        {!aboutAppActive && isLoading && (
           <div className="flex items-start gap-3 mb-6 animate-pulse">
             <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
               <Logo className="w-4 h-4 text-cyan-400" />
@@ -1592,7 +1668,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             </div>
           </div>
         )}
-        {!codeMode && !aboutAppActive && <div ref={messagesEndRef} />}
+        {!aboutAppActive && <div ref={messagesEndRef} />}
       </div>
 
       <div className="p-4 border-t border-white/5 flex flex-col gap-3">
@@ -1616,7 +1692,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 void handleSendText();
               }
             }}
-            className="min-h-[5rem] max-h-[55vh] w-full resize-y rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 text-13 text-slate-200 no-bold placeholder:text-slate-600 transition-colors focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+            className="min-h-[5rem] max-h-[55vh] w-full resize rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 text-13 text-slate-200 no-bold placeholder:text-slate-600 transition-colors focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40"
             placeholder={
               codeMode
                 ? 'Development running…'

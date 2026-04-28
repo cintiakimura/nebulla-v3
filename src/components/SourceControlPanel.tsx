@@ -170,16 +170,8 @@ export function SourceControlPanel() {
     }
   };
 
-  const scaffoldSet = new Set((data?.workspaceScaffold?.files ?? []).map((f) => f.relativePath));
-  const nebulaFilesOutsideScaffold =
-    data?.nebulaFiles.filter((f) => !scaffoldSet.has(f.relativePath)) ?? [];
-  const workspaceFiles = data?.workspaceScaffold?.files ?? [];
-  const workspaceMeta = new Map(workspaceFiles.map((f) => [f.relativePath, { size: f.size, mtimeMs: f.mtimeMs } as FileMeta]));
-  const nebulaMeta = new Map(nebulaFilesOutsideScaffold.map((f) => [f.relativePath, { size: f.size, mtimeMs: f.mtimeMs } as FileMeta]));
   const gitMeta = new Map((data?.git?.entries ?? []).map((e) => [e.path, { size: 0, mtimeMs: 0, status: e.status } as FileMeta]));
-  const workspaceTree = buildTree(workspaceFiles.map((f) => f.relativePath));
   const gitTree = buildTree((data?.git?.entries ?? []).map((e) => e.path));
-  const nebulaTree = buildTree(nebulaFilesOutsideScaffold.map((f) => f.relativePath));
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
@@ -275,25 +267,6 @@ export function SourceControlPanel() {
               <p className="text-xs text-slate-500">Loading repository state…</p>
             ) : null}
 
-            {data?.workspaceScaffold?.files?.length ? (
-              <section>
-                <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
-                  Default workspace ·{' '}
-                  <span className="text-cyan-400/90 font-mono">{data.workspaceScaffold.rootRelative}</span>
-                </h3>
-                {data.workspaceScaffold.recentlyCreated.length ? (
-                  <p className="text-[10px] text-emerald-400/90 mb-2">
-                    Added {data.workspaceScaffold.recentlyCreated.length} empty or minimal default path(s).
-                  </p>
-                ) : (
-                  <p className="text-[10px] text-slate-500 mb-2">
-                    index.html, package.json, vite.config.ts, server.ts, SKILL.md, src/, pages/, packages/, .env
-                  </p>
-                )}
-                {renderTree(workspaceTree, workspaceMeta)}
-              </section>
-            ) : null}
-
             {data?.git ? (
               <section>
                 <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
@@ -311,24 +284,10 @@ export function SourceControlPanel() {
               <section>
                 <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">Git</h3>
                 <p className="text-xs text-slate-500">
-                  No <code className="text-cyan-500/80">.git</code> folder in this workspace — showing Nebula project files only.
+                  No <code className="text-cyan-500/80">.git</code> folder in this workspace.
                 </p>
               </section>
             )}
-
-            <section>
-              <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
-                Nebula project files ({nebulaFilesOutsideScaffold.length})
-                {scaffoldSet.size ? (
-                  <span className="text-slate-600 font-normal normal-case"> · scaffold listed above</span>
-                ) : null}
-              </h3>
-              {!nebulaFilesOutsideScaffold.length ? (
-                <p className="text-xs text-slate-500">No other files under project docs root yet.</p>
-              ) : (
-                renderTree(nebulaTree, nebulaMeta)
-              )}
-            </section>
           </div>
         </div>
         <div
@@ -354,7 +313,7 @@ export function SourceControlPanel() {
               </pre>
             ) : (
               <p className="text-xs text-slate-600">
-                Click a path under Git changes or Nebula project files to load contents from the server (read-only).
+                Click a path under Git changes to load contents from the server (read-only).
               </p>
             )}
           </div>
