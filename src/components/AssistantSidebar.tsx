@@ -1,6 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { ChevronDown, Hand, Mic, Paperclip, Rocket, Send } from 'lucide-react';
+
+const ONBOARDING_DONE_KEY = 'nebulla_onboarding_autopilot_done';
+
+function readOnboardingAutopilotDone(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_DONE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 import { VoiceLinesIcon } from './VoiceLinesIcon';
 import { Logo } from './Logo';
 import { fetchJson, readResponseJson } from '../lib/apiFetch';
@@ -22,9 +32,20 @@ export function AssistantSidebar({
 }) {
   const [isLive, setIsLive] = useState(false);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
-  const [messages, setMessages] = useState<{role: string, text: string, fullText?: string, reasoning?: string}[]>([
-    { role: 'model', text: 'System initialized. Ready to collaborate.', fullText: 'System initialized. Ready to collaborate.' }
-  ]);
+  const [aboutAppActive, setAboutAppActive] = useState(() => !readOnboardingAutopilotDone());
+  const [aboutAppInput, setAboutAppInput] = useState('');
+  const [messages, setMessages] = useState<{ role: string; text: string; fullText?: string; reasoning?: string }[]>(
+    () =>
+      readOnboardingAutopilotDone()
+        ? [
+            {
+              role: 'model',
+              text: 'System initialized. Ready to collaborate.',
+              fullText: 'System initialized. Ready to collaborate.',
+            },
+          ]
+        : [],
+  );
   const [masterPlan, setMasterPlan] = useState<any>(null);
   const [serverHasGrokKey, setServerHasGrokKey] = useState<boolean | null>(null);
 
@@ -144,8 +165,12 @@ export function AssistantSidebar({
     setIsRecordingText(false);
   };
 
-  const handleSendText = async (overrideText?: string) => {
+  const handleSendText = async (
+    overrideText?: string,
+    opts?: { onboardingAutopilot?: boolean },
+  ) => {
     if (codeMode) return;
+    if (aboutAppActive && !opts?.onboardingAutopilot) return;
     const textToSend = overrideText || inputText;
     if (!textToSend.trim()) return;
     const hasExplicitApproval = /\b(approve|approved|yes|yep|yeah|go ahead|move on|next tab|looks good|locked in|perfect)\b/i.test(
@@ -157,8 +182,12 @@ export function AssistantSidebar({
       (window as any).openMasterPlan();
     }
 
-    setMessages(prev => [...prev, { role: 'user', text: textToSend }]);
-    setInputText('');
+    setMessages((prev) => [...prev, { role: 'user', text: textToSend }]);
+    if (!opts?.onboardingAutopilot) {
+      setInputText('');
+    } else {
+      setAboutAppInput('');
+    }
     setIsLoading(true);
     
     // Clear auto-send timer if it was active
@@ -194,27 +223,29 @@ export function AssistantSidebar({
         return;
       }
 
-      // Fetch latest master plan before sending
-      let latestMP = {};
-      try {
-        const mpRes = await fetch('/api/master-plan/read');
-        const data = await readResponseJson(mpRes);
-        if (mpRes.ok) latestMP = data;
-      } catch (e) {
-        console.warn('Master plan not loaded for prompt:', e);
-      }
+      // Fetch latest master plan before sending (skipped for onboarding autopilot — server builds messages)
+      let latestMP: Record<string, unknown> = {};
       let uiStudioApprovedCode = '';
-      try {
-        const uiRes = await fetch('/api/nebula-ui-studio/code');
-        if (uiRes.ok) {
-          const uiData = await readResponseJson<{ code?: string }>(uiRes);
-          uiStudioApprovedCode = uiData.code?.trim() || '';
+      let systemPrompt = '';
+      if (!opts?.onboardingAutopilot) {
+        try {
+          const mpRes = await fetch('/api/master-plan/read');
+          const data = await readResponseJson(mpRes);
+          if (mpRes.ok) latestMP = data as Record<string, unknown>;
+        } catch (e) {
+          console.warn('Master plan not loaded for prompt:', e);
         }
-      } catch (e) {
-        console.warn('Nebula UI Studio code not loaded for prompt:', e);
-      }
-      
-      const systemPrompt = `You are Nebula (Grok 4 — the brain): voice-first IDE partner. You listen, reason, answer in writing, and produce code when the workflow reaches implementation.
+        try {
+          const uiRes = await fetch('/api/nebula-ui-studio/code');
+          if (uiRes.ok) {
+            const uiData = await readResponseJson<{ code?: string }>(uiRes);
+            uiStudioApprovedCode = uiData.code?.trim() || '';
+          }
+        } catch (e) {
+          console.warn('Nebula UI Studio code not loaded for prompt:', e);
+        }
+
+        systemPrompt = `You are Nebula (Grok 4 — the brain): voice-first IDE partner. You listen, reason, answer in writing, and produce code when the workflow reaches implementation.
 
 ARCHITECTURE (do not contradict):
 - **Grok 4 (you):** The only reasoning model the user talks to. Conversation, planning, and coding orchestration.
@@ -552,6 +583,7 @@ CURRENT MASTER PLAN: ${JSON.stringify(latestMP, null, 2)}
 
 APPROVED_UI_UX_CODE_FROM_NEBULA_UI_STUDIO_FILE (also mirrored at nebulla-sysh-ui-sysh-studio/approved/approved-ui.svg after approval):
 ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
+      }
 
       // Connect to GROK via Backend Proxy (single body read via fetchJson)
       const grokHeaders: Record<string, string> = {
@@ -560,27 +592,32 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       if (storedGrok) grokHeaders['X-Grok-Api-Key'] = storedGrok;
 
       const data = await fetchJson<{
-        choices?: { message?: { content?: string } }[];
+        choices?: { message?: { content?: string; planningPhase?: string } }[];
       }>('/api/grok/chat', {
         method: 'POST',
         headers: grokHeaders,
         body: JSON.stringify({
           userId,
           projectName,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.slice(-10).map((m) => ({
-              role: m.role === 'model' ? 'assistant' : m.role,
-              content: m.text,
-            })),
-            { role: 'user', content: textToSend },
-          ],
+          onboardingAutopilot: Boolean(opts?.onboardingAutopilot),
+          messages: opts?.onboardingAutopilot
+            ? [{ role: 'user', content: textToSend }]
+            : [
+                { role: 'system', content: systemPrompt },
+                ...messages.slice(-10).map((m) => ({
+                  role: m.role === 'model' ? 'assistant' : m.role,
+                  content: m.text,
+                })),
+                { role: 'user', content: textToSend },
+              ],
         }),
       });
-      const fullResponse = data.choices?.[0]?.message?.content || '';
+      const rawAssistantContent = data.choices?.[0]?.message?.content || '';
+      const planningPhase = data.choices?.[0]?.message?.planningPhase || '';
+      const masterPlanSource = planningPhase || rawAssistantContent;
 
       // GROK 4.1 Behavior: Immediate Frontend Master Plan Update
-      const masterPlanMatch = fullResponse.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
+      const masterPlanMatch = masterPlanSource.match(/<START_MASTERPLAN>([\s\S]*?)<END_MASTERPLAN>/);
       if (masterPlanMatch && (window as any).updateMasterPlanSection) {
         const newPlanContent = masterPlanMatch[1].trim();
         const sections = [
@@ -620,14 +657,14 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
 
       // GROK 4.1 Behavior: Automated Workflow Transitions
-      if (fullResponse.includes('<APPROVE_MASTERPLAN>') && hasExplicitApproval) {
+      if (masterPlanSource.includes('<APPROVE_MASTERPLAN>') && hasExplicitApproval) {
         if ((window as any).syncMindMapFromMasterPlan) await (window as any).syncMindMapFromMasterPlan();
         if ((window as any).openMindMap) (window as any).openMindMap();
       }
-      if (fullResponse.includes('<APPROVE_MINDMAP>') && hasExplicitApproval) {
+      if (masterPlanSource.includes('<APPROVE_MINDMAP>') && hasExplicitApproval) {
         if ((window as any).openUIUX) (window as any).openUIUX();
       }
-      if (fullResponse.includes('<APPROVE_UI>') && hasExplicitApproval) {
+      if (masterPlanSource.includes('<APPROVE_UI>') && hasExplicitApproval) {
         if ((window as any).openMasterPlanTab) {
           (window as any).openMasterPlanTab(6);
         } else if ((window as any).openMasterPlan) {
@@ -636,16 +673,16 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
 
       // GROK 4.1 Behavior: Sync Mind Map from Master Plan when finished
-      if (fullResponse.includes('<FINISH_MASTERPLAN>') && (window as any).syncMindMapFromMasterPlan) {
+      if (masterPlanSource.includes('<FINISH_MASTERPLAN>') && (window as any).syncMindMapFromMasterPlan) {
         await (window as any).syncMindMapFromMasterPlan();
       }
 
       // Auto-trigger: after Q1 approval, execute project-execution-rules.md with Grok 4.
       if (
-        /\bANSWER_Q1\b/i.test(fullResponse) &&
+        /\bANSWER_Q1\b/i.test(masterPlanSource) &&
         hasExplicitApproval &&
         !q1ExecutionTriggeredRef.current &&
-        !/<\s*START_MASTERPLAN\b|\bSTART_CODING\b|<\s*START_CODING\s*>/i.test(fullResponse)
+        !/<\s*START_MASTERPLAN\b|\bSTART_CODING\b|<\s*START_CODING\s*>/i.test(masterPlanSource)
       ) {
         q1ExecutionTriggeredRef.current = true;
         setBuildQueue((prev) => [...prev, 'Auto-trigger: executing project-execution-rules.md']);
@@ -663,7 +700,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                   role: m.role === 'model' ? 'assistant' : m.role,
                   content: m.text,
                 })),
-                { role: 'assistant', content: fullResponse },
+                { role: 'assistant', content: masterPlanSource },
               ],
             }),
           });
@@ -691,11 +728,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
 
       // GROK 4.1 Behavior: Trigger UI/UX Workflow
-      if (fullResponse.includes('<START_UIUX>') && (window as any).startUIUXWorkflow) {
+      if (masterPlanSource.includes('<START_UIUX>') && (window as any).startUIUXWorkflow) {
         (window as any).startUIUXWorkflow();
       }
 
-      const uiStudioPromptMatch = fullResponse.match(/<NEBULA_UI_STUDIO_PROMPT>([\s\S]*?)<\/NEBULA_UI_STUDIO_PROMPT>/i);
+      const uiStudioPromptMatch = masterPlanSource.match(/<NEBULA_UI_STUDIO_PROMPT>([\s\S]*?)<\/NEBULA_UI_STUDIO_PROMPT>/i);
       if (uiStudioPromptMatch) {
         const prompt = uiStudioPromptMatch[1].trim();
         if (prompt) {
@@ -708,11 +745,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
 
       // Extract reasoning if present
-      const reasoningMatch = fullResponse.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
+      const reasoningMatch = masterPlanSource.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
       const reasoning = reasoningMatch ? reasoningMatch[1].trim() : undefined;
       
       // Strip ALL tags for display and TTS
-      const cleanText = fullResponse
+      const cleanText = masterPlanSource
         .replace(/<REASONING>[\s\S]*?<\/REASONING>/g, '')
         .replace(/<START_MASTERPLAN>[\s\S]*?<END_MASTERPLAN>/g, '')
         .replace(/<START_MASTERPLAN>/g, '')
@@ -731,7 +768,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         .trim();
 
       // VOICE (Grok A / TTS): speak after a short delay; skip when this turn is coding-only (Grok 4 must not narrate while shipping code)
-      const isCodingTurn = /<\s*START_CODING\s*>|\bSTART_CODING\b/.test(fullResponse);
+      const isCodingTurn = /<\s*START_CODING\s*>|\bSTART_CODING\b/.test(masterPlanSource);
       if (isCodingTurn && (window as any).openCodingMode) {
         (window as any).openCodingMode('nebula-project/project-execution-rules.md');
       }
@@ -826,14 +863,39 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
 
       if (!isCodingTurn && cleanText) {
-        setMessages((prev) => [...prev, { role: 'model', text: cleanText, fullText: fullResponse, reasoning }]);
+        setMessages((prev) => [
+          ...prev,
+          { role: 'model', text: cleanText, fullText: planningPhase || rawAssistantContent, reasoning },
+        ]);
+      }
+
+      if (opts?.onboardingAutopilot) {
+        try {
+          localStorage.setItem(ONBOARDING_DONE_KEY, '1');
+        } catch {
+          /* ignore */
+        }
+        setAboutAppActive(false);
+        setChatStatus('Automatic planning finished. Review Master Plan and code mode if opened.');
+        window.setTimeout(() => setChatStatus(null), 6000);
       }
     } catch (error: any) {
       console.error("GROK API Error:", error);
+      if (opts?.onboardingAutopilot) {
+        setAboutAppActive(false);
+      }
       setMessages(prev => [...prev, { role: 'system', text: `Error: ${error.message || 'Failed to connect to GROK.'}` }]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleAboutAppGo = () => {
+    const answer = aboutAppInput.trim();
+    if (!answer || isLoading || codeMode) return;
+    if ((window as any).openMasterPlan) (window as any).openMasterPlan();
+    setChatStatus('Running full automatic planning and coding on the server…');
+    void handleSendText(answer, { onboardingAutopilot: true });
   };
 
   /** Go: Grok 4 writes only a short summary to master-plan.json, then Grok Code implements. */
@@ -986,8 +1048,8 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       if ((window as any).openMasterPlan) (window as any).openMasterPlan();
       connectLive();
       
-      // If it's the start of a conversation, trigger an initial suggestion
-      if (messages.length <= 1) {
+      // If it's the start of a conversation, trigger an initial suggestion (skip during About App onboarding)
+      if (messages.length <= 1 && !aboutAppActive) {
         handleSendText(
           "I'm ready. Follow project-execution-rules.md §4: ask only your first single discovery question about my app (one question in your reply).",
         );
@@ -1019,10 +1081,16 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       toggleLive();
     }
 
-    // 2. Handle initial prompt
+    // 2. Handle initial prompt (bypass About App card)
     const initialPrompt = localStorage.getItem('nebula_initial_prompt');
     if (initialPrompt) {
       localStorage.removeItem('nebula_initial_prompt');
+      try {
+        localStorage.setItem(ONBOARDING_DONE_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+      setAboutAppActive(false);
       if ((window as any).openMasterPlan) (window as any).openMasterPlan();
       handleSendText(initialPrompt);
     }
@@ -1031,6 +1099,12 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
     const githubRepo = localStorage.getItem('nebula_github_import');
     if (githubRepo) {
       localStorage.removeItem('nebula_github_import');
+      try {
+        localStorage.setItem(ONBOARDING_DONE_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+      setAboutAppActive(false);
       handleSendText(`I want to clone and analyze this GitHub repository: ${githubRepo}`);
     }
   }, []);
@@ -1337,6 +1411,36 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       ) : null}
 
       <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
+        {!codeMode && aboutAppActive ? (
+          <div className="rounded-xl border border-cyan-500/25 bg-cyan-950/20 p-4 space-y-3 shrink-0">
+            <h3 className="text-sm font-headline text-cyan-200 tracking-wide">About App</h3>
+            <p className="text-13 text-slate-300 leading-relaxed">
+              What&apos;s the main thing your app should do—if you had to describe it in one core feature, what would it be?
+            </p>
+            <textarea
+              value={aboutAppInput}
+              onChange={(e) => setAboutAppInput(e.target.value)}
+              disabled={isLoading}
+              rows={5}
+              className="w-full min-h-[6rem] max-h-[50vh] resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-13 text-slate-200 focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:opacity-50"
+              placeholder="Describe your core feature…"
+              aria-label="About your app"
+            />
+            <p className="text-[10px] text-slate-500 leading-snug">
+              Press <strong className="text-cyan-400/90">Go</strong> to run Master Plan + coding on the server in one step (no extra questions). You can reset this card from browser devtools by removing localStorage key{' '}
+              <code className="text-cyan-500/80">{ONBOARDING_DONE_KEY}</code> if needed.
+            </p>
+            <button
+              type="button"
+              onClick={handleAboutAppGo}
+              disabled={isLoading || !aboutAppInput.trim()}
+              className="w-full flex items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 py-2.5 text-sm font-headline text-emerald-100 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Rocket className="w-4 h-4 shrink-0" aria-hidden />
+              Go — automatic development
+            </button>
+          </div>
+        ) : null}
         {codeMode ? (
           <div className="rounded-xl border border-cyan-500/25 bg-cyan-950/25 p-4 text-sm text-slate-300 text-center space-y-3">
             <p className="font-headline text-cyan-300">Chat disabled</p>
@@ -1354,7 +1458,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             ) : null}
           </div>
         ) : null}
-        {!codeMode &&
+        {!codeMode && !aboutAppActive &&
           messages.map((msg, idx) => (
           <div key={idx} className={`p-3 rounded-xl max-w-[90%] border ${
             msg.role === 'user' 
@@ -1398,7 +1502,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             )}
           </div>
         ))}
-        {!codeMode && isLoading && (
+        {!codeMode && !aboutAppActive && isLoading && (
           <div className="flex items-start gap-3 mb-6 animate-pulse">
             <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
               <Logo className="w-4 h-4 text-cyan-400" />
@@ -1413,7 +1517,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             </div>
           </div>
         )}
-        {!codeMode && <div ref={messagesEndRef} />}
+        {!codeMode && !aboutAppActive && <div ref={messagesEndRef} />}
       </div>
 
       <div className="p-4 border-t border-white/5 flex flex-col gap-3">
@@ -1424,12 +1528,12 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             <span className="font-mono text-amber-300">Dashboard → Secrets</span> (this browser only).
           </p>
         )}
-        <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+        <div className={`flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2 ${aboutAppActive ? 'opacity-40 pointer-events-none' : ''}`}>
           <textarea
             id="assistant-input"
             name="assistant-input"
             value={inputText}
-            disabled={codeMode}
+            disabled={codeMode || aboutAppActive}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -1437,7 +1541,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 void handleSendText();
               }
             }}
-            className="min-h-[5rem] w-full resize-none rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 text-13 text-slate-200 no-bold placeholder:text-slate-600 transition-colors focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+            className="min-h-[5rem] max-h-[55vh] w-full resize-y rounded-lg border border-white/10 bg-black/25 px-3 py-2.5 text-13 text-slate-200 no-bold placeholder:text-slate-600 transition-colors focus:border-cyan-500/45 focus:outline-none focus:ring-1 focus:ring-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40"
             placeholder={
               codeMode
                 ? 'Code mode — chat disabled'

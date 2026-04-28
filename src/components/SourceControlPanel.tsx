@@ -6,6 +6,11 @@ type Overview = {
   nebulaProjectRoot: string;
   nebulaFiles: { relativePath: string; size: number; mtimeMs: number }[];
   git: { branch: string; entries: { status: string; path: string }[]; error?: string } | null;
+  workspaceScaffold?: {
+    rootRelative: string;
+    recentlyCreated: string[];
+    files: { relativePath: string; size: number; mtimeMs: number }[];
+  };
 };
 
 const PREVIEW_MAX_BYTES = 96 * 1024;
@@ -97,6 +102,10 @@ export function SourceControlPanel() {
     }
   };
 
+  const scaffoldSet = new Set((data?.workspaceScaffold?.files ?? []).map((f) => f.relativePath));
+  const nebulaFilesOutsideScaffold =
+    data?.nebulaFiles.filter((f) => !scaffoldSet.has(f.relativePath)) ?? [];
+
   return (
     <div className="flex-1 min-h-0 h-full flex flex-col bg-[#040f1a]/40 border border-white/5 rounded-lg overflow-hidden">
       <div className="shrink-0 px-4 py-3 border-b border-white/10 flex items-center justify-between gap-3">
@@ -129,6 +138,43 @@ export function SourceControlPanel() {
           <div className="flex-1 overflow-y-auto p-3 space-y-6">
             {loading && !data ? (
               <p className="text-xs text-slate-500">Loading repository state…</p>
+            ) : null}
+
+            {data?.workspaceScaffold?.files?.length ? (
+              <section>
+                <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
+                  Default workspace ·{' '}
+                  <span className="text-cyan-400/90 font-mono">{data.workspaceScaffold.rootRelative}</span>
+                </h3>
+                {data.workspaceScaffold.recentlyCreated.length ? (
+                  <p className="text-[10px] text-emerald-400/90 mb-2">
+                    Added {data.workspaceScaffold.recentlyCreated.length} empty or minimal default path(s).
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-slate-500 mb-2">
+                    index.html, package.json, vite.config.ts, server.ts, SKILL.md, src/, pages/, packages/, .env
+                  </p>
+                )}
+                <ul className="space-y-0.5">
+                  {data.workspaceScaffold.files.map((f) => (
+                    <li key={f.relativePath}>
+                      <button
+                        type="button"
+                        onClick={() => void openPreview(f.relativePath, f.size)}
+                        className={`w-full text-left rounded-md px-2 py-1 flex gap-2 items-center hover:bg-white/5 ${
+                          selectedPath === f.relativePath ? 'bg-cyan-500/10 border border-cyan-500/20' : 'border border-transparent'
+                        }`}
+                      >
+                        <FileCode className="w-3.5 h-3.5 shrink-0 text-emerald-500/80" aria-hidden />
+                        <span className="text-xs text-slate-300 truncate flex-1 font-mono">{f.relativePath}</span>
+                        <span className="text-[10px] text-slate-600 shrink-0 tabular-nums" title={fmtTime(f.mtimeMs)}>
+                          {f.size} B
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ) : null}
 
             {data?.git ? (
@@ -175,13 +221,16 @@ export function SourceControlPanel() {
 
             <section>
               <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
-                Nebula project files ({data?.nebulaFiles.length ?? 0})
+                Nebula project files ({nebulaFilesOutsideScaffold.length})
+                {scaffoldSet.size ? (
+                  <span className="text-slate-600 font-normal normal-case"> · scaffold listed above</span>
+                ) : null}
               </h3>
-              {!data?.nebulaFiles.length ? (
-                <p className="text-xs text-slate-500">No files under project docs root yet.</p>
+              {!nebulaFilesOutsideScaffold.length ? (
+                <p className="text-xs text-slate-500">No other files under project docs root yet.</p>
               ) : (
                 <ul className="space-y-0.5">
-                  {data.nebulaFiles.map((f) => (
+                  {nebulaFilesOutsideScaffold.map((f) => (
                     <li key={f.relativePath}>
                       <button
                         type="button"

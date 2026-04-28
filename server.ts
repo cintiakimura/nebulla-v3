@@ -27,6 +27,12 @@ import {
   buildNebulaUiStudioPromptBody,
   callPencilMockupsGenerate,
 } from "./lib/nebulaPencilDev";
+import {
+  callGrokGenerateUiSvg,
+  heuristicSvgEditRisks,
+  callGrokAnalyzeSvgEdit,
+  callGrokAdaptUserSvg,
+} from "./lib/nebulaUiStudioGrok";
 import { getNebullaPersistRoot, getNebulaProjectDocsRoot } from "./lib/nebulaWorkspaceRoot";
 
 const REPO_ROOT = getNebullaPersistRoot();
@@ -82,6 +88,20 @@ async function startServer() {
   const nebulaUiStudioPath = path.join(NEBULA_PROJECT_ROOT, "nebula-sysh-ui-sysh-studio.md");
   /** On-disk folder for approved UI exports (alongside the markdown manifest). */
   const nebulaUiStudioOutputDir = path.join(NEBULA_PROJECT_ROOT, "nebulla-sysh-ui-sysh-studio");
+
+  const resolveNebullaGrokKeyForReq = (req: express.Request): string | undefined => {
+    const headerKey =
+      typeof req.headers["x-grok-api-key"] === "string" ? req.headers["x-grok-api-key"].trim() : "";
+    if (headerKey.length >= 20) return headerKey;
+    const bodyKey =
+      typeof (req.body as { grokApiKey?: unknown })?.grokApiKey === "string"
+        ? String((req.body as { grokApiKey?: string }).grokApiKey).trim()
+        : "";
+    if (bodyKey.length >= 20) return bodyKey;
+    const envKey = process.env.GROK_API_KEY?.trim() ?? "";
+    if (envKey.length >= 20) return envKey;
+    return undefined;
+  };
 
   const readSkillDesignSystemExcerpt = (): string => {
     const skillPath = fs.existsSync(path.join(NEBULA_PROJECT_ROOT, "SKILL.md"))
@@ -273,6 +293,78 @@ No approved UI code yet.
     }
   });
 
+  /** Default app scaffold under nebula-project (pages, packages, Vite-style stubs). Idempotent. */
+  function ensureNebulaWorkspaceScaffold(): { rootRelative: string; created: string[] } {
+    const created: string[] = [];
+    const base = path.join(NEBULA_PROJECT_ROOT, "workspace");
+    const mkdir = (abs: string) => {
+      if (!fs.existsSync(abs)) {
+        fs.mkdirSync(abs, { recursive: true });
+        created.push(path.relative(REPO_ROOT, abs).replace(/\\/g, "/"));
+      }
+    };
+    const writeIfMissing = (relFromRepo: string, content: string) => {
+      const abs = path.join(REPO_ROOT, relFromRepo);
+      mkdir(path.dirname(abs));
+      if (!fs.existsSync(abs)) {
+        fs.writeFileSync(abs, content, "utf8");
+        created.push(relFromRepo.replace(/\\/g, "/"));
+      }
+    };
+
+    mkdir(base);
+    mkdir(path.join(base, "src"));
+    mkdir(path.join(base, "pages"));
+    mkdir(path.join(base, "packages"));
+
+    const rootRel = "nebula-project/workspace";
+    writeIfMissing(
+      `${rootRel}/index.html`,
+      `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title></title>
+</head>
+<body></body>
+</html>
+`
+    );
+    writeIfMissing(
+      `${rootRel}/package.json`,
+      `{
+  "name": "workspace",
+  "private": true,
+  "version": "0.0.0"
+}
+`
+    );
+    writeIfMissing(
+      `${rootRel}/vite.config.ts`,
+      `import { defineConfig } from "vite";
+
+export default defineConfig({});
+`
+    );
+    writeIfMissing(`${rootRel}/server.ts`, ``);
+    writeIfMissing(`${rootRel}/SKILL.md`, ``);
+    writeIfMissing(`${rootRel}/src/main.ts`, ``);
+    writeIfMissing(
+      `${rootRel}/pages/index.html`,
+      `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title></title></head>
+<body></body>
+</html>
+`
+    );
+    writeIfMissing(`${rootRel}/packages/.gitkeep`, ``);
+    writeIfMissing(`${rootRel}/.env`, ``);
+
+    return { rootRelative: rootRel, created };
+  }
+
   function collectNebulaProjectFiles(): { relativePath: string; size: number; mtimeMs: number }[] {
     const out: { relativePath: string; size: number; mtimeMs: number }[] = [];
     /** Always list `nebula-project/` when present — never walk full REPO_ROOT if docs root fell back to cwd. */
@@ -329,6 +421,7 @@ No approved UI code yet.
   /** Git status + flat file list under nebula-project (for IDE Source Control). */
   app.get("/api/source-control/overview", async (_req, res) => {
     try {
+      const scaffold = ensureNebulaWorkspaceScaffold();
       const nebulaFiles = collectNebulaProjectFiles();
       const nebulaProjectRelative = fs.existsSync(path.join(REPO_ROOT, "nebula-project"))
         ? "nebula-project"
@@ -365,10 +458,18 @@ No approved UI code yet.
         }
       }
 
+      const scaffoldPrefix = `${scaffold.rootRelative.replace(/\/$/, "")}/`;
+      const workspaceScaffoldFiles = nebulaFiles.filter((f) => f.relativePath.startsWith(scaffoldPrefix));
+
       res.json({
         nebulaProjectRoot: nebulaProjectRelative,
         nebulaFiles,
         git,
+        workspaceScaffold: {
+          rootRelative: scaffold.rootRelative,
+          recentlyCreated: scaffold.created,
+          files: workspaceScaffoldFiles,
+        },
       });
     } catch (err: unknown) {
       console.error("/api/source-control/overview:", err);
@@ -559,8 +660,9 @@ No approved UI code yet.
 
   app.post("/api/nebula-ui-studio/generate", async (req, res) => {
     const { pagesText, branding } = req.body;
-    const apiKey = resolvePencilApiKey();
-    const apiUrl = resolvePencilMockupsUrl();
+    const pencilKey = resolvePencilApiKey();
+    const pencilUrl = resolvePencilMockupsUrl();
+    const variationIndex = typeof req.body?.variationIndex === "number" ? req.body.variationIndex : 0;
 
     try {
       ensureNebulaUiStudioFile();
@@ -568,41 +670,63 @@ No approved UI code yet.
       const storedPrompt = extractNebulaCommentSection(uiStudioFile, "NEBULA_UI_STUDIO_PROMPT");
       const skillExcerpt = readSkillDesignSystemExcerpt();
 
-      if (!apiKey) {
-        if (useBundledDemoMockupWithoutKey()) {
-          const svg = loadBundledDemoMockupSvg();
-          return res.json({
-            svg,
-            demoMode: true,
-            usedPrompt: storedPrompt || "",
-            message:
-              process.env.NODE_ENV === "production"
-                ? "Bundled demo mockup (set PENCIL_API_KEY for live Pencil.dev, or remove NEBULA_UI_STUDIO_DEMO to require a key)."
-                : "Bundled demo mockup (dev). Set PENCIL_API_KEY for live Pencil.dev API output.",
-          });
-        }
-        console.error("Nebula UI Studio key not set (PENCIL_API_KEY / PENCIL_DEV_API_KEY / PENCIL_CLI_KEY)");
-        return res.status(500).json({
-          error:
-            "Nebula UI Studio key is missing. Add PENCIL_API_KEY from pencil.dev to your server env, or set NEBULA_UI_STUDIO_DEMO=1 to serve bundled demo mockups without calling the API.",
-        });
-      }
-
       const body = buildNebulaUiStudioPromptBody({
         storedPrompt,
         skillExcerpt,
         pagesText: typeof pagesText === "string" ? pagesText : "",
         branding,
       });
+      const promptText = String((body as { prompt?: string }).prompt ?? "");
 
-      const result = await callPencilMockupsGenerate({ apiKey, apiUrl, body });
-      if (result.ok === false) {
-        console.error("Nebula UI Studio Engine Error:", result.error);
-        return res.status(result.status).json({ error: result.error });
+      const grokKey = resolveNebullaGrokKeyForReq(req);
+
+      if (grokKey) {
+        try {
+          const { svg } = await callGrokGenerateUiSvg({
+            apiKey: grokKey,
+            fullPromptText: promptText,
+            variationIndex,
+          });
+          return res.json({ svg, usedPrompt: storedPrompt || "", source: "grok-4" });
+        } catch (grokErr) {
+          console.warn("[nebula-ui-studio/generate] Grok failed, fallback if Pencil key:", grokErr);
+          if (!pencilKey) {
+            return res.status(502).json({
+              error:
+                grokErr instanceof Error ? grokErr.message : "Grok UI generation failed and no Pencil fallback is configured.",
+            });
+          }
+        }
       }
 
-      const raw = result.raw as Record<string, unknown>;
-      res.json({ ...raw, svg: result.svg, usedPrompt: storedPrompt || "" });
+      if (pencilKey) {
+        const result = await callPencilMockupsGenerate({ apiKey: pencilKey, apiUrl: pencilUrl, body });
+        if (result.ok === false) {
+          console.error("Nebula UI Studio Engine Error:", result.error);
+          return res.status(result.status).json({ error: result.error });
+        }
+        const raw = result.raw as Record<string, unknown>;
+        return res.json({ ...raw, svg: result.svg, usedPrompt: storedPrompt || "", source: "pencil" });
+      }
+
+      if (useBundledDemoMockupWithoutKey()) {
+        const svg = loadBundledDemoMockupSvg();
+        return res.json({
+          svg,
+          demoMode: true,
+          usedPrompt: storedPrompt || "",
+          message:
+            process.env.NODE_ENV === "production"
+              ? "Bundled demo mockup. Set GROK_API_KEY (recommended) or PENCIL_API_KEY for live generation."
+              : "Bundled demo mockup (dev). Set GROK_API_KEY or PENCIL_API_KEY for live output.",
+          source: "demo",
+        });
+      }
+
+      return res.status(500).json({
+        error:
+          "No generator available. Add GROK_API_KEY (Grok 4 UI) and/or PENCIL_API_KEY on the server, or set NEBULA_UI_STUDIO_DEMO=1 for bundled demo SVGs.",
+      });
     } catch (error) {
       console.error("Error calling Nebula UI Studio engine:", error);
       captureError(error instanceof Error ? error : new Error(String(error)), {
@@ -610,6 +734,51 @@ No approved UI code yet.
         route: "/api/nebula-ui-studio/generate",
       });
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to call Nebula UI Studio engine" });
+    }
+  });
+
+  app.post("/api/nebula-ui-studio/analyze-edit", async (req, res) => {
+    const { originalCode, editedCode } = req.body || {};
+    if (typeof originalCode !== "string" || typeof editedCode !== "string") {
+      return res.status(400).json({ error: "originalCode and editedCode strings are required" });
+    }
+    const grokKey = resolveNebullaGrokKeyForReq(req);
+    const heuristic = heuristicSvgEditRisks(originalCode, editedCode);
+    try {
+      if (grokKey) {
+        const ai = await callGrokAnalyzeSvgEdit({ apiKey: grokKey, originalCode, editedCode });
+        const merged = [...new Set([...heuristic, ...ai.warnings])];
+        return res.json({
+          warnings: merged,
+          summary: ai.summary,
+          source: "grok+heuristic",
+        });
+      }
+    } catch (e) {
+      console.warn("[analyze-edit] Grok analysis failed, heuristic only:", e);
+    }
+    res.json({ warnings: heuristic, summary: "", source: "heuristic" });
+  });
+
+  app.post("/api/nebula-ui-studio/adapt-edit", async (req, res) => {
+    const { editedCode, warningsSummary } = req.body || {};
+    if (typeof editedCode !== "string" || !editedCode.trim()) {
+      return res.status(400).json({ error: "editedCode is required" });
+    }
+    const grokKey = resolveNebullaGrokKeyForReq(req);
+    if (!grokKey) {
+      return res.status(400).json({ error: "Grok API key required to adapt SVG (server GROK_API_KEY or client key)." });
+    }
+    try {
+      const { svg } = await callGrokAdaptUserSvg({
+        apiKey: grokKey,
+        editedCode,
+        warningsSummary: typeof warningsSummary === "string" ? warningsSummary : "",
+      });
+      res.json({ svg });
+    } catch (e) {
+      console.error("[adapt-edit]", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Adapt failed" });
     }
   });
 
@@ -939,7 +1108,7 @@ ${workflowContext}`;
   });
 
   app.post("/api/grok/chat", async (req, res) => {
-    const { messages, grokApiKey: bodyGrokKey, userId, projectName } = req.body || {};
+    const { messages, grokApiKey: bodyGrokKey, userId, projectName, onboardingAutopilot } = req.body || {};
     const headerKey =
       typeof req.headers["x-grok-api-key"] === "string"
         ? req.headers["x-grok-api-key"].trim()
@@ -969,6 +1138,46 @@ ${workflowContext}`;
       typeof projectName === "string" && projectName.trim() ? projectName.trim() : "Untitled Project";
 
     let messagesForApi: { role: string; content?: string }[] = Array.isArray(messages) ? messages : [];
+
+    if (Boolean(onboardingAutopilot)) {
+      const rawMsgs = Array.isArray(messages) ? messages : [];
+      const lastUser = [...rawMsgs].reverse().find((m) => m.role === "user");
+      const answer =
+        typeof lastUser?.content === "string" ? lastUser.content.trim() : "";
+      if (!answer) {
+        return res.status(400).json({ error: "User answer required for onboarding autopilot" });
+      }
+      const wf = buildProjectWorkflowExecutionContext();
+      const autopilotSystem = `ONBOARDING_AUTOPILOT — single model turn. No conversational filler. No permission questions. Do not ask follow-ups.
+
+The user answered ONLY the first discovery question (core feature of their app). Infer reasonable defaults for audience, stack, pages, integrations, and environment (aligned with project-execution-rules.md) without asking the user.
+
+Output in ONE reply, in this order:
+1) <START_MASTERPLAN> ... </END_MASTERPLAN> with ALL six sections using these exact headings inside the block:
+   ### 1. Goal of the app
+   ### 2. Tech Research
+   ### 3. Features and KPIs
+   ### 4. Pages and navigation
+   ### 5. UI/UX design
+   ### 6. Environment Setup
+   Each section must be substantive (not placeholders).
+2) <FINISH_MASTERPLAN>
+3) <START_CODING>
+
+Optional: include ANSWER_Qn + <GROK_B_SUMMARY_Qn> for tabs as needed. After the tags, no extra user-visible prose.
+
+Workflow reference (read order; do not paste verbatim into chat output):
+${wf}
+
+User's only answer (core feature):
+${answer.slice(0, 8000)}`;
+
+      messagesForApi = [
+        { role: "system", content: autopilotSystem },
+        { role: "user", content: answer },
+      ];
+    }
+
     try {
       const memory = buildMemorySystemContent(convUserId, convProject);
       messagesForApi = injectMemoryIntoMessages(messagesForApi, memory);
@@ -1002,6 +1211,8 @@ ${workflowContext}`;
 
       const data = await response.json();
       let responseText = data.choices?.[0]?.message?.content || "";
+      /** Grok 4 text before optional Grok Code swap — used for Master Plan + Grok B summaries. */
+      let grok4PlanningCapture = responseText;
 
       if (/\bSTART_CODING\b/i.test(responseText)) {
         const workflowContext = buildProjectWorkflowExecutionContext();
@@ -1029,7 +1240,14 @@ Return implementation-focused output only.`;
             const codeText = codeData.choices?.[0]?.message?.content || "";
             if (codeText.trim()) {
               responseText = codeText;
-              data.choices = [{ message: { content: codeText } }];
+              data.choices = [
+                {
+                  message: {
+                    content: codeText,
+                    planningPhase: grok4PlanningCapture,
+                  },
+                },
+              ];
             }
           } else {
             console.error("[GROK CODE] handoff failed:", await codeRes.text());
@@ -1041,12 +1259,13 @@ Return implementation-focused output only.`;
 
   // Grok B (writer): run as soon as meaningful summary content appears.
   // ANSWER_Qn still works, but summaries alone are enough to start writing immediately.
-  const answerTabMatches = [...responseText.matchAll(/\bANSWER_Q([1-6])\b/gi)];
+  const summarySource = grok4PlanningCapture;
+  const answerTabMatches = [...summarySource.matchAll(/\bANSWER_Q([1-6])\b/gi)];
   const answerTabs = [...new Set(answerTabMatches.map((m) => parseInt(m[1], 10)))].sort(
     (a, b) => a - b
   );
-  const summaries = extractGrokBSummaries(responseText);
-  const blockFallbackSummaries = extractSummariesFromMasterPlanBlock(responseText);
+  const summaries = extractGrokBSummaries(summarySource);
+  const blockFallbackSummaries = extractSummariesFromMasterPlanBlock(summarySource);
   const mergedSummaries: Partial<Record<number, string>> = {
     ...blockFallbackSummaries,
     ...summaries,

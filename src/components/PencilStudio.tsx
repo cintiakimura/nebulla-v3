@@ -1,5 +1,22 @@
 import React, { useState, useRef } from 'react';
-import { Rocket, ArrowRight, CheckCircle, Palette, Check, Type, Image as ImageIcon, MousePointer2, Layers, Maximize2, Move } from 'lucide-react';
+import {
+  Rocket,
+  ArrowRight,
+  CheckCircle,
+  Palette,
+  Check,
+  Type,
+  Image as ImageIcon,
+  MousePointer2,
+  Layers,
+  Maximize2,
+  Move,
+  Loader2,
+  AlertTriangle,
+  Save,
+  Sparkles,
+} from 'lucide-react';
+import { getStoredGrokApiKey } from '../lib/grokKey';
 
 type Step = 'branding' | 'generating' | 'review' | 'pencil' | 'final';
 
@@ -12,6 +29,12 @@ interface Branding {
   primaryColor: string;
   secondaryColor: string;
   style: string;
+}
+
+function svgToDataUrl(svgCode: string): string {
+  const svg = svgCode.trim();
+  const base64Svg = btoa(unescape(encodeURIComponent(svg)));
+  return `data:image/svg+xml;base64,${base64Svg}`;
 }
 
 export function PencilStudio({
@@ -41,22 +64,52 @@ export function PencilStudio({
     secondaryColor: '#60009f',
     style: 'Modern & Minimal',
   });
-  const [pencilElements, setPencilElements] = useState<{ id: string; x: number; y: number; label: string }[]>([]);
+  const [pencilElements] = useState<{ id: string; x: number; y: number; label: string }[]>([
+    { id: '1', x: 100, y: 100, label: 'Header' },
+    { id: '2', x: 100, y: 200, label: 'Hero Section' },
+    { id: '3', x: 100, y: 400, label: 'Feature Grid' },
+    { id: '4', x: 100, y: 600, label: 'Footer' },
+  ]);
   const [regenerateCount, setRegenerateCount] = useState(0);
   const [generatedCode, setGeneratedCode] = useState('');
+  const [codeDraft, setCodeDraft] = useState('');
+  const [codeSaved, setCodeSaved] = useState('');
+  const [firstGenComplete, setFirstGenComplete] = useState(false);
+  const [saveModal, setSaveModal] = useState<{
+    warnings: string[];
+    summary: string;
+    analyzing: boolean;
+  } | null>(null);
+  const [applyBusy, setApplyBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const generateMockup = async (): Promise<GenerationSlot> => {
+  const dirty = codeDraft !== codeSaved;
+  const grokKey = typeof localStorage !== 'undefined' ? getStoredGrokApiKey() : undefined;
+  const manualToolsEnabled = firstGenComplete && step === 'pencil';
+
+  const persistHeaders = (): Record<string, string> => {
+    const k = getStoredGrokApiKey();
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (k) h['x-grok-api-key'] = k;
+    return h;
+  };
+
+  const generateMockup = async (variationIndex: number): Promise<GenerationSlot> => {
     setError('');
     const response = await fetch('/api/nebula-ui-studio/generate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pagesText, branding }),
+      headers: persistHeaders(),
+      body: JSON.stringify({
+        pagesText,
+        branding,
+        variationIndex,
+        grokApiKey: getStoredGrokApiKey(),
+      }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Nebula UI Studio Engine Error: ${response.status} - ${errorText}`);
+      throw new Error(`Nebulla UI Studio Engine Error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
@@ -70,23 +123,25 @@ export function PencilStudio({
     const svgMatch = svgCode.match(/<svg[\s\S]*?<\/svg>/i);
     if (svgMatch) svgCode = svgMatch[0];
     if (!svgCode || !/<svg/i.test(svgCode)) {
-      svgCode = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280" viewBox="0 0 400 280"><rect fill="#0e273d" width="400" height="280"/><text x="50%" y="50%" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13" text-anchor="middle" dominant-baseline="middle">Preview unavailable — check PENCIL_API_KEY and try again.</text></svg>`;
+      svgCode = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280" viewBox="0 0 400 280"><rect fill="#0e273d" width="400" height="280"/><text x="50%" y="50%" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="13" text-anchor="middle" dominant-baseline="middle">Preview unavailable — configure GROK_API_KEY or PENCIL_API_KEY on the server.</text></svg>`;
     }
-    const base64Svg = btoa(unescape(encodeURIComponent(svgCode)));
-    return { dataUrl: `data:image/svg+xml;base64,${base64Svg}`, svg: svgCode, demoMode };
+    return { dataUrl: svgToDataUrl(svgCode), svg: svgCode, demoMode };
   };
 
   const startInitialGenerations = async () => {
     onBeforeGenerate?.();
     setStep('generating');
+    setFirstGenComplete(false);
     try {
-      const results = await Promise.all([generateMockup(), generateMockup(), generateMockup()]);
+      const results = await Promise.all([generateMockup(0), generateMockup(1), generateMockup(2)]);
       setGenerations(results);
       setRegenerateCount(0);
+      setFirstGenComplete(true);
       setStep('review');
-    } catch (err: any) {
-      setError(err.message || 'Failed to generate mockups. Please try again.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to generate mockups. Please try again.');
       setGenerations([]);
+      setFirstGenComplete(false);
       setStep('review');
     }
   };
@@ -94,13 +149,11 @@ export function PencilStudio({
   const handleChooseDesign = (index: number) => {
     setCurrentIndex(index);
     const slot = generations[index];
-    if (slot?.svg) setGeneratedCode(slot.svg);
-    setPencilElements([
-      { id: '1', x: 100, y: 100, label: 'Header' },
-      { id: '2', x: 100, y: 200, label: 'Hero Section' },
-      { id: '3', x: 100, y: 400, label: 'Feature Grid' },
-      { id: '4', x: 100, y: 600, label: 'Footer' },
-    ]);
+    if (slot?.svg) {
+      setGeneratedCode(slot.svg);
+      setCodeDraft(slot.svg);
+      setCodeSaved(slot.svg);
+    }
     setStep('pencil');
   };
 
@@ -120,10 +173,15 @@ export function PencilStudio({
   };
 
   const handleFinalApproval = () => {
+    if (dirty) {
+      setError('Save your manual edits (Save changes) before approving the UI.');
+      return;
+    }
+    setError('');
     fetch('/api/nebula-ui-studio/approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: generatedCode }),
+      body: JSON.stringify({ code: codeSaved || generatedCode }),
     })
       .then(async (res) => {
         if (!res.ok) {
@@ -133,22 +191,101 @@ export function PencilStudio({
         setStep('final');
         setTimeout(() => onLock(), 2000);
       })
-      .catch((err: any) => setError(err.message || 'Failed to save approved code'));
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to save approved code'));
   };
 
   const handleRegenerate = async () => {
+    if (!firstGenComplete) return;
     if (regenerateCount >= 3) return;
     try {
-      const regenerated = await generateMockup();
+      const regenerated = await generateMockup(currentIndex);
       setGenerations((prev) => {
         const next = [...prev];
         next[currentIndex] = regenerated;
         return next;
       });
       setGeneratedCode(regenerated.svg);
+      setCodeDraft(regenerated.svg);
+      setCodeSaved(regenerated.svg);
       setRegenerateCount((v) => v + 1);
-    } catch (err: any) {
-      setError(err.message || 'Failed to regenerate design');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate design');
+    }
+  };
+
+  const requestSaveAnalysis = async () => {
+    if (!dirty) return;
+    setSaveModal({ warnings: [], summary: '', analyzing: true });
+    try {
+      const res = await fetch('/api/nebula-ui-studio/analyze-edit', {
+        method: 'POST',
+        headers: persistHeaders(),
+        body: JSON.stringify({
+          originalCode: codeSaved,
+          editedCode: codeDraft,
+          grokApiKey: getStoredGrokApiKey(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Analysis failed');
+      setSaveModal({
+        warnings: Array.isArray(data.warnings) ? data.warnings : [],
+        summary: typeof data.summary === 'string' ? data.summary : '',
+        analyzing: false,
+      });
+    } catch (e: unknown) {
+      setSaveModal({
+        warnings: [e instanceof Error ? e.message : 'Analysis failed'],
+        summary: '',
+        analyzing: false,
+      });
+    }
+  };
+
+  const applyDraft = (finalSvg: string) => {
+    const trimmed = finalSvg.trim();
+    setCodeSaved(trimmed);
+    setCodeDraft(trimmed);
+    setGeneratedCode(trimmed);
+    setGenerations((prev) => {
+      const next = [...prev];
+      if (next[currentIndex]) {
+        next[currentIndex] = { ...next[currentIndex], svg: trimmed, dataUrl: svgToDataUrl(trimmed) };
+      }
+      return next;
+    });
+    setSaveModal(null);
+    setError('');
+  };
+
+  const handleApplySavedUseRaw = () => {
+    applyDraft(codeDraft);
+  };
+
+  const handleApplySavedWithAdapt = async () => {
+    setApplyBusy(true);
+    try {
+      const warnText = saveModal ? [...saveModal.warnings, saveModal.summary].filter(Boolean).join('\n') : '';
+      const res = await fetch('/api/nebula-ui-studio/adapt-edit', {
+        method: 'POST',
+        headers: persistHeaders(),
+        body: JSON.stringify({
+          editedCode: codeDraft,
+          warningsSummary: warnText,
+          grokApiKey: getStoredGrokApiKey(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Adapt failed');
+      if (typeof data.svg === 'string' && data.svg.trim()) {
+        applyDraft(data.svg);
+      } else {
+        applyDraft(codeDraft);
+      }
+    } catch {
+      applyDraft(codeDraft);
+    } finally {
+      setApplyBusy(false);
     }
   };
 
@@ -160,46 +297,64 @@ export function PencilStudio({
           <h2 className="text-lg font-headline text-cyan-100">Nebulla UI Studio</h2>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center">
+      <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center relative">
         {step === 'branding' && (
           <div className="w-full max-w-2xl flex flex-col gap-8">
             <form onSubmit={handleBrandingSubmit} className="flex flex-col gap-6 glass-panel p-8 rounded-2xl border border-white/10">
               {nebulaUiStudioDemo && !pencilMockupsReady ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-100/95 leading-relaxed">
-                  <span className="font-headline text-amber-50">Bundled preview mode.</span> Pencil.dev live API is not
-                  configured on this host (<code className="text-amber-200/90">PENCIL_API_KEY</code>). The app ships demo
-                  SVG mockups from <code className="text-amber-200/90">templates/nebula-ui-studio-demo-mockup.svg</code> so
-                  you can try the studio flow without installing anything. Add a key from pencil.dev on the server for
-                  real AI-generated layouts.
+                  <span className="font-headline text-amber-50">Bundled preview mode.</span> Without live keys the server may return
+                  demo SVGs from <code className="text-amber-200/90">templates/nebula-ui-studio-demo-mockup.svg</code>. For full{' '}
+                  <strong>Grok&nbsp;4</strong> UI generation, set <code className="text-amber-200/90">GROK_API_KEY</code> on the server
+                  (and/or pass a key from the browser via Dashboard → save your Grok key). Pencil.dev remains an optional fallback when
+                  no Grok key is available.
                 </div>
-              ) : pencilMockupsReady ? (
+              ) : pencilMockupsReady && !grokKey && !nebulaUiStudioDemo ? (
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-[12px] text-slate-300 leading-relaxed">
-                  Pencil.dev mockups API is configured. Generation uses the bundled client in{' '}
-                  <code className="text-cyan-300/90">lib/nebulaPencilDev.ts</code> (no separate CLI install for end users).
+                  Pencil.dev is configured as a fallback renderer. Prefer <strong className="text-cyan-200">Grok&nbsp;4</strong> by
+                  adding <code className="text-cyan-300/90">GROK_API_KEY</code> so the whole UI is generated from your prompt first.
                 </div>
               ) : null}
-              <input required value={branding.appName} onChange={(e) => setBranding({ ...branding, appName: e.target.value })} placeholder="App name" className="bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-slate-200" />
-              <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept=".png,.jpg,.jpeg" className="hidden" />
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs text-cyan-400">{branding.logo ? 'Change Logo' : 'Upload Logo'}</button>
-              <p className="text-xs text-slate-500">
-                Uses the prompt saved in <code className="text-cyan-400/90">nebula-sysh-ui-sysh-studio.md</code> (from Grok after Pages and Navigation), plus <code className="text-cyan-400/90">SKILL.md</code> on the server. Regenerate up to 3× on the chosen variation.
+              <p className="text-sm text-slate-400">
+                <strong className="text-cyan-300/90">Grok&nbsp;4</strong> generates the full UI SVG from your product prompt in{' '}
+                <code className="text-cyan-400/90">nebula-sysh-ui-sysh-studio.md</code>, Pages &amp; Navigation, and{' '}
+                <code className="text-cyan-400/90">SKILL.md</code>. Manual refinement, regeneration, and the code editor stay locked
+                until the first generation completes.
               </p>
+              <input
+                required
+                value={branding.appName}
+                onChange={(e) => setBranding({ ...branding, appName: e.target.value })}
+                placeholder="App name"
+                className="bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-slate-200"
+              />
+              <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept=".png,.jpg,.jpeg" className="hidden" />
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs text-cyan-400">
+                {branding.logo ? 'Change Logo' : 'Upload Logo'}
+              </button>
               <button type="submit" className="mt-4 w-full py-4 bg-cyan-500 text-black rounded-xl font-headline flex items-center justify-center gap-2">
-                Generate 3 variations <ArrowRight className="w-4 h-4" />
+                Generate 3 variations (Grok&nbsp;4) <ArrowRight className="w-4 h-4" />
               </button>
             </form>
           </div>
         )}
-        {step === 'generating' && <div className="flex flex-col items-center justify-center h-full gap-8"><div className="w-24 h-24 border-4 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin" /><Rocket className="w-8 h-8 text-cyan-400" /></div>}
+        {step === 'generating' && (
+          <div className="flex flex-col items-center justify-center h-full gap-4 max-w-md text-center">
+            <div className="w-24 h-24 border-4 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin" />
+            <Rocket className="w-8 h-8 text-cyan-400" />
+            <p className="text-sm text-slate-400">
+              Grok&nbsp;4 is coding your first UI generation. Manual edits and regeneration stay unavailable until this finishes.
+            </p>
+          </div>
+        )}
         {step === 'review' && (
           <div className="w-full max-w-6xl flex flex-col gap-8">
             {error && <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg">{error}</div>}
             {generations.length === 0 && (
               <div className="flex flex-col items-center gap-4 py-8">
                 <p className="text-slate-400 text-sm text-center max-w-md">
-                  No mockups were generated. On production, set <code className="text-cyan-400">PENCIL_API_KEY</code> from
-                  pencil.dev on the server, or set <code className="text-cyan-400">NEBULA_UI_STUDIO_DEMO=1</code> for bundled
-                  demo previews only. Then retry.
+                  No mockups were generated. Ensure <code className="text-cyan-400">GROK_API_KEY</code> (recommended) or{' '}
+                  <code className="text-cyan-400">PENCIL_API_KEY</code> is set on the server, or enable demo SVGs. Then retry.
                 </p>
                 <button
                   type="button"
@@ -230,43 +385,119 @@ export function PencilStudio({
             <div className="flex justify-end">
               <button
                 type="button"
-                onClick={handleRegenerate}
-                disabled={regenerateCount >= 3}
-                className="px-4 py-2 rounded-lg border border-white/15 text-sm text-slate-300 disabled:opacity-50"
+                onClick={() => void handleRegenerate()}
+                disabled={!firstGenComplete || regenerateCount >= 3 || generations.length === 0}
+                className="px-4 py-2 rounded-lg border border-white/15 text-sm text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={!firstGenComplete ? 'Wait for the first generation to finish' : undefined}
               >
-                Regenerate ({regenerateCount}/3)
+                Regenerate active slot ({regenerateCount}/3)
               </button>
             </div>
           </div>
         )}
         {step === 'pencil' && (
-          <div className="w-full h-full flex flex-col gap-6">
-            <div className="flex justify-between items-end">
-              <h2 className="text-2xl font-headline text-slate-100">Nebula UI Studio Refinement</h2>
-              <button onClick={handleFinalApproval} className="px-8 py-3 bg-green-500 text-black rounded-full font-headline flex items-center gap-2">
-                <Check className="w-4 h-4" /> Approve UI/UX
-              </button>
+          <div className="w-full max-w-[1200px] flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+              <div>
+                <h2 className="text-xl font-headline text-slate-100">Refine UI (after first Grok generation)</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Edit the SVG below. Use <strong className="text-slate-400">Save changes</strong> before the preview updates. Approve is
+                  disabled until saves are applied.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void requestSaveAnalysis()}
+                  disabled={!manualToolsEnabled || !dirty || Boolean(saveModal?.analyzing)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-headline border border-cyan-500/35 text-cyan-200 bg-cyan-500/10 hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saveModal?.analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save changes
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFinalApproval}
+                  disabled={dirty || !codeSaved.trim()}
+                  className="px-6 py-2 bg-emerald-500 text-black rounded-full font-headline inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check className="w-4 h-4" /> Approve UI/UX
+                </button>
+              </div>
             </div>
-            <div className="flex-1 flex gap-6 overflow-hidden">
-              <div className="w-16 bg-white/5 border border-white/10 rounded-2xl flex flex-col items-center py-6 gap-6 shrink-0">
-                <button className="p-2 rounded-lg bg-cyan-500/20 text-cyan-300"><MousePointer2 className="w-5 h-5" /></button>
-                <button className="p-2 rounded-lg text-slate-500"><Move className="w-5 h-5" /></button>
-                <button className="p-2 rounded-lg text-slate-500"><Type className="w-5 h-5" /></button>
-                <button className="p-2 rounded-lg text-slate-500"><Layers className="w-5 h-5" /></button>
-                <button className="p-2 rounded-lg text-slate-500"><Maximize2 className="w-5 h-5" /></button>
+
+            {error && <div className="p-3 bg-amber-500/10 border border-amber-500/25 text-amber-100 text-sm rounded-lg">{error}</div>}
+
+            <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
+              <div
+                className={`w-full lg:w-14 bg-white/5 border border-white/10 rounded-2xl flex lg:flex-col items-center justify-center lg:justify-start p-2 lg:py-6 gap-2 lg:gap-4 shrink-0 ${
+                  !manualToolsEnabled ? 'opacity-40 pointer-events-none' : ''
+                }`}
+                title={!manualToolsEnabled ? 'Available after the first Grok generation completes' : undefined}
+              >
+                <button type="button" className="p-2 rounded-lg bg-cyan-500/20 text-cyan-300 pointer-events-none" disabled={!manualToolsEnabled}>
+                  <MousePointer2 className="w-5 h-5" />
+                </button>
+                <button type="button" className="p-2 rounded-lg text-slate-500 pointer-events-none" disabled={!manualToolsEnabled}>
+                  <Move className="w-5 h-5" />
+                </button>
+                <button type="button" className="p-2 rounded-lg text-slate-500 pointer-events-none" disabled={!manualToolsEnabled}>
+                  <Type className="w-5 h-5" />
+                </button>
+                <button type="button" className="p-2 rounded-lg text-slate-500 pointer-events-none" disabled={!manualToolsEnabled}>
+                  <Layers className="w-5 h-5" />
+                </button>
+                <button type="button" className="p-2 rounded-lg text-slate-500 pointer-events-none" disabled={!manualToolsEnabled}>
+                  <Maximize2 className="w-5 h-5" />
+                </button>
               </div>
-              <div className="flex-1 bg-black/40 rounded-2xl border border-white/5 overflow-hidden relative min-h-[280px]">
-                {generations[currentIndex] ? (
-                  <img src={generations[currentIndex].dataUrl} alt="Refining Design" className="w-full h-full object-contain opacity-90" />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-slate-500 text-sm p-6">No preview image</div>
-                )}
-                {pencilElements.map((el) => (
-                  <div key={el.id} className="absolute border border-cyan-500/50 bg-cyan-500/10 px-3 py-1.5 rounded text-[10px] text-cyan-300" style={{ left: el.x, top: el.y }}>
-                    {el.label}
-                  </div>
-                ))}
+
+              <div className="flex-1 flex flex-col gap-3 min-h-0">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  {dirty && <span className="text-amber-300/90 font-headline">Unsaved edits — save before approving.</span>}
+                  {!dirty && <span className="text-emerald-400/90">Draft matches saved preview.</span>}
+                </div>
+                <textarea
+                  value={codeDraft}
+                  onChange={(e) => setCodeDraft(e.target.value)}
+                  disabled={!manualToolsEnabled}
+                  spellCheck={false}
+                  className="min-h-[200px] lg:min-h-[260px] w-full font-mono text-[11px] leading-relaxed bg-black/50 border border-white/10 rounded-xl p-4 text-slate-200 focus:border-cyan-500/40 outline-none resize-y disabled:opacity-40"
+                  placeholder="SVG source (Grok-generated). Edit here, then Save changes."
+                />
+                <div className="flex-1 bg-black/40 rounded-2xl border border-white/5 overflow-hidden relative min-h-[220px]">
+                  {generations[currentIndex] ? (
+                    <img
+                      src={generations[currentIndex].dataUrl}
+                      alt="Refining Design"
+                      className="w-full h-full object-contain opacity-95 max-h-[min(55vh,520px)]"
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-500 text-sm p-6">No preview</div>
+                  )}
+                  {manualToolsEnabled &&
+                    pencilElements.map((el) => (
+                      <div
+                        key={el.id}
+                        className="absolute border border-cyan-500/50 bg-cyan-500/10 px-3 py-1.5 rounded text-[10px] text-cyan-300 pointer-events-none"
+                        style={{ left: el.x, top: el.y }}
+                      >
+                        {el.label}
+                      </div>
+                    ))}
+                </div>
               </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void handleRegenerate()}
+                disabled={!manualToolsEnabled || regenerateCount >= 3}
+                className="px-4 py-2 rounded-lg border border-white/15 text-sm text-slate-300 disabled:opacity-40"
+              >
+                Regenerate this variation (Grok / fallback) ({regenerateCount}/3)
+              </button>
             </div>
           </div>
         )}
@@ -275,6 +506,71 @@ export function PencilStudio({
             <CheckCircle className="w-16 h-16 text-emerald-400" />
             <h3 className="text-xl font-headline text-slate-100">UI/UX approved</h3>
             <p className="text-sm text-slate-400">Your approved design is saved for the build pipeline. Returning to Master Plan…</p>
+          </div>
+        )}
+
+        {saveModal && (
+          <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#061520] shadow-2xl p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="text-lg font-headline text-slate-100">Review manual changes</h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    We scan for malformed SVG, risky tags, and architectural inconsistencies before updating the preview.
+                  </p>
+                </div>
+              </div>
+              {saveModal.analyzing ? (
+                <div className="flex items-center gap-2 text-sm text-slate-400 py-6 justify-center">
+                  <Loader2 className="w-5 h-5 animate-spin text-cyan-400" />
+                  Analysing edit…
+                </div>
+              ) : (
+                <>
+                  {saveModal.summary ? <p className="text-sm text-slate-300">{saveModal.summary}</p> : null}
+                  {saveModal.warnings.length > 0 ? (
+                    <ul className="text-sm text-amber-100/95 space-y-2 max-h-48 overflow-y-auto border border-amber-500/20 rounded-lg p-3 bg-amber-500/5">
+                      {saveModal.warnings.map((w, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="text-amber-400 shrink-0">•</span>
+                          <span>{w}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-emerald-400/90">No structural issues flagged — safe to apply.</p>
+                  )}
+                  <div className="flex flex-col sm:flex-row gap-2 justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setSaveModal(null)}
+                      className="px-4 py-2 rounded-lg border border-white/15 text-sm text-slate-300 hover:bg-white/5"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleApplySavedUseRaw}
+                      disabled={applyBusy}
+                      className="px-4 py-2 rounded-lg border border-cyan-500/35 text-sm font-headline text-cyan-200 bg-cyan-500/10 hover:bg-cyan-500/20 disabled:opacity-40"
+                    >
+                      Apply my edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleApplySavedWithAdapt()}
+                      disabled={applyBusy || !grokKey}
+                      title={!grokKey ? 'Requires GROK_API_KEY (server or stored browser key)' : 'Let Grok reconcile structure while keeping your intent'}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-headline border border-violet-500/35 text-violet-100 bg-violet-500/15 hover:bg-violet-500/25 disabled:opacity-40"
+                    >
+                      {applyBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      Adapt with Grok &amp; apply
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

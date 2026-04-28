@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import {
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   FolderGit2,
   Globe,
+  GripVertical,
   Key,
   LayoutGrid,
   Network,
@@ -105,6 +108,21 @@ function App() {
   const [codeMode, setCodeMode] = useState(false);
   const [executionRulesPath, setExecutionRulesPath] = useState('nebula-project/project-execution-rules.md');
 
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [assistantWidth, setAssistantWidth] = useState(() => {
+    try {
+      const raw = localStorage.getItem('nebulla_assistant_width');
+      const n = raw ? parseInt(raw, 10) : 340;
+      if (Number.isNaN(n)) return 340;
+      return Math.min(560, Math.max(260, n));
+    } catch {
+      return 340;
+    }
+  });
+  const resizeDrag = useRef<{ startX: number; startW: number } | null>(null);
+  const assistantWidthRef = useRef(assistantWidth);
+  assistantWidthRef.current = assistantWidth;
+
   useEffect(() => {
     (window as unknown as { openMasterPlan?: () => void }).openMasterPlan = () => {
       setMainPanel('master-plan');
@@ -144,6 +162,35 @@ function App() {
       .then((r) => r.json())
       .then((d) => setApiConfig(d))
       .catch(() => setApiConfig({}));
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = resizeDrag.current;
+      if (!d) return;
+      const delta = d.startX - e.clientX;
+      const next = Math.min(560, Math.max(260, d.startW + delta));
+      assistantWidthRef.current = next;
+      setAssistantWidth(next);
+    };
+    const onUp = () => {
+      if (resizeDrag.current) {
+        try {
+          localStorage.setItem('nebulla_assistant_width', String(assistantWidthRef.current));
+        } catch {
+          /* ignore */
+        }
+      }
+      resizeDrag.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
   }, []);
 
   const pagesText = useMemo(() => {
@@ -330,7 +377,7 @@ function App() {
         <div className="flex items-center gap-3">
           <Logo className="w-9 h-9" />
           <div>
-            <p className="text-cyan-300 font-headline text-lg leading-tight">nebulla</p>
+            <p className="text-cyan-300 font-headline text-lg leading-tight">nebulla beta</p>
             <p className="text-slate-400 text-xs leading-tight">IDE Workspace</p>
           </div>
         </div>
@@ -344,33 +391,61 @@ function App() {
       </header>
 
       <main className="flex-1 min-h-0 flex overflow-hidden">
-        <aside className="w-16 shrink-0 border-r border-white/10 bg-[#040f1a]/40 flex flex-col items-center py-4 gap-3">
-          <NavBtn panel="nebula-ui-studio" title="Nebulla UI Studio">
-            <Palette className="w-5 h-5" />
-          </NavBtn>
-          <NavBtn panel="mind-map" title="Mind Map">
-            <Network className="w-5 h-5" />
-          </NavBtn>
-          <NavBtn panel="master-plan" title="Master Plan">
-            <BookOpen className="w-5 h-5" />
-          </NavBtn>
-          <NavBtn panel="source-control" title="Source control">
-            <FolderGit2 className="w-5 h-5" />
-          </NavBtn>
-          <div className="w-8 h-px bg-white/10 my-1" />
-          <NavBtn panel="my-projects" title="My Projects">
-            <LayoutGrid className="w-5 h-5" />
-          </NavBtn>
-          <NavBtn panel="secrets" title="Secrets">
-            <Key className="w-5 h-5" />
-          </NavBtn>
-          <NavBtn panel="project-settings" title="Project Settings">
-            <Server className="w-5 h-5" />
-          </NavBtn>
-          <NavBtn panel="dns" title="DNS">
-            <Globe className="w-5 h-5" />
-          </NavBtn>
+        <aside
+          className={`relative shrink-0 border-r border-white/10 bg-[#040f1a]/40 flex flex-col items-center py-4 gap-3 transition-[width,opacity] duration-200 overflow-hidden ${
+            navCollapsed ? 'w-0 border-transparent opacity-0 pointer-events-none' : 'w-16 opacity-100'
+          }`}
+        >
+          {!navCollapsed ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setNavCollapsed(true)}
+                className="absolute top-2 right-0 z-10 translate-x-1/2 rounded-full border border-white/15 bg-[#040f1a] p-1 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/40"
+                title="Collapse navigation"
+                aria-label="Collapse navigation"
+              >
+                <ChevronLeft className="w-4 h-4" aria-hidden />
+              </button>
+              <NavBtn panel="source-control" title="Source control">
+                <FolderGit2 className="w-5 h-5" />
+              </NavBtn>
+              <NavBtn panel="nebula-ui-studio" title="Nebulla UI Studio">
+                <Palette className="w-5 h-5" />
+              </NavBtn>
+              <NavBtn panel="mind-map" title="Mind Map">
+                <Network className="w-5 h-5" />
+              </NavBtn>
+              <NavBtn panel="master-plan" title="Master Plan">
+                <BookOpen className="w-5 h-5" />
+              </NavBtn>
+              <div className="w-8 h-px bg-white/10 my-1" />
+              <NavBtn panel="my-projects" title="My Projects">
+                <LayoutGrid className="w-5 h-5" />
+              </NavBtn>
+              <NavBtn panel="secrets" title="Secrets">
+                <Key className="w-5 h-5" />
+              </NavBtn>
+              <NavBtn panel="project-settings" title="Project Settings">
+                <Server className="w-5 h-5" />
+              </NavBtn>
+              <NavBtn panel="dns" title="DNS">
+                <Globe className="w-5 h-5" />
+              </NavBtn>
+            </>
+          ) : null}
         </aside>
+        {navCollapsed ? (
+          <button
+            type="button"
+            onClick={() => setNavCollapsed(false)}
+            className="shrink-0 w-7 border-r border-white/10 bg-[#040f1a]/60 flex flex-col items-center justify-center text-slate-500 hover:text-cyan-300 hover:bg-white/5"
+            title="Show navigation"
+            aria-label="Show navigation"
+          >
+            <ChevronRight className="w-4 h-4" aria-hidden />
+          </button>
+        ) : null}
 
         <section className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <div className="h-10 shrink-0 border-b border-white/10 bg-white/5 px-4 flex items-center text-sm text-cyan-200">
@@ -379,7 +454,7 @@ function App() {
 
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{renderCenter()}</div>
 
-          <div className="h-36 shrink-0 border-t border-white/10 bg-[#040f1a]/60 flex flex-col">
+          <div className="h-36 min-h-[6rem] max-h-[45vh] shrink-0 border-t border-white/10 bg-[#040f1a]/60 flex flex-col resize-y overflow-auto">
             <div className="h-8 border-b border-white/10 px-3 flex items-center gap-2 text-xs text-cyan-300">
               <Terminal className="w-4 h-4" />
               Terminal
@@ -391,8 +466,23 @@ function App() {
           </div>
         </section>
 
+        <button
+          type="button"
+          aria-label="Resize assistant panel"
+          title="Drag to resize chat"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            resizeDrag.current = { startX: e.clientX, startW: assistantWidth };
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          }}
+          className="w-1.5 shrink-0 cursor-col-resize hover:bg-cyan-500/35 bg-white/5 flex items-center justify-center group"
+        >
+          <GripVertical className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 pointer-events-none" aria-hidden />
+        </button>
+
         <AssistantSidebar
-          width={340}
+          width={assistantWidth}
           userId="anonymous"
           projectName={projectName}
           codeMode={codeMode}

@@ -221,7 +221,7 @@ export function MindMap({ pages, setPages, edges, setEdges, onSaveToMasterPlan }
           onConnect={onConnect}
           nodeTypes={nodeTypes}
           fitView
-          className="bg-transparent"
+          className="bg-transparent dark"
         >
         <Background color="#00ffff" gap={16} size={1} />
         <Controls className="bg-[#040f1a] border border-white/10 fill-cyan-300 text-cyan-300" />
