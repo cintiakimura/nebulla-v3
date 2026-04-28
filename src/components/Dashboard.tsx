@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Github, FolderOpen, Trash2, Sparkles, Users, FileText, Upload, Save, Globe } from 'lucide-react';
+import { Github, FolderOpen, Trash2, Sparkles, Users, FileText, Upload, Save, Globe, Plus, Pencil, X } from 'lucide-react';
 import { NEBULLA_GROK_KEY_STORAGE } from '../lib/grokKey';
+import {
+  loadProjectSecrets,
+  saveProjectSecrets,
+  newSecretId,
+  loadProjectSettings,
+  saveProjectSettings,
+  type SecretEntry,
+  type SecretCategory,
+  type ProjectSettingsStored,
+} from '../lib/nebulaDashboardStorage';
 
 export type DashboardTab = 'projects' | 'project-settings' | 'user-settings' | 'secrets' | 'dns';
 
@@ -59,8 +69,14 @@ export function Dashboard({
               onStartFlow={onStartFlow}
             />
           )}
-          {activeTab === 'project-settings' && <ProjectSettingsTab />}
-          {activeTab === 'secrets' && <SecretsTab />}
+          {activeTab === 'project-settings' && (
+            <ProjectSettingsTab
+              projectName={projectName}
+              onProjectNameChange={onProjectNameChange}
+              activeProjectKey={activeProjectKey}
+            />
+          )}
+          {activeTab === 'secrets' && <SecretsTab activeProjectKey={activeProjectKey} />}
           {activeTab === 'dns' && <DnsTab />}
           {activeTab === 'user-settings' && <UserSettingsTab />}
         </div>
@@ -245,17 +261,114 @@ function ProjectsTab({
   );
 }
 
-function ProjectSettingsTab() {
+function ProjectSettingsTab({
+  projectName,
+  onProjectNameChange,
+  activeProjectKey,
+}: {
+  projectName: string;
+  onProjectNameChange: (name: string) => void;
+  activeProjectKey: string;
+}) {
+  const [fields, setFields] = useState<ProjectSettingsStored>(() => loadProjectSettings(activeProjectKey));
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  useEffect(() => {
+    setFields(loadProjectSettings(activeProjectKey));
+  }, [activeProjectKey]);
+
+  const setField = <K extends keyof ProjectSettingsStored>(key: K, value: string) => {
+    setFields((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSave = () => {
+    saveProjectSettings(activeProjectKey, fields);
+    setSavedFlash(true);
+    window.setTimeout(() => setSavedFlash(false), 2000);
+  };
+
   return (
-    <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
+    <div className="space-y-8 animate-in slide-in-from-right-4 duration-300 max-w-3xl">
       <div>
         <h3 className="text-xl font-headline text-cyan-300 mb-1">Project Settings</h3>
-        <p className="text-sm text-slate-500 mb-6">Manage project-specific configurations and preferences.</p>
+        <p className="text-sm text-slate-500 mb-6">
+          Identity and paths for the active project (<span className="font-mono text-cyan-500/80">{activeProjectKey}</span>
+          ). Stored in this browser only until your control plane syncs to Render or your repo.
+        </p>
       </div>
 
-      <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/10 rounded-xl bg-white/5">
-        <span className="material-symbols-outlined text-slate-600 text-4xl mb-4">settings_suggest</span>
-        <p className="text-slate-500 text-sm font-headline">No settings configured for this project yet.</p>
+      <div className="space-y-5 rounded-xl border border-white/10 bg-white/5 p-6">
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">Project name</label>
+          <input
+            type="text"
+            value={projectName}
+            onChange={(e) => onProjectNameChange(e.target.value)}
+            placeholder="Untitled Project"
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+          />
+          <p className="text-[11px] text-slate-600 mt-1">Shown in the header and assistant; same as My Projects rename.</p>
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">Local folder path</label>
+          <input
+            type="text"
+            value={fields.localFolderPath}
+            onChange={(e) => setField('localFolderPath', e.target.value)}
+            placeholder="/Users/you/projects/my-app or C:\dev\my-app"
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-cyan-500/40 outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">GitHub repository</label>
+          <input
+            type="text"
+            value={fields.githubRepository}
+            onChange={(e) => setField('githubRepository', e.target.value)}
+            placeholder="https://github.com/org/repo or org/repo"
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">
+            Client ID (Render workspace ID)
+          </label>
+          <input
+            type="text"
+            value={fields.renderWorkspaceId}
+            onChange={(e) => setField('renderWorkspaceId', e.target.value)}
+            placeholder="Render workspace_id — server-side only in production"
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-cyan-500/40 outline-none"
+          />
+          <p className="text-[11px] text-slate-600 mt-1">Internal Render workspace identifier for this tenant boundary.</p>
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-1">
+            Project ID (Render project / service ID)
+          </label>
+          <input
+            type="text"
+            value={fields.renderProjectId}
+            onChange={(e) => setField('renderProjectId', e.target.value)}
+            placeholder="Nebulla project id or Render service id"
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-cyan-500/40 outline-none"
+          />
+        </div>
+
+        <div className="pt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSave}
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-headline bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 hover:bg-cyan-500/25"
+          >
+            <Save className="w-4 h-4" />
+            {savedFlash ? 'Saved' : 'Save project settings'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -305,7 +418,333 @@ function DnsTab() {
   );
 }
 
-function SecretsTab() {
+const SECRET_CATEGORY_OPTIONS: { value: SecretCategory; label: string }[] = [
+  { value: 'api_key', label: 'API key' },
+  { value: 'oauth_token', label: 'OAuth / token' },
+  { value: 'variable', label: 'Variable' },
+  { value: 'generic', label: 'Other' },
+];
+
+function ProjectSecretsEditor({ activeProjectKey }: { activeProjectKey: string }) {
+  const [entries, setEntries] = useState<SecretEntry[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    name: '',
+    value: '',
+    category: 'generic' as SecretCategory,
+    note: '',
+  });
+  const [adding, setAdding] = useState(false);
+  const [addDraft, setAddDraft] = useState({
+    name: '',
+    value: '',
+    category: 'variable' as SecretCategory,
+    note: '',
+  });
+  const [valueVisibleId, setValueVisibleId] = useState<string | null>(null);
+
+  const persist = (next: SecretEntry[]) => {
+    setEntries(next);
+    saveProjectSecrets(activeProjectKey, next);
+  };
+
+  useEffect(() => {
+    setEntries(loadProjectSecrets(activeProjectKey));
+    setEditingId(null);
+    setAdding(false);
+    setValueVisibleId(null);
+  }, [activeProjectKey]);
+
+  const startEdit = (e: SecretEntry) => {
+    setEditingId(e.id);
+    setDraft({
+      name: e.name,
+      value: e.value,
+      category: e.category,
+      note: e.note || '',
+    });
+    setValueVisibleId(null);
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    const name = draft.name.trim();
+    if (!name) return;
+    persist(
+      entries.map((x) =>
+        x.id === editingId
+          ? {
+              ...x,
+              name,
+              value: draft.value,
+              category: draft.category,
+              note: draft.note.trim() || undefined,
+            }
+          : x,
+      ),
+    );
+    setEditingId(null);
+  };
+
+  const removeOne = (id: string) => {
+    if (!window.confirm('Delete this secret or variable?')) return;
+    persist(entries.filter((x) => x.id !== id));
+    if (editingId === id) setEditingId(null);
+    if (valueVisibleId === id) setValueVisibleId(null);
+  };
+
+  const addNew = () => {
+    const name = addDraft.name.trim();
+    if (!name) return;
+    persist([
+      ...entries,
+      {
+        id: newSecretId(),
+        name,
+        value: addDraft.value,
+        category: addDraft.category,
+        note: addDraft.note.trim() || undefined,
+      },
+    ]);
+    setAddDraft({ name: '', value: '', category: 'variable', note: '' });
+    setAdding(false);
+  };
+
+  return (
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-6 space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-headline text-emerald-200 mb-1">Secrets, keys & variables</h4>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Per project (<span className="font-mono text-cyan-500/80">{activeProjectKey}</span>). Add, edit, or remove
+            entries. Values are stored in <strong className="text-slate-400">this browser only</strong> (localStorage)—mirror
+            to Render env for production.
+          </p>
+        </div>
+        {!adding && (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="inline-flex items-center gap-1.5 shrink-0 px-3 py-2 rounded-lg text-xs font-headline border border-emerald-500/35 text-emerald-200 hover:bg-emerald-500/15"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add entry
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="rounded-lg border border-white/10 bg-black/30 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-headline text-cyan-300 uppercase tracking-wider">New entry</span>
+            <button
+              type="button"
+              onClick={() => {
+                setAdding(false);
+                setAddDraft({ name: '', value: '', category: 'variable', note: '' });
+              }}
+              className="p-1 rounded text-slate-500 hover:text-slate-300"
+              aria-label="Cancel add"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase text-slate-500 font-headline">Name / key</label>
+              <input
+                value={addDraft.name}
+                onChange={(e) => setAddDraft((d) => ({ ...d, name: e.target.value }))}
+                placeholder="e.g. STRIPE_SECRET_KEY"
+                className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-cyan-500/40 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase text-slate-500 font-headline">Type</label>
+              <select
+                value={addDraft.category}
+                onChange={(e) =>
+                  setAddDraft((d) => ({ ...d, category: e.target.value as SecretCategory }))
+                }
+                className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+              >
+                {SECRET_CATEGORY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase text-slate-500 font-headline">Value</label>
+            <input
+              type="password"
+              autoComplete="off"
+              value={addDraft.value}
+              onChange={(e) => setAddDraft((d) => ({ ...d, value: e.target.value }))}
+              placeholder="Token, secret, or variable value"
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-cyan-500/40 outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase text-slate-500 font-headline">Note (optional)</label>
+            <input
+              value={addDraft.note}
+              onChange={(e) => setAddDraft((d) => ({ ...d, note: e.target.value }))}
+              placeholder="Where this is used"
+              className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500/40 outline-none"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAdding(false);
+                setAddDraft({ name: '', value: '', category: 'variable', note: '' });
+              }}
+              className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={addNew}
+              disabled={!addDraft.name.trim()}
+              className="px-4 py-1.5 rounded-lg text-xs font-headline bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40"
+            >
+              Save entry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {entries.length === 0 && !adding ? (
+        <p className="text-sm text-slate-500 py-4 text-center border border-dashed border-white/10 rounded-lg">
+          No custom secrets yet. Use <strong className="text-slate-400">Add entry</strong> for API keys, tokens, or env-style variables.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {entries.map((e) => (
+            <li key={e.id} className="rounded-lg border border-white/10 bg-black/25 overflow-hidden">
+              {editingId === e.id ? (
+                <div className="p-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500 font-headline">Name / key</label>
+                      <input
+                        value={draft.name}
+                        onChange={(ev) => setDraft((d) => ({ ...d, name: ev.target.value }))}
+                        className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono outline-none focus:border-cyan-500/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-slate-500 font-headline">Type</label>
+                      <select
+                        value={draft.category}
+                        onChange={(ev) =>
+                          setDraft((d) => ({ ...d, category: ev.target.value as SecretCategory }))
+                        }
+                        className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500/40"
+                      >
+                        {SECRET_CATEGORY_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase text-slate-500 font-headline">Value</label>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={draft.value}
+                      onChange={(ev) => setDraft((d) => ({ ...d, value: ev.target.value }))}
+                      className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono outline-none focus:border-cyan-500/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase text-slate-500 font-headline">Note</label>
+                    <input
+                      value={draft.note}
+                      onChange={(ev) => setDraft((d) => ({ ...d, note: ev.target.value }))}
+                      className="mt-1 w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500/40"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveEdit}
+                      disabled={!draft.name.trim()}
+                      className="px-4 py-1.5 rounded-lg text-xs font-headline bg-cyan-500/20 text-cyan-200 border border-cyan-500/35 hover:bg-cyan-500/30 disabled:opacity-40"
+                    >
+                      Save changes
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-mono text-slate-200 truncate">{e.name}</span>
+                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded border border-white/10 text-slate-500 font-headline">
+                        {SECRET_CATEGORY_OPTIONS.find((c) => c.value === e.category)?.label ?? e.category}
+                      </span>
+                    </div>
+                    {e.note ? <p className="text-[11px] text-slate-500 mt-1 truncate">{e.note}</p> : null}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <code className="text-[11px] text-slate-500 font-mono break-all">
+                        {valueVisibleId === e.id ? e.value || '(empty)' : e.value ? '•'.repeat(Math.min(12, e.value.length)) + (e.value.length > 12 ? '…' : '') : '(empty)'}
+                      </code>
+                      {e.value ? (
+                        <button
+                          type="button"
+                          onClick={() => setValueVisibleId((id) => (id === e.id ? null : e.id))}
+                          className="text-[10px] text-cyan-500/90 hover:text-cyan-300 font-headline shrink-0"
+                        >
+                          {valueVisibleId === e.id ? 'Hide' : 'Reveal'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(e)}
+                      className="p-2 rounded-lg border border-white/10 text-slate-400 hover:text-cyan-200 hover:border-cyan-500/30"
+                      title="Edit"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeOne(e.id)}
+                      className="p-2 rounded-lg border border-white/10 text-slate-400 hover:text-red-400 hover:border-red-500/25"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SecretsTab({ activeProjectKey }: { activeProjectKey: string }) {
   const [grokKeyInput, setGrokKeyInput] = useState('');
   const [grokSavedFlash, setGrokSavedFlash] = useState(false);
   const [copiedChecklist, setCopiedChecklist] = useState(false);
@@ -390,6 +829,8 @@ function SecretsTab() {
           </button>
         </div>
       </div>
+
+      <ProjectSecretsEditor activeProjectKey={activeProjectKey} />
 
       {/* Environment Setup Canonical Checklist */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">

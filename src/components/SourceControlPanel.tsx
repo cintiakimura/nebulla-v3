@@ -1,0 +1,231 @@
+import { useCallback, useEffect, useState } from 'react';
+import { FileCode, FolderGit2, RefreshCw } from 'lucide-react';
+import { readResponseJson } from '../lib/apiFetch';
+
+type Overview = {
+  nebulaProjectRoot: string;
+  nebulaFiles: { relativePath: string; size: number; mtimeMs: number }[];
+  git: { branch: string; entries: { status: string; path: string }[]; error?: string } | null;
+};
+
+const PREVIEW_MAX_BYTES = 96 * 1024;
+
+function statusLabel(status: string): string {
+  const s = status.replace(/\s/g, '');
+  if (s.includes('?')) return 'Untracked';
+  if (s === 'M' || s === 'MM' || status.includes('M')) return 'Modified';
+  if (s.includes('A')) return 'Added';
+  if (s.includes('D')) return 'Deleted';
+  if (s.includes('R')) return 'Renamed';
+  return 'Changed';
+}
+
+function statusTone(status: string): string {
+  const u = statusLabel(status);
+  if (u === 'Untracked') return 'text-amber-300/90';
+  if (u === 'Added') return 'text-emerald-300/90';
+  if (u === 'Deleted') return 'text-red-300/90';
+  if (u === 'Modified') return 'text-cyan-300/90';
+  return 'text-slate-400';
+}
+
+export function SourceControlPanel() {
+  const [data, setData] = useState<Overview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await fetch('/api/source-control/overview');
+      const j = await readResponseJson<Overview & { error?: string }>(res);
+      if (!res.ok) {
+        throw new Error(typeof j.error === 'string' ? j.error : `HTTP ${res.status}`);
+      }
+      setData(j);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to load source control');
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    const onRefresh = () => void load();
+    window.addEventListener('nebula-master-plan-updated', onRefresh);
+    return () => window.removeEventListener('nebula-master-plan-updated', onRefresh);
+  }, [load]);
+
+  const openPreview = async (relativePath: string, size: number) => {
+    setSelectedPath(relativePath);
+    if (size > PREVIEW_MAX_BYTES) {
+      setPreview(
+        `[Preview skipped: file is ${(size / 1024).toFixed(0)} KB — open locally or raise limit (max ${PREVIEW_MAX_BYTES / 1024} KB in browser).]`,
+      );
+      return;
+    }
+    setPreviewLoading(true);
+    setPreview(null);
+    try {
+      const res = await fetch(`/api/files/content?path=${encodeURIComponent(relativePath)}`);
+      const j = await readResponseJson<{ content?: string; error?: string }>(res);
+      if (!res.ok) {
+        throw new Error(typeof j.error === 'string' ? j.error : 'Read failed');
+      }
+      setPreview(typeof j.content === 'string' ? j.content : '');
+    } catch (e) {
+      setPreview(e instanceof Error ? e.message : 'Could not read file');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const fmtTime = (ms: number) => {
+    try {
+      return new Date(ms).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return '';
+    }
+  };
+
+  return (
+    <div className="flex-1 min-h-0 h-full flex flex-col bg-[#040f1a]/40 border border-white/5 rounded-lg overflow-hidden">
+      <div className="shrink-0 px-4 py-3 border-b border-white/10 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-cyan-200">
+          <FolderGit2 className="w-5 h-5 shrink-0" aria-hidden />
+          <div>
+            <h2 className="text-sm font-headline tracking-wide">Source control</h2>
+            <p className="text-[10px] text-slate-500 font-mono">
+              Git changes + files under <span className="text-cyan-500/80">{data?.nebulaProjectRoot ?? 'nebula-project'}</span>
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:border-cyan-500/35 hover:bg-cyan-500/10 hover:text-cyan-100 disabled:opacity-40"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+          Refresh
+        </button>
+      </div>
+
+      {err ? (
+        <div className="p-4 text-sm text-red-300/90 border-b border-red-500/20 bg-red-950/20">{err}</div>
+      ) : null}
+
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+        <div className="min-h-0 lg:w-[42%] lg:max-w-md flex flex-col border-b lg:border-b-0 lg:border-r border-white/10 overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-3 space-y-6">
+            {loading && !data ? (
+              <p className="text-xs text-slate-500">Loading repository state…</p>
+            ) : null}
+
+            {data?.git ? (
+              <section>
+                <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
+                  Git · branch <span className="text-cyan-400/90">{data.git.branch}</span>
+                </h3>
+                {data.git.error ? (
+                  <p className="text-xs text-amber-300/90">{data.git.error}</p>
+                ) : data.git.entries.length === 0 ? (
+                  <p className="text-xs text-slate-500">Working tree clean — no local changes.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {data.git.entries.map((e) => (
+                      <li key={`${e.status}-${e.path}`}>
+                        <button
+                          type="button"
+                          onClick={() => void openPreview(e.path, 0)}
+                          className="w-full text-left rounded-md px-2 py-1.5 hover:bg-white/5 flex gap-2 items-start group"
+                        >
+                          <span
+                            className={`shrink-0 font-mono text-[10px] w-7 ${statusTone(e.status)}`}
+                            title={statusLabel(e.status)}
+                          >
+                            {e.status}
+                          </span>
+                          <span className="text-xs text-slate-300 break-all group-hover:text-cyan-200/95">
+                            {e.path}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ) : (
+              <section>
+                <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">Git</h3>
+                <p className="text-xs text-slate-500">
+                  No <code className="text-cyan-500/80">.git</code> folder in this workspace — showing Nebula project files only.
+                </p>
+              </section>
+            )}
+
+            <section>
+              <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-headline mb-2">
+                Nebula project files ({data?.nebulaFiles.length ?? 0})
+              </h3>
+              {!data?.nebulaFiles.length ? (
+                <p className="text-xs text-slate-500">No files under project docs root yet.</p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {data.nebulaFiles.map((f) => (
+                    <li key={f.relativePath}>
+                      <button
+                        type="button"
+                        onClick={() => void openPreview(f.relativePath, f.size)}
+                        className={`w-full text-left rounded-md px-2 py-1 flex gap-2 items-center hover:bg-white/5 ${
+                          selectedPath === f.relativePath ? 'bg-cyan-500/10 border border-cyan-500/20' : 'border border-transparent'
+                        }`}
+                      >
+                        <FileCode className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-hidden />
+                        <span className="text-xs text-slate-300 truncate flex-1 font-mono">{f.relativePath}</span>
+                        <span
+                          className="text-[10px] text-slate-600 shrink-0 tabular-nums"
+                          title={fmtTime(f.mtimeMs)}
+                        >
+                          {f.size} B
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </div>
+
+        <div className="flex-1 min-h-0 flex flex-col bg-black/20">
+          <div className="shrink-0 px-3 py-2 border-b border-white/10 text-[10px] text-slate-500 font-mono truncate">
+            {selectedPath ? selectedPath : 'Select a file to preview'}
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto p-3">
+            {previewLoading ? (
+              <p className="text-xs text-slate-500">Reading file…</p>
+            ) : preview !== null ? (
+              <pre className="text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap font-mono break-words">
+                {preview}
+              </pre>
+            ) : (
+              <p className="text-xs text-slate-600">
+                Click a path under Git changes or Nebula project files to load contents from the server (read-only).
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

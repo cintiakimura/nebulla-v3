@@ -194,6 +194,16 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
             <ReactMarkdown>
               {activeContent || ''}
             </ReactMarkdown>
+            {planData['Pre-coding summary (Grok)'] ? (
+              <div className="mt-8 pt-6 border-t border-emerald-500/25 not-prose">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-400/90 font-headline mb-2">
+                  Pre-coding summary (Grok) — latest Go run
+                </p>
+                <div className="text-xs text-slate-400 whitespace-pre-wrap rounded-lg border border-white/10 bg-black/30 p-3 font-mono leading-relaxed">
+                  {planData['Pre-coding summary (Grok)']}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

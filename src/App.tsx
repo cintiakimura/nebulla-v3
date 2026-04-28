@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { Edge, Node } from '@xyflow/react';
 import {
   BookOpen,
+  FolderGit2,
   Globe,
   Key,
   LayoutGrid,
@@ -18,12 +19,14 @@ import { Dashboard, type DashboardTab } from './components/Dashboard';
 import { AssistantSidebar } from './components/AssistantSidebar';
 import { ExecutionRulesViewer } from './components/ExecutionRulesViewer';
 import { Logo } from './components/Logo';
+import { SourceControlPanel } from './components/SourceControlPanel';
 
 type MainPanel =
   | 'nebula-ui-studio'
   | 'mind-map'
   | 'master-plan'
   | 'project-rules'
+  | 'source-control'
   | 'my-projects'
   | 'secrets'
   | 'project-settings'
@@ -34,6 +37,7 @@ const PANEL_LABEL: Record<MainPanel, string> = {
   'mind-map': 'Mind Map',
   'master-plan': 'Master Plan',
   'project-rules': 'Project execution rules (code mode)',
+  'source-control': 'Source control',
   'my-projects': 'My Projects',
   secrets: 'Secrets',
   'project-settings': 'Project Settings',
@@ -263,6 +267,12 @@ function App() {
             />
           </div>
         );
+      case 'source-control':
+        return (
+          <div className="flex-1 min-h-0 h-full p-4 overflow-hidden flex flex-col">
+            <SourceControlPanel />
+          </div>
+        );
       case 'my-projects':
       case 'secrets':
       case 'project-settings':
@@ -343,6 +353,9 @@ function App() {
           </NavBtn>
           <NavBtn panel="master-plan" title="Master Plan">
             <BookOpen className="w-5 h-5" />
+          </NavBtn>
+          <NavBtn panel="source-control" title="Source control">
+            <FolderGit2 className="w-5 h-5" />
           </NavBtn>
           <div className="w-8 h-px bg-white/10 my-1" />
           <NavBtn panel="my-projects" title="My Projects">

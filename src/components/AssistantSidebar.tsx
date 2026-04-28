@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChevronDown, Hand, Mic, Paperclip, Send } from 'lucide-react';
+import { ChevronDown, Hand, Mic, Paperclip, Rocket, Send } from 'lucide-react';
 import { VoiceLinesIcon } from './VoiceLinesIcon';
 import { Logo } from './Logo';
 import { fetchJson, readResponseJson } from '../lib/apiFetch';
@@ -80,6 +80,8 @@ export function AssistantSidebar({
 
   const [isRecordingText, setIsRecordingText] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  /** Small status line for multi-step flows (e.g. Go → Grok 4 summary → Grok Code). */
+  const [chatStatus, setChatStatus] = useState<string | null>(null);
 
   useEffect(() => {
     isLiveRef.current = isLive;
@@ -834,6 +836,148 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
     }
   };
 
+  /** Go: Grok 4 writes only a short summary to master-plan.json, then Grok Code implements. */
+  const handleGoCode = async () => {
+    if (codeMode || isLoading) return;
+    const userNote = inputText.trim();
+    const storedGrok = getStoredGrokApiKey();
+    let hasServerKey = serverHasGrokKey;
+    if (hasServerKey === null) {
+      try {
+        const r = await fetch('/api/config');
+        const cfg = (await readResponseJson(r)) as { hasGrokApiKey?: boolean };
+        hasServerKey = Boolean(cfg.hasGrokApiKey);
+        setServerHasGrokKey(hasServerKey);
+      } catch {
+        hasServerKey = false;
+        setServerHasGrokKey(false);
+      }
+    }
+    if (!storedGrok && !hasServerKey) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'system',
+          text:
+            'Grok API key is missing. Add GROK_API_KEY to your .env file and restart the server, or save your key under Dashboard → Secrets (this browser only).',
+        },
+      ]);
+      return;
+    }
+
+    if ((window as any).openMasterPlan) (window as any).openMasterPlan();
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'user',
+        text: userNote ? `Go — Grok Code (${userNote.slice(0, 200)}${userNote.length > 200 ? '…' : ''})` : 'Go — Grok Code',
+      },
+    ]);
+    setInputText('');
+    setIsLoading(true);
+    setChatStatus('Grok 4: writing short Master Plan summary only, then Grok Code…');
+
+    const grokHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (storedGrok) grokHeaders['X-Grok-Api-Key'] = storedGrok;
+
+    const history = messages
+      .filter((m) => m.role === 'user' || m.role === 'model' || m.role === 'system')
+      .slice(-9)
+      .map((m) => ({
+        role: m.role === 'model' ? 'assistant' : m.role,
+        content: m.text,
+      }));
+    const payloadMessages = [
+      ...history,
+      {
+        role: 'user' as const,
+        content: userNote
+          ? `Go — start Grok Code. Session focus: ${userNote}`
+          : 'Go — start Grok Code: write a short pre-coding summary to master-plan.json first, then implement per project-execution-rules.md.',
+      },
+    ];
+
+    try {
+      const data = await fetchJson<{
+        preCodingSummary?: string;
+        summarySaved?: boolean;
+        codeError?: string;
+        choices?: { message?: { content?: string } }[];
+        error?: string;
+      }>('/api/grok/go-code', {
+        method: 'POST',
+        headers: grokHeaders,
+        body: JSON.stringify({
+          userId,
+          projectName,
+          userNote: userNote || undefined,
+          messages: payloadMessages,
+        }),
+      });
+
+      if (data.error && !data.summarySaved) {
+        setMessages((prev) => [...prev, { role: 'system', text: data.error || 'Go failed.' }]);
+        setChatStatus(null);
+        return;
+      }
+
+      setChatStatus('Master Plan updated — opening code mode with Grok Code output…');
+      try {
+        window.dispatchEvent(new CustomEvent('nebula-master-plan-updated'));
+      } catch {
+        /* ignore */
+      }
+
+      const codeText = data.choices?.[0]?.message?.content || '';
+      const cleanCode = codeText
+        .replace(/<REASONING>[\s\S]*?<\/REASONING>/gi, '')
+        .replace(/<START_MASTERPLAN>[\s\S]*?<\/START_MASTERPLAN>/gi, '')
+        .trim();
+
+      if (data.codeError) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'system',
+            text: `Summary saved to Master Plan. Grok Code error: ${data.codeError.slice(0, 400)}`,
+          },
+        ]);
+      }
+
+      if (cleanCode) {
+        setMessages((prev) => [...prev, { role: 'model', text: cleanCode, fullText: codeText }]);
+      } else if (!data.codeError) {
+        setMessages((prev) => [...prev, { role: 'system', text: 'Grok Code returned empty output.' }]);
+      }
+
+      if ((window as any).openCodingMode) {
+        (window as any).openCodingMode('nebula-project/project-execution-rules.md');
+      }
+
+      try {
+        const mpRes = await fetch('/api/master-plan/read');
+        const mpData = await readResponseJson(mpRes);
+        if (mpRes.ok) setMasterPlan(mpData);
+      } catch {
+        /* ignore */
+      }
+
+      setChatStatus(
+        data.summarySaved
+          ? 'Done — short summary saved under “Pre-coding summary (Grok)”; code shown above.'
+          : 'Done.',
+      );
+      window.setTimeout(() => setChatStatus(null), 5000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Go failed.';
+      setMessages((prev) => [...prev, { role: 'system', text: msg }]);
+      setChatStatus(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const toggleLive = () => {
     if (codeMode) return;
     if (isLiveRef.current) {
@@ -1186,6 +1330,12 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         </div>
       )}
 
+      {chatStatus ? (
+        <div className="shrink-0 px-4 py-1.5 border-b border-white/5 bg-black/35">
+          <p className="text-[10px] leading-snug text-slate-500 font-mono">{chatStatus}</p>
+        </div>
+      ) : null}
+
       <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
         {codeMode ? (
           <div className="rounded-xl border border-cyan-500/25 bg-cyan-950/25 p-4 text-sm text-slate-300 text-center space-y-3">
@@ -1352,6 +1502,17 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 title="Attach file"
               >
                 <Paperclip className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleGoCode()}
+                disabled={codeMode || isLoading}
+                title="Go: Grok 4 writes a short summary to Master Plan only, then Grok Code runs"
+                aria-label="Go: Grok 4 summary then Grok Code"
+                className="flex h-9 shrink-0 items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 text-[11px] font-headline text-emerald-200 transition-colors hover:border-emerald-400/50 hover:bg-emerald-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <Rocket className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                Go
               </button>
               <button
                 type="button"

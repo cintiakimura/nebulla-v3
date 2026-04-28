@@ -2,7 +2,10 @@ import dotenv from "dotenv";
 import path from "path";
 import express from "express";
 import fs from "fs";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 import {
   appendConversationTurn,
   appendWriterAuditEvent,
@@ -267,6 +270,109 @@ No approved UI code yet.
       res.json({ content });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  function collectNebulaProjectFiles(): { relativePath: string; size: number; mtimeMs: number }[] {
+    const out: { relativePath: string; size: number; mtimeMs: number }[] = [];
+    /** Always list `nebula-project/` when present — never walk full REPO_ROOT if docs root fell back to cwd. */
+    const root = path.join(REPO_ROOT, "nebula-project");
+    if (!fs.existsSync(root)) return out;
+
+    const stack: string[] = [root];
+    while (stack.length > 0 && out.length < 500) {
+      const dir = stack.pop()!;
+      let dirents: fs.Dirent[];
+      try {
+        dirents = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const d of dirents) {
+        if (d.name.startsWith(".")) continue;
+        const abs = path.join(dir, d.name);
+        if (d.isDirectory()) {
+          stack.push(abs);
+        } else {
+          try {
+            const st = fs.statSync(abs);
+            const rel = path.relative(REPO_ROOT, abs).replace(/\\/g, "/");
+            out.push({ relativePath: rel, size: st.size, mtimeMs: st.mtimeMs });
+          } catch {
+            /* skip */
+          }
+        }
+      }
+    }
+    out.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    return out;
+  }
+
+  function parseGitPorcelain(stdout: string): { status: string; path: string }[] {
+    const entries: { status: string; path: string }[] = [];
+    for (const line of stdout.split("\n")) {
+      if (!line.trim()) continue;
+      const status = line.slice(0, 2);
+      let rest = line.slice(3);
+      if (rest.startsWith('"') && rest.endsWith('"') && rest.length > 2) {
+        rest = rest.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      }
+      let filePath = rest.trim();
+      if (filePath.includes(" -> ")) {
+        filePath = filePath.split(" -> ").pop()!.trim();
+      }
+      entries.push({ status, path: filePath.replace(/\\/g, "/") });
+    }
+    return entries;
+  }
+
+  /** Git status + flat file list under nebula-project (for IDE Source Control). */
+  app.get("/api/source-control/overview", async (_req, res) => {
+    try {
+      const nebulaFiles = collectNebulaProjectFiles();
+      const nebulaProjectRelative = fs.existsSync(path.join(REPO_ROOT, "nebula-project"))
+        ? "nebula-project"
+        : path.relative(REPO_ROOT, NEBULA_PROJECT_ROOT).replace(/\\/g, "/") || ".";
+
+      let git: {
+        branch: string;
+        entries: { status: string; path: string }[];
+        error?: string;
+      } | null = null;
+
+      if (fs.existsSync(path.join(REPO_ROOT, ".git"))) {
+        try {
+          const { stdout: branchOut } = await execFileAsync(
+            "git",
+            ["-C", REPO_ROOT, "branch", "--show-current"],
+            { maxBuffer: 1024 * 1024, encoding: "utf8" }
+          );
+          const { stdout: porcOut } = await execFileAsync(
+            "git",
+            ["-C", REPO_ROOT, "status", "--porcelain", "-u"],
+            { maxBuffer: 10 * 1024 * 1024, encoding: "utf8" }
+          );
+          git = {
+            branch: (branchOut || "unknown").trim() || "unknown",
+            entries: parseGitPorcelain(porcOut || ""),
+          };
+        } catch (e) {
+          git = {
+            branch: "?",
+            entries: [],
+            error: e instanceof Error ? e.message : String(e),
+          };
+        }
+      }
+
+      res.json({
+        nebulaProjectRoot: nebulaProjectRelative,
+        nebulaFiles,
+        git,
+      });
+    } catch (err: unknown) {
+      console.error("/api/source-control/overview:", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : "overview failed" });
     }
   });
 
@@ -628,6 +734,206 @@ Rules:
       console.error("Error running project execution rules:", error);
       return res.status(500).json({
         error: error instanceof Error ? error.message : "Failed to execute project rules",
+      });
+    }
+  });
+
+  const PRE_CODING_SUMMARY_KEY = "Pre-coding summary (Grok)";
+
+  /** Go: Grok 4 writes a short summary into master-plan.json only, then Grok Code runs (no full execution doc in MP). */
+  app.post("/api/grok/go-code", async (req, res) => {
+    const { messages, grokApiKey: bodyGrokKey, userId, projectName, userNote } = req.body || {};
+    const headerKey =
+      typeof req.headers["x-grok-api-key"] === "string"
+        ? req.headers["x-grok-api-key"].trim()
+        : "";
+    const apiKey =
+      headerKey ||
+      (typeof bodyGrokKey === "string" ? bodyGrokKey.trim() : "") ||
+      process.env.GROK_API_KEY ||
+      "";
+
+    if (!apiKey) {
+      return res.status(401).json({
+        error:
+          "Grok API key is missing. Add GROK_API_KEY to your .env file, restart the server, or save your key under Dashboard → Secrets (stored in this browser only).",
+      });
+    }
+    if (apiKey.length < 20) {
+      return res.status(400).json({
+        error: "Your GROK_API_KEY appears to be invalid. Please check it in the Settings menu.",
+      });
+    }
+
+    const convUserId =
+      typeof userId === "string" && userId.trim() ? userId.trim() : "anonymous";
+    const convProject =
+      typeof projectName === "string" && projectName.trim() ? projectName.trim() : "Untitled Project";
+
+    const note =
+      typeof userNote === "string" && userNote.trim() ? userNote.trim().slice(0, 4000) : "";
+
+    try {
+      let planSnapshot: Record<string, string> = {};
+      try {
+        if (fs.existsSync(masterPlanPath)) {
+          const raw = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
+          if (raw && typeof raw === "object") {
+            for (const [k, v] of Object.entries(raw)) {
+              if (typeof v === "string") planSnapshot[k] = v;
+            }
+          }
+        }
+      } catch {
+        planSnapshot = {};
+      }
+
+      const compact: Record<string, string> = {};
+      for (const [k, v] of Object.entries(planSnapshot)) {
+        compact[k] = v.length > 2500 ? `${v.slice(0, 2500)}\n…[truncated]` : v;
+      }
+
+      const memory = buildMemorySystemContent(convUserId, convProject);
+      const phaseASystem = `You are Grok 4 (planning only). The user pressed **Go** to run a coding pass with Grok Code.
+
+Your ONLY output for this turn: a **short** pre-coding summary for the Master Plan file.
+
+Strict rules:
+- Emit EXACTLY one block: <PRE_CODING_SUMMARY>...</PRE_CODING_SUMMARY>
+- Inside: maximum 1200 characters. Use bullets or tight prose: scope, assumptions, first areas to implement, risks.
+- Do NOT paste project-execution-rules.md or long policy text.
+- Do NOT replace full Master Plan sections; this is a session brief only.
+- Do NOT emit START_CODING, ANSWER_Qn, or <START_MASTERPLAN> here.`;
+
+      const phaseAUser = `Current master-plan.json values (truncated per field):\n${JSON.stringify(compact, null, 2)}\n\nOptional user focus for this coding session:\n${note || "(none — infer next concrete steps from the plan)"}`;
+
+      let phaseAMessages: { role: string; content: string }[] = [
+        { role: "system", content: phaseASystem },
+        { role: "user", content: phaseAUser },
+      ];
+      phaseAMessages = injectMemoryIntoMessages(phaseAMessages, memory) as { role: string; content: string }[];
+
+      const g4Res = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "grok-4-1-fast-reasoning",
+          messages: phaseAMessages,
+          stream: false,
+        }),
+      });
+
+      if (!g4Res.ok) {
+        const errText = await g4Res.text();
+        return res.status(g4Res.status).json({ error: `Grok 4 summary phase failed: ${errText.slice(0, 500)}` });
+      }
+
+      const g4Data = await g4Res.json();
+      const g4Text = g4Data.choices?.[0]?.message?.content || "";
+      const sumMatch = g4Text.match(/<PRE_CODING_SUMMARY>([\s\S]*?)<\/PRE_CODING_SUMMARY>/i);
+      let summary = sumMatch ? sumMatch[1].trim() : "";
+      if (!summary) {
+        summary = g4Text
+          .replace(/<REASONING>[\s\S]*?<\/REASONING>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 1200);
+      }
+      if (!summary) {
+        summary = "No summary generated; proceed from master plan tabs and project-execution-rules.md.";
+      }
+      summary = summary.slice(0, 2000);
+
+      let plan: Record<string, unknown> = {};
+      if (fs.existsSync(masterPlanPath)) {
+        try {
+          plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
+        } catch {
+          plan = {};
+        }
+      }
+      plan[PRE_CODING_SUMMARY_KEY] = summary;
+      fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
+      console.log(`[go-code] Wrote ${PRE_CODING_SUMMARY_KEY} (${summary.length} chars)`);
+
+      const workflowContext = buildProjectWorkflowExecutionContext();
+      const codeModel = process.env.GROK_CODE_MODEL?.trim() || "grok-code-fast-1";
+      const codeSystemPrompt = `You are Grok Code (coding phase). The user pressed **Go** in Nebula Partner.
+
+A short pre-coding summary was just saved to master-plan.json under the key "${PRE_CODING_SUMMARY_KEY}" (it appears again inside the master-plan snapshot below).
+
+Follow project-execution-rules.md strictly. Use the workflow context in order. Output implementation-focused content (files, diffs, concrete steps)—not a repeat of the entire orchestration document.
+
+${workflowContext}`;
+
+      const incomingMessages: { role: string; content?: string }[] = Array.isArray(messages) ? messages : [];
+      const normalized = incomingMessages.map((m) => ({
+        role: m.role === "model" ? "assistant" : m.role,
+        content: typeof m.content === "string" ? m.content : "",
+      }));
+      const withMem = injectMemoryIntoMessages(normalized, memory);
+      const codeMessages = [
+        { role: "system", content: codeSystemPrompt },
+        ...withMem.slice(-10),
+        {
+          role: "user",
+          content: `Run the coding pass now. Respect "${PRE_CODING_SUMMARY_KEY}" and the six canonical Master Plan tabs. Session focus from user: ${note || "(none)"}`,
+        },
+      ];
+
+      const codeRes = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: codeModel,
+          messages: codeMessages,
+          stream: false,
+        }),
+      });
+
+      if (!codeRes.ok) {
+        const errText = await codeRes.text();
+        return res.status(200).json({
+          preCodingSummary: summary,
+          summarySaved: true,
+          codeError: errText.slice(0, 800),
+          choices: [],
+        });
+      }
+
+      const codeData = await codeRes.json();
+      const codeText = codeData.choices?.[0]?.message?.content || "";
+
+      try {
+        appendConversationTurn(convUserId, convProject, "user", `[Go] ${note || "start coding"}`);
+        if (codeText.trim()) {
+          appendConversationTurn(convUserId, convProject, "assistant", codeText.trim().slice(0, 8000));
+        }
+      } catch (logErr) {
+        console.error("go-code memory append failed:", logErr);
+      }
+
+      return res.json({
+        preCodingSummary: summary,
+        summarySaved: true,
+        choices: codeData.choices,
+        codeModel,
+      });
+    } catch (error) {
+      console.error("Error in /api/grok/go-code:", error);
+      captureError(error instanceof Error ? error : new Error(String(error)), {
+        source: "server",
+        route: "/api/grok/go-code",
+      });
+      return res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to run Go (code) pipeline",
       });
     }
   });
