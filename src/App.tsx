@@ -118,7 +118,9 @@ function App() {
   const [workspaceInput, setWorkspaceInput] = useState('');
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [workspaceChecked, setWorkspaceChecked] = useState(false);
+  const folderFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [assistantWidth, setAssistantWidth] = useState(() => {
@@ -213,6 +215,7 @@ function App() {
     if (!pathToSet || workspaceBusy) return;
     setWorkspaceBusy(true);
     setWorkspaceError(null);
+    setWorkspaceNotice(null);
     try {
       const res = await fetch('/api/workspace/active', {
         method: 'POST',
@@ -238,23 +241,41 @@ function App() {
   const pickWorkspaceFolder = useCallback(async () => {
     if (workspaceBusy) return;
     const picker = (window as Window & { showDirectoryPicker?: () => Promise<{ name?: string }> }).showDirectoryPicker;
-    if (!picker) {
-      setWorkspaceError('Native folder picker is not available in this browser. Please paste the folder path.');
-      return;
+    if (picker) {
+      try {
+        setWorkspaceError(null);
+        const handle = await picker();
+        const selectedName = typeof handle?.name === 'string' && handle.name.trim() ? handle.name.trim() : 'selected folder';
+        setWorkspaceNotice(
+          `Folder "${selectedName}" selected. Browser security does not expose the full local path here, so paste the absolute path (example: /Users/yourname/Documents/${selectedName}) then click "Set active folder".`,
+        );
+        return;
+      } catch (e) {
+        const err = e as DOMException;
+        if (err?.name === 'AbortError') return;
+      }
     }
-    try {
-      setWorkspaceError(null);
-      const handle = await picker();
-      const selectedName = typeof handle?.name === 'string' && handle.name.trim() ? handle.name.trim() : 'selected folder';
-      setWorkspaceError(
-        `Folder "${selectedName}" selected. Browser security does not expose full local path here, so paste the absolute path (example: /Users/yourname/Documents/${selectedName}) then click "Set active folder".`,
-      );
-    } catch (e) {
-      const err = e as DOMException;
-      if (err?.name === 'AbortError') return;
-      setWorkspaceError(e instanceof Error ? e.message : 'Could not open folder picker');
-    }
+    setWorkspaceError(null);
+    setWorkspaceNotice(
+      'Using browser fallback picker. After choosing a folder, paste its absolute path into the input and click "Set active folder".',
+    );
+    folderFileInputRef.current?.click();
   }, [workspaceBusy]);
+
+  const onFolderInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const firstFile = files[0];
+    const relPath =
+      typeof (firstFile as File & { webkitRelativePath?: string }).webkitRelativePath === 'string'
+        ? (firstFile as File & { webkitRelativePath?: string }).webkitRelativePath || ''
+        : '';
+    const selectedName = relPath.split('/')[0] || firstFile.name || 'selected folder';
+    setWorkspaceNotice(
+      `Folder "${selectedName}" selected. Browser security does not expose the full absolute path. Paste the local absolute path, then click "Set active folder".`,
+    );
+    e.target.value = '';
+  }, []);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -528,6 +549,15 @@ function App() {
               />
             </label>
             <div className="flex items-center gap-3">
+              <input
+                ref={folderFileInputRef}
+                type="file"
+                className="hidden"
+                onChange={onFolderInputChange}
+                // We set these attributes directly to support directory picking
+                // in browsers that do not expose showDirectoryPicker.
+                {...{ webkitdirectory: '', directory: '', multiple: true }}
+              />
               <button
                 type="button"
                 onClick={() => void pickWorkspaceFolder()}
@@ -546,6 +576,7 @@ function App() {
               </button>
               {workspaceChecked && workspaceBusy ? <span className="text-xs text-slate-500">Validating folder…</span> : null}
             </div>
+            {workspaceNotice ? <p className="text-sm text-amber-200/90">{workspaceNotice}</p> : null}
             {workspaceError ? <p className="text-sm text-red-300/90">{workspaceError}</p> : null}
           </section>
         </main>

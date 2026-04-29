@@ -25,6 +25,69 @@ const MASTER_PLAN_TITLES = [
   '6. Environment Setup',
 ] as const;
 
+/**
+ * Hands-free mode: pause after last finalized speech chunk before auto-send.
+ * Too short → sends mid-thought (“cuts me off”). Too long → feels sluggish.
+ */
+const HANDS_FREE_AUTOSEND_PAUSE_MS = 3000;
+
+/**
+ * Long replies were one huge TTS request: slow time-to-first-audio and occasional failures on long text.
+ * We synthesize in chunks under this size and play them back-to-back (mic stays off for the whole run).
+ */
+const MAX_TTS_CHUNK_CHARS = 560;
+
+/**
+ * Tiny debounce before the first TTS `/api/speak` call: coalesces back-to-back completions without a perceptible gap.
+ * Keeps 0ms effective delay for normal turns; safer than 0 when multiple updates fire in one frame.
+ */
+const TTS_START_DEBOUNCE_MS = 50;
+
+function stripForTtsSpokenText(s: string): string {
+  return s
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/`+/g, '')
+    .replace(/^#{1,6}\s+/gm, '');
+}
+
+function splitTextForTts(text: string): string[] {
+  const t = stripForTtsSpokenText(text);
+  const paras = t
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const chunks: string[] = [];
+  for (const para of paras) {
+    if (para.length <= MAX_TTS_CHUNK_CHARS) {
+      chunks.push(para);
+      continue;
+    }
+    const sentences = para.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [para];
+    let buf = '';
+    for (const raw of sentences) {
+      const s = raw.trim();
+      if (!s) continue;
+      const next = buf ? `${buf} ${s}` : s;
+      if (next.length <= MAX_TTS_CHUNK_CHARS) {
+        buf = next;
+      } else {
+        if (buf) chunks.push(buf);
+        if (s.length <= MAX_TTS_CHUNK_CHARS) {
+          buf = s;
+        } else {
+          for (let i = 0; i < s.length; i += MAX_TTS_CHUNK_CHARS) {
+            chunks.push(s.slice(i, i + MAX_TTS_CHUNK_CHARS).trim());
+          }
+          buf = '';
+        }
+      }
+    }
+    if (buf) chunks.push(buf);
+  }
+  return chunks.filter(Boolean);
+}
+
 function splitMasterPlanSectionsFromBlock(block: string): Partial<Record<number, string>> {
   const lines = block.split('\n');
   const out: Partial<Record<number, string>> = {};
@@ -158,6 +221,12 @@ export function AssistantSidebar({
   const ttsRequestAbortRef = useRef<AbortController | null>(null);
   const ttsObjectUrlRef = useRef<string | null>(null);
   const ttsDebounceTimerRef = useRef<number | null>(null);
+  /** Increment to invalidate in-flight chunked TTS or to cancel via interrupt. */
+  const ttsRunIdRef = useRef(0);
+  /** Resolves the current chunked-TTS `Audio` wait so interrupt cannot deadlock playback. */
+  const ttsChunkPlayResolveRef = useRef<(() => void) | null>(null);
+  /** Abort in-flight `/api/grok/chat` so Revert / interrupt can cancel the pending reply. */
+  const grokChatAbortRef = useRef<AbortController | null>(null);
   const q1ExecutionTriggeredRef = useRef(false);
 
   const stopLiveRecognitionSafe = () => {
@@ -273,22 +342,32 @@ export function AssistantSidebar({
       let uiStudioApprovedCode = '';
       let systemPrompt = '';
       if (!opts?.onboardingAutopilot) {
-        try {
-          const mpRes = await fetch('/api/master-plan/read');
-          const data = await readResponseJson(mpRes);
-          if (mpRes.ok) latestMP = data as Record<string, unknown>;
-        } catch (e) {
-          console.warn('Master plan not loaded for prompt:', e);
-        }
-        try {
-          const uiRes = await fetch('/api/nebula-ui-studio/code');
-          if (uiRes.ok) {
-            const uiData = await readResponseJson<{ code?: string }>(uiRes);
-            uiStudioApprovedCode = uiData.code?.trim() || '';
-          }
-        } catch (e) {
-          console.warn('Nebula UI Studio code not loaded for prompt:', e);
-        }
+        const [mpWrap, uiWrap] = await Promise.all([
+          (async () => {
+            try {
+              const mpRes = await fetch('/api/master-plan/read');
+              const data = await readResponseJson(mpRes);
+              if (mpRes.ok) return data as Record<string, unknown>;
+            } catch (e) {
+              console.warn('Master plan not loaded for prompt:', e);
+            }
+            return {};
+          })(),
+          (async () => {
+            try {
+              const uiRes = await fetch('/api/nebula-ui-studio/code');
+              if (uiRes.ok) {
+                const uiData = await readResponseJson<{ code?: string }>(uiRes);
+                return uiData.code?.trim() || '';
+              }
+            } catch (e) {
+              console.warn('Nebula UI Studio code not loaded for prompt:', e);
+            }
+            return '';
+          })(),
+        ]);
+        latestMP = mpWrap;
+        uiStudioApprovedCode = uiWrap;
 
         systemPrompt = `You are Nebula (Grok 4 — the brain): voice-first IDE partner. You listen, reason, answer in writing, and produce code when the workflow reaches implementation.
 
@@ -349,7 +428,9 @@ INITIAL ONBOARDING — nebula-project/project-execution-rules.md §4 (ABSOLUTE P
 - For a **new** project, discovery is **only** sequential chat on Tab 1 themes. **Supersede** any instruction below that asks multiple questions at once, asks Tab 2–6 approval questions in chat before Code Mode, or auto-advances tabs in the same session.
 - **Exactly one** short question per assistant message — never combine questions.
 - **First message to the user (exact wording, alone):** "What's the main thing your app should do—if you had to describe it in one core feature, what would it be?"
-- Across **later turns only**, still one question each, cover until satisfied: who it is for; user roles and permissions; security / sensitive data / HIPAA / copyrights if relevant; scale; competitors or similar apps; external APIs or integrations needing keys.
+- Before asking any later follow-up question, first evaluate whether the user's latest answer already includes enough detail to cover: who it is for; user roles and permissions; security / sensitive data / HIPAA / copyrights if relevant; scale; competitors or similar apps; external APIs or integrations needing keys.
+- If the latest user answer already covers everything needed, do **not** ask repeated or redundant follow-up questions.
+- If anything is still missing, ask exactly one targeted missing-item question (never re-ask something already answered).
 - When satisfied, ask **exactly** this (verbatim, alone in that message): "I believe I have all the information I need to start building this for you. Is there anything else you'd like to add?"
 - **After the user's very next reply** to that question: **stop all conversational chat.** In that single response output **only**:
   1) A complete \`<START_MASTERPLAN>...<END_MASTERPLAN>\` block with all six Master Plan sections filled to implementation-grade depth (synthesize sections 2–6 from discovery; no empty placeholders).
@@ -636,11 +717,16 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       };
       if (storedGrok) grokHeaders['X-Grok-Api-Key'] = storedGrok;
 
+      grokChatAbortRef.current?.abort();
+      const chatAbort = new AbortController();
+      grokChatAbortRef.current = chatAbort;
+
       const data = await fetchJson<{
         choices?: { message?: { content?: string; planningPhase?: string } }[];
       }>('/api/grok/chat', {
         method: 'POST',
         headers: grokHeaders,
+        signal: chatAbort.signal,
         body: JSON.stringify({
           userId,
           projectName,
@@ -657,6 +743,9 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
               ],
         }),
       });
+      if (grokChatAbortRef.current === chatAbort) {
+        grokChatAbortRef.current = null;
+      }
       const rawAssistantContent = data.choices?.[0]?.message?.content || '';
       const planningPhase = data.choices?.[0]?.message?.planningPhase || '';
       const masterPlanSource = planningPhase || rawAssistantContent;
@@ -926,13 +1015,14 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             window.clearTimeout(ttsDebounceTimerRef.current);
             ttsDebounceTimerRef.current = null;
           }
-          // Cancel any in-flight TTS request so only the newest answer speaks.
           if (ttsRequestAbortRef.current) {
             ttsRequestAbortRef.current.abort();
             ttsRequestAbortRef.current = null;
           }
 
-          // Stop any currently playing audio
+          ttsRunIdRef.current += 1;
+          const runId = ttsRunIdRef.current;
+
           if ((window as any).nebula_currentAudio) {
             (window as any).nebula_currentAudio.pause();
             (window as any).nebula_currentAudio.currentTime = 0;
@@ -945,61 +1035,100 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           const controller = new AbortController();
           ttsRequestAbortRef.current = controller;
           ttsDebounceTimerRef.current = window.setTimeout(async () => {
-            try {
-              const speakRes = await fetch('/api/speak', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: cleanText }),
-                signal: controller.signal,
-              });
-              if (!speakRes.ok) {
-                const errBody = await speakRes.text();
-                throw new Error(`TTS request failed (${speakRes.status}): ${errBody.slice(0, 140)}`);
+            if (runId !== ttsRunIdRef.current) return;
+
+            const chunks = splitTextForTts(cleanText);
+            if (chunks.length === 0) return;
+
+            pauseListeningForOutgoingTts();
+            isAiSpeakingRef.current = true;
+            setIsAiSpeaking(true);
+
+            const resumeIfStillActive = () => {
+              if (runId !== ttsRunIdRef.current) return;
+              setIsAiSpeaking(false);
+              isAiSpeakingRef.current = false;
+              (window as any).nebula_currentAudio = null;
+              if (ttsObjectUrlRef.current) {
+                URL.revokeObjectURL(ttsObjectUrlRef.current);
+                ttsObjectUrlRef.current = null;
               }
-              const audioBlob = await speakRes.blob();
-              const audioUrl = URL.createObjectURL(audioBlob);
-              ttsObjectUrlRef.current = audioUrl;
+              resumeListeningAfterOutgoingTtsRef.current();
+            };
 
-              const audio = new Audio(audioUrl);
-              (window as any).nebula_currentAudio = audio;
+            try {
+              for (let i = 0; i < chunks.length; i++) {
+                if (runId !== ttsRunIdRef.current || controller.signal.aborted) {
+                  resumeIfStillActive();
+                  return;
+                }
+                const speakRes = await fetch('/api/speak', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ text: chunks[i] }),
+                  signal: controller.signal,
+                });
+                if (!speakRes.ok) {
+                  const errBody = await speakRes.text();
+                  throw new Error(`TTS request failed (${speakRes.status}): ${errBody.slice(0, 140)}`);
+                }
+                const audioBlob = await speakRes.blob();
+                const audioUrl = URL.createObjectURL(audioBlob);
+                if (ttsObjectUrlRef.current) URL.revokeObjectURL(ttsObjectUrlRef.current);
+                ttsObjectUrlRef.current = audioUrl;
 
-              pauseListeningForOutgoingTts();
-              isAiSpeakingRef.current = true;
-              setIsAiSpeaking(true);
+                await new Promise<void>((resolve) => {
+                  if (runId !== ttsRunIdRef.current) {
+                    URL.revokeObjectURL(audioUrl);
+                    resolve();
+                    return;
+                  }
+                  const audio = new Audio(audioUrl);
+                  (window as any).nebula_currentAudio = audio;
+                  let finished = false;
+                  const done = () => {
+                    if (finished) return;
+                    finished = true;
+                    ttsChunkPlayResolveRef.current = null;
+                    try {
+                      URL.revokeObjectURL(audioUrl);
+                    } catch {
+                      /* ignore */
+                    }
+                    if (ttsObjectUrlRef.current === audioUrl) ttsObjectUrlRef.current = null;
+                    resolve();
+                  };
+                  ttsChunkPlayResolveRef.current = done;
+                  audio.onended = done;
+                  audio.onerror = done;
+                  audio.play().catch((e) => {
+                    if (e?.name !== 'AbortError') {
+                      console.error('[TTS] Playback error:', e);
+                    }
+                    done();
+                  });
+                });
+              }
 
-              let ttsPlaybackFinished = false;
-              const finishTtsAndResumeListening = () => {
-                if (ttsPlaybackFinished) return;
-                if ((window as any).nebula_currentAudio !== audio) return;
-                ttsPlaybackFinished = true;
+              resumeIfStillActive();
+            } catch (audioErr: unknown) {
+              const stale = runId !== ttsRunIdRef.current;
+              const aborted = (audioErr as { name?: string })?.name === 'AbortError';
+              if (!stale && !aborted) {
+                console.error('[TTS] Chunked speech failed:', audioErr);
+              }
+              if (!stale) {
+                setIsAiSpeaking(false);
+                isAiSpeakingRef.current = false;
                 (window as any).nebula_currentAudio = null;
                 if (ttsObjectUrlRef.current) {
                   URL.revokeObjectURL(ttsObjectUrlRef.current);
                   ttsObjectUrlRef.current = null;
                 }
-                setIsAiSpeaking(false);
-                isAiSpeakingRef.current = false;
                 resumeListeningAfterOutgoingTtsRef.current();
-              };
-
-              audio.onended = finishTtsAndResumeListening;
-              audio.onerror = finishTtsAndResumeListening;
-
-              audio.play().catch((e) => {
-                if (e?.name !== 'AbortError') {
-                  console.error('[TTS] Playback error:', e);
-                }
-                finishTtsAndResumeListening();
-              });
-            } catch (audioErr) {
-              if ((audioErr as any)?.name !== 'AbortError') {
-                console.error("[TTS] Audio initialization failed:", audioErr);
               }
-              setIsAiSpeaking(false);
-              isAiSpeakingRef.current = false;
-              resumeListeningAfterOutgoingTtsRef.current();
             }
-          }, 150);
+          }, TTS_START_DEBOUNCE_MS);
         } catch (audioErr) {
           if ((audioErr as any)?.name !== 'AbortError') {
             console.error("[TTS] Audio initialization failed:", audioErr);
@@ -1031,6 +1160,18 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
     } catch (error: any) {
       stopRealtimeCodingStatus();
+      const isAbort =
+        error?.name === 'AbortError' ||
+        (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError');
+      if (isAbort) {
+        grokChatAbortRef.current = null;
+        setChatStatus(null);
+        if (opts?.onboardingAutopilot) {
+          setAboutAppActive(false);
+        }
+        return;
+      }
+      grokChatAbortRef.current = null;
       console.error("GROK API Error:", error);
       if (opts?.onboardingAutopilot) {
         setAboutAppActive(false);
@@ -1423,7 +1564,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
           if (currentText && currentText.trim()) {
             handleSendText(currentText);
           }
-        }, 2900);
+        }, HANDS_FREE_AUTOSEND_PAUSE_MS);
       };
 
       recognition.onend = () => {
@@ -1514,7 +1655,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
   const connectLive = async () => {
     try {
-      setMessages(prev => [...prev, { role: 'system', text: 'Hands-free mode active. Speak naturally; I will auto-send after a short pause.' }]);
+      setMessages(prev => [...prev, { role: 'system', text: 'Hands-free mode active. I auto-send after ~3s silence at the end of your turn. Tap Hand (interrupt) to cancel audio or a pending send; use Revert on a user bubble to undo that send and edit.' }]);
       startAudioCapture();
     } catch (err: any) {
       console.error("Failed to connect", err);
@@ -1538,6 +1679,14 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
   }, [codeMode]);
 
   const interruptAiSpeech = () => {
+    grokChatAbortRef.current?.abort();
+    grokChatAbortRef.current = null;
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
+    ttsRunIdRef.current += 1;
+    ttsChunkPlayResolveRef.current?.();
     if (ttsDebounceTimerRef.current) {
       window.clearTimeout(ttsDebounceTimerRef.current);
       ttsDebounceTimerRef.current = null;
@@ -1587,11 +1736,14 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
     !getStoredGrokApiKey() && serverHasGrokKey === false;
 
   const handleRevertMessage = (idx: number) => {
-    if (codeMode || isLoading) return;
+    if (codeMode) return;
     const target = messages[idx];
     if (!target || target.role !== 'user') return;
+    interruptAiSpeech();
     setInputText(target.text);
     setMessages((prev) => prev.slice(0, idx));
+    setIsLoading(false);
+    setChatStatus(null);
   };
 
   return (
@@ -1682,9 +1834,8 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 <button
                   type="button"
                   onClick={() => handleRevertMessage(idx)}
-                  disabled={isLoading}
-                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-headline text-slate-400 transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
-                  title="Revert to this message"
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-headline text-slate-400 transition-colors hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-200"
+                  title="Remove this message and everything after it; restore this text to the input. Cancels a pending Grok reply if still loading."
                 >
                   Revert
                 </button>
