@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Network,
   Palette,
+  Save,
   Server,
   Terminal,
 } from 'lucide-react';
@@ -121,6 +122,11 @@ function App() {
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [workspaceChecked, setWorkspaceChecked] = useState(false);
   const folderFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
+  const isHostedMode =
+    typeof window !== 'undefined' &&
+    !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname) &&
+    !window.location.hostname.endsWith('.local');
 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [assistantWidth, setAssistantWidth] = useState(() => {
@@ -211,8 +217,12 @@ function App() {
   }, [enteredApp]);
 
   const applyWorkspacePath = useCallback(async () => {
+    if (isHostedMode) {
+      setWorkspaceError('Local absolute folder paths are only available in local mode (localhost).');
+      return false;
+    }
     const pathToSet = workspaceInput.trim();
-    if (!pathToSet || workspaceBusy) return;
+    if (!pathToSet || workspaceBusy) return false;
     setWorkspaceBusy(true);
     setWorkspaceError(null);
     setWorkspaceNotice(null);
@@ -229,17 +239,23 @@ function App() {
       setWorkspaceInput(active);
       setTerminalOutput((prev) => [...prev, `[workspace] active folder set to ${active}`]);
       window.dispatchEvent(new CustomEvent('nebula-master-plan-updated'));
+      return true;
     } catch (e) {
       setWorkspaceError(e instanceof Error ? e.message : 'Could not set workspace path');
       setWorkspacePath(null);
+      return false;
     } finally {
       setWorkspaceBusy(false);
       setWorkspaceChecked(true);
     }
-  }, [workspaceBusy, workspaceInput]);
+  }, [isHostedMode, workspaceBusy, workspaceInput]);
 
   const pickWorkspaceFolder = useCallback(async () => {
     if (workspaceBusy) return;
+    if (isHostedMode) {
+      setWorkspaceError('Folder picking cannot map to your computer path in hosted mode. Use localhost for local file writes.');
+      return;
+    }
     const picker = (window as Window & { showDirectoryPicker?: () => Promise<{ name?: string }> }).showDirectoryPicker;
     if (picker) {
       try {
@@ -260,7 +276,7 @@ function App() {
       'Using browser fallback picker. After choosing a folder, paste its absolute path into the input and click "Set active folder".',
     );
     folderFileInputRef.current?.click();
-  }, [workspaceBusy]);
+  }, [isHostedMode, workspaceBusy]);
 
   const onFolderInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -276,6 +292,23 @@ function App() {
     );
     e.target.value = '';
   }, []);
+
+  const requestWorkspaceAccess = useCallback(
+    (next?: () => void) => {
+      if (isHostedMode) {
+        setWorkspaceNotice('Hosted mode detected. Local folder binding is disabled here; use localhost for local save/commit.');
+        next?.();
+        return;
+      }
+      if (workspacePath) {
+        next?.();
+        return;
+      }
+      setWorkspaceNotice('Set your local folder first to save, commit, or leave this page.');
+      setShowWorkspaceModal(true);
+    },
+    [isHostedMode, workspacePath],
+  );
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -512,78 +545,6 @@ function App() {
     return <LandingPage onEnter={() => setEnteredApp(true)} />;
   }
 
-  if (!workspacePath) {
-    return (
-      <div className="h-screen min-h-0 flex flex-col overflow-hidden bg-[#020C17] text-slate-100">
-        <header className="h-16 shrink-0 border-b border-white/10 bg-[#040f1a]/70 backdrop-blur flex items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <Logo className="w-9 h-9" />
-            <div>
-              <p className="text-cyan-300 font-headline text-lg leading-tight">nebulla beta</p>
-              <p className="text-slate-400 text-xs leading-tight">Select local app folder first</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setEnteredApp(false)}
-            className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30"
-          >
-            Back to Landing
-          </button>
-        </header>
-        <main className="flex-1 min-h-0 flex items-center justify-center px-6">
-          <section className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#040f1a]/70 p-6 md:p-8 space-y-5">
-            <h1 className="text-xl text-cyan-200 font-headline">Open your local product folder</h1>
-            <p className="text-sm text-slate-300">
-              Before generating any app code, choose a local folder on your computer. Nebulla will create frontend, backend,
-              and database files only inside that folder.
-            </p>
-            <label className="block space-y-2">
-              <span className="text-xs uppercase tracking-wider text-slate-500">Local folder absolute path</span>
-              <input
-                value={workspaceInput}
-                onChange={(e) => setWorkspaceInput(e.target.value)}
-                placeholder="/Users/you/Projects/Accountant"
-                className="w-full rounded-lg border border-white/15 bg-[#081425] px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500/60"
-                disabled={workspaceBusy}
-              />
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                ref={folderFileInputRef}
-                type="file"
-                className="hidden"
-                onChange={onFolderInputChange}
-                // We set these attributes directly to support directory picking
-                // in browsers that do not expose showDirectoryPicker.
-                {...{ webkitdirectory: '', directory: '', multiple: true }}
-              />
-              <button
-                type="button"
-                onClick={() => void pickWorkspaceFolder()}
-                disabled={workspaceBusy}
-                className="px-4 py-2 rounded-lg border border-white/20 bg-white/5 text-slate-200 text-sm disabled:opacity-40"
-              >
-                Choose folder
-              </button>
-              <button
-                type="button"
-                onClick={() => void applyWorkspacePath()}
-                disabled={workspaceBusy || !workspaceInput.trim()}
-                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-500/15 text-cyan-100 text-sm disabled:opacity-40"
-              >
-                {workspaceBusy ? 'Setting folder…' : 'Set active folder'}
-              </button>
-              {workspaceChecked && workspaceBusy ? <span className="text-xs text-slate-500">Validating folder…</span> : null}
-            </div>
-            {workspaceNotice ? <p className="text-sm text-amber-200/90">{workspaceNotice}</p> : null}
-            {workspaceError ? <p className="text-sm text-red-300/90">{workspaceError}</p> : null}
-          </section>
-        </main>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen min-h-0 flex flex-col overflow-hidden bg-[#020C17] text-slate-100">
       <header className="h-16 shrink-0 border-b border-white/10 bg-[#040f1a]/70 backdrop-blur flex items-center justify-between px-6">
@@ -596,7 +557,7 @@ function App() {
         </div>
         <button
           type="button"
-          onClick={() => setEnteredApp(false)}
+            onClick={() => requestWorkspaceAccess(() => setEnteredApp(false))}
           className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30"
         >
           Back to Landing
@@ -623,6 +584,17 @@ function App() {
               <NavBtn panel="source-control" title="Source control">
                 <FolderGit2 className="w-5 h-5" />
               </NavBtn>
+              <button
+                type="button"
+                title="Save / Commit"
+                aria-label="Save / Commit"
+                onClick={() => requestWorkspaceAccess(() => setMainPanel('source-control'))}
+                className={`p-2 rounded-lg transition-colors ${
+                  mainPanel === 'source-control' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-500 hover:text-cyan-300'
+                }`}
+              >
+                <Save className="w-5 h-5" />
+              </button>
               <NavBtn panel="nebula-ui-studio" title="Nebulla UI Studio">
                 <Palette className="w-5 h-5" />
               </NavBtn>
@@ -713,7 +685,7 @@ function App() {
               </button>
             </form>
             <div className="h-6 border-t border-white/5 px-3 flex items-center text-[10px] text-slate-500">
-              cwd: {workspacePath}
+              cwd: {workspacePath || 'not set'}
             </div>
           </div>
         </section>
@@ -744,6 +716,74 @@ function App() {
           }}
         />
       </main>
+      {showWorkspaceModal ? (
+        <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <section className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#040f1a] p-6 md:p-8 space-y-5">
+            <div className="flex items-center justify-between gap-4">
+              <h1 className="text-xl text-cyan-200 font-headline">Open your local product folder</h1>
+              <button
+                type="button"
+                onClick={() => setShowWorkspaceModal(false)}
+                className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30"
+              >
+                Close
+              </button>
+            </div>
+            <p className="text-sm text-slate-300">
+              Before generating app code, saving locally, committing, or leaving this page, choose a local folder on your computer.
+              Nebulla will create frontend, backend, and database files only inside that folder.
+            </p>
+            {isHostedMode ? (
+              <p className="text-sm text-amber-200/90 border border-amber-500/25 bg-amber-500/10 rounded-lg px-3 py-2">
+                Hosted mode detected ({typeof window !== 'undefined' ? window.location.hostname : 'remote host'}). Local absolute paths
+                from your computer cannot be resolved by this server. Use localhost for local folder save/commit flows.
+              </p>
+            ) : null}
+            <label className="block space-y-2">
+              <span className="text-xs uppercase tracking-wider text-slate-500">Local folder absolute path</span>
+              <input
+                value={workspaceInput}
+                onChange={(e) => setWorkspaceInput(e.target.value)}
+                placeholder="/Users/you/Projects/Accountant"
+                className="w-full rounded-lg border border-white/15 bg-[#081425] px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500/60"
+                disabled={workspaceBusy || isHostedMode}
+              />
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                ref={folderFileInputRef}
+                type="file"
+                className="hidden"
+                onChange={onFolderInputChange}
+                {...{ webkitdirectory: '', directory: '', multiple: true }}
+              />
+              <button
+                type="button"
+                onClick={() => void pickWorkspaceFolder()}
+                disabled={workspaceBusy || isHostedMode}
+                className="px-4 py-2 rounded-lg border border-white/20 bg-white/5 text-slate-200 text-sm disabled:opacity-40"
+              >
+                Choose folder
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void applyWorkspacePath().then((ok) => {
+                    if (ok) setShowWorkspaceModal(false);
+                  });
+                }}
+                disabled={workspaceBusy || !workspaceInput.trim() || isHostedMode}
+                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-500/15 text-cyan-100 text-sm disabled:opacity-40"
+              >
+                {workspaceBusy ? 'Setting folder…' : 'Set active folder'}
+              </button>
+              {workspaceChecked && workspaceBusy ? <span className="text-xs text-slate-500">Validating folder…</span> : null}
+            </div>
+            {workspaceNotice ? <p className="text-sm text-amber-200/90">{workspaceNotice}</p> : null}
+            {workspaceError ? <p className="text-sm text-red-300/90">{workspaceError}</p> : null}
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
