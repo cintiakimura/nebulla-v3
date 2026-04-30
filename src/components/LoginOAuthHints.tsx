@@ -1,5 +1,6 @@
 import { getGithubOAuthCallbackUrl } from '../lib/authRedirect';
 import { readResponseJson } from '../lib/apiFetch';
+import { withProjectQuery } from '../lib/nebulaProjectApi';
 import { useEffect, useState } from 'react';
 
 export function LoginOAuthHints() {
@@ -7,7 +8,7 @@ export function LoginOAuthHints() {
   const gh = getGithubOAuthCallbackUrl(publicSiteUrl);
 
   useEffect(() => {
-    fetch('/api/config')
+    fetch(withProjectQuery('/api/config'))
       .then((res) => readResponseJson<{ publicSiteUrl?: string }>(res))
       .then((c) => setPublicSiteUrl((c.publicSiteUrl || '').trim()))
       .catch(() => setPublicSiteUrl(''));

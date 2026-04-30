@@ -2,13 +2,18 @@ import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { FileText } from 'lucide-react';
 import { readResponseJson } from '../lib/apiFetch';
+import { withProjectQuery } from '../lib/nebulaProjectApi';
 
-const DEFAULT_PATH = 'nebula-project/project-execution-rules.md';
+const DEFAULT_PATH = 'project-execution-rules.md';
 
 export function ExecutionRulesViewer({
   filePath = DEFAULT_PATH,
+  projectKey = 'default',
+  projectName = '',
 }: {
   filePath?: string;
+  projectKey?: string;
+  projectName?: string;
   onExitCodeMode?: () => void;
 }) {
   const [body, setBody] = useState<string>('');
@@ -22,7 +27,7 @@ export function ExecutionRulesViewer({
       setErr(null);
       try {
         const q = encodeURIComponent(filePath);
-        const res = await fetch(`/api/files/content?path=${q}`);
+        const res = await fetch(withProjectQuery(`/api/files/content?path=${q}`));
         const data = await readResponseJson<{ content?: string; error?: string }>(res);
         if (!res.ok) {
           throw new Error(data.error || res.statusText);
@@ -37,7 +42,7 @@ export function ExecutionRulesViewer({
     return () => {
       cancelled = true;
     };
-  }, [filePath]);
+  }, [filePath, projectKey, projectName]);
 
   return (
     <div className="flex flex-col h-full glass-panel rounded-md border border-cyan-500/20 overflow-hidden shadow-2xl bg-[#020810]/90">

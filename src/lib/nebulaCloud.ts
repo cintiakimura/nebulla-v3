@@ -31,6 +31,7 @@ export type CloudProjectRow = {
   name: string;
   pages: unknown;
   edges: unknown;
+  workspace_id?: string | null;
   updated_at: string;
 };
 

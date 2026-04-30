@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import path from "path";
 import express from "express";
 import fs from "fs";
-import { exec, execFile } from "child_process";
+import { exec, execFile, spawn } from "child_process";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
@@ -18,7 +18,7 @@ import {
   guardianExpressErrorHandler,
   captureError,
 } from "./guardian/nebulaGuardian";
-import { mountRenderStack, getRenderPublicConfig } from "./renderStack";
+import { mountRenderStack, getRenderPublicConfig, resolveNebulaProjectDiskKey } from "./renderStack";
 import {
   resolvePencilApiKey,
   resolvePencilMockupsUrl,
@@ -34,45 +34,14 @@ import {
   callGrokAdaptUserSvg,
 } from "./lib/nebulaUiStudioGrok";
 import { getNebullaPersistRoot, getNebulaProjectDocsRoot } from "./lib/nebulaWorkspaceRoot";
+import { ensureCloudProjectWorkspace } from "./lib/nebulaCloudProjectRoot";
+import { getProjectKeyFromRequest } from "./lib/nebulaProjectKey";
+
+type NebulaRequest = express.Request & { nebulaDiskKey?: string };
 
 const REPO_ROOT = getNebullaPersistRoot();
+/** Bundled template docs (seed for new cloud projects). */
 const NEBULA_PROJECT_ROOT = getNebulaProjectDocsRoot(REPO_ROOT);
-const ACTIVE_WORKSPACE_FILE = path.join(NEBULA_PROJECT_ROOT, ".active-workspace.json");
-
-type ActiveWorkspaceState = { activePath: string; updatedAt: string };
-
-const readActiveWorkspaceState = (): ActiveWorkspaceState | null => {
-  try {
-    if (!fs.existsSync(ACTIVE_WORKSPACE_FILE)) return null;
-    const parsed = JSON.parse(fs.readFileSync(ACTIVE_WORKSPACE_FILE, "utf8"));
-    const activePath = typeof parsed?.activePath === "string" ? parsed.activePath.trim() : "";
-    if (!activePath) return null;
-    return {
-      activePath: path.resolve(activePath),
-      updatedAt: typeof parsed?.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
-};
-
-const writeActiveWorkspaceState = (activePath: string): ActiveWorkspaceState => {
-  const next: ActiveWorkspaceState = { activePath: path.resolve(activePath), updatedAt: new Date().toISOString() };
-  fs.writeFileSync(ACTIVE_WORKSPACE_FILE, JSON.stringify(next, null, 2), "utf8");
-  return next;
-};
-
-const getActiveWorkspaceRoot = (): string | null => {
-  const state = readActiveWorkspaceState();
-  if (!state) return null;
-  if (!fs.existsSync(state.activePath)) return null;
-  try {
-    if (!fs.statSync(state.activePath).isDirectory()) return null;
-  } catch {
-    return null;
-  }
-  return state.activePath;
-};
 
 const resolveWorkspaceRelative = (workspaceRoot: string, relativePath: string): string => {
   const clean = String(relativePath || "").trim().replace(/^\.\/+/, "");
@@ -97,6 +66,18 @@ async function startServer() {
 
   await mountRenderStack(app);
 
+  app.use(async (req, _res, next) => {
+    try {
+      (req as NebulaRequest).nebulaDiskKey = await resolveNebulaProjectDiskKey(req);
+    } catch {
+      (req as NebulaRequest).nebulaDiskKey = getProjectKeyFromRequest(req);
+    }
+    next();
+  });
+
+  const projectDiskKey = (req: express.Request) =>
+    (req as NebulaRequest).nebulaDiskKey ?? getProjectKeyFromRequest(req);
+
   // LOGGING MIDDLEWARE
   app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
@@ -113,7 +94,7 @@ async function startServer() {
     const render = getRenderPublicConfig();
     const publicSiteUrl = process.env.PUBLIC_SITE_URL?.trim() || "";
     const pencilKey = resolvePencilApiKey();
-    const activeWorkspace = getActiveWorkspaceRoot();
+    const pp = ensureCloudProjectWorkspace(REPO_ROOT, NEBULA_PROJECT_ROOT, projectDiskKey(req));
     res.json({
       ...render,
       publicSiteUrl,
@@ -124,42 +105,61 @@ async function startServer() {
       hasGrokWriterKey: writer.length >= 20,
       pencilMockupsReady: Boolean(pencilKey),
       nebulaUiStudioDemo: Boolean(!pencilKey && useBundledDemoMockupWithoutKey()),
-      hasActiveWorkspace: Boolean(activeWorkspace),
-      activeWorkspacePath: activeWorkspace || null,
+      workspaceMode: "cloud",
+      hasActiveWorkspace: true,
+      activeWorkspacePath: null,
+      cloudProjectKey: pp.projectKey,
     });
   });
 
-  app.get("/api/workspace/active", (_req, res) => {
-    const activePath = getActiveWorkspaceRoot();
-    const persisted = readActiveWorkspaceState();
+  /** Cloud workspace metadata (no local folder selection). */
+  app.get("/api/workspace/active", (req, res) => {
+    const pp = ensureCloudProjectWorkspace(REPO_ROOT, NEBULA_PROJECT_ROOT, projectDiskKey(req));
     res.json({
-      activePath,
-      configuredPath: persisted?.activePath || null,
-      exists: Boolean(activePath),
+      mode: "cloud",
+      projectKey: pp.projectKey,
+      activePath: null,
+      configuredPath: null,
+      exists: true,
     });
   });
 
-  app.post("/api/workspace/active", (req, res) => {
-    const rawPath = typeof req.body?.path === "string" ? req.body.path.trim() : "";
-    if (!rawPath) return res.status(400).json({ error: "path is required" });
-    const abs = path.resolve(rawPath);
-    if (!fs.existsSync(abs)) return res.status(404).json({ error: "Folder not found" });
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(abs);
-    } catch {
-      return res.status(400).json({ error: "Cannot access folder" });
-    }
-    if (!stat.isDirectory()) return res.status(400).json({ error: "Path must be a folder" });
-    const saved = writeActiveWorkspaceState(abs);
-    res.json({ success: true, activePath: saved.activePath, updatedAt: saved.updatedAt });
+  app.post("/api/workspace/active", (_req, res) => {
+    res.status(410).json({
+      error: "Local folder binding is disabled. Projects use server-side cloud workspaces per project key.",
+    });
   });
 
-  // Master Plan Update Logic (Clean JSON-based storage)
-  const masterPlanPath = path.join(NEBULA_PROJECT_ROOT, "master-plan.json");
-  const nebulaUiStudioPath = path.join(NEBULA_PROJECT_ROOT, "nebula-sysh-ui-sysh-studio.md");
-  /** On-disk folder for approved UI exports (alongside the markdown manifest). */
-  const nebulaUiStudioOutputDir = path.join(NEBULA_PROJECT_ROOT, "nebulla-sysh-ui-sysh-studio");
+  const projectPathsFor = (req: express.Request) =>
+    ensureCloudProjectWorkspace(REPO_ROOT, NEBULA_PROJECT_ROOT, projectDiskKey(req));
+
+  /** Optional: download active cloud project as a tar.gz archive. */
+  app.get("/api/cloud-project/download", (req, res) => {
+    try {
+      const pp = projectPathsFor(req);
+      res.setHeader("Content-Type", "application/gzip");
+      res.setHeader("Content-Disposition", `attachment; filename="nebula-cloud-${pp.projectKey}.tar.gz"`);
+      const child = spawn("tar", ["-czf", "-", "-C", pp.workspaceRoot, "."], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child.stderr.on("data", () => {});
+      child.stdout.pipe(res);
+      child.on("error", (err) => {
+        if (!res.headersSent) {
+          res.status(500).json({ error: err instanceof Error ? err.message : "tar failed" });
+        }
+      });
+      child.on("close", (code) => {
+        if (code !== 0 && !res.headersSent) {
+          res.status(500).json({ error: `tar exited ${code}` });
+        }
+      });
+    } catch (e) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: e instanceof Error ? e.message : "download failed" });
+      }
+    }
+  });
 
   const resolveNebullaGrokKeyForReq = (req: express.Request): string | undefined => {
     const headerKey =
@@ -175,22 +175,28 @@ async function startServer() {
     return undefined;
   };
 
-  const readSkillDesignSystemExcerpt = (): string => {
-    const skillPath = fs.existsSync(path.join(NEBULA_PROJECT_ROOT, "SKILL.md"))
-      ? path.join(NEBULA_PROJECT_ROOT, "SKILL.md")
-      : path.join(REPO_ROOT, "SKILL.md");
-    if (!fs.existsSync(skillPath)) return "";
-    try {
-      let raw = fs.readFileSync(skillPath, "utf8").replace(/^---[\s\S]*?---\s*/m, "").trim();
-      if (raw.length > 14000) raw = `${raw.slice(0, 14000)}\n…`;
-      return raw;
-    } catch {
-      return "";
+  const readSkillDesignSystemExcerpt = (workspaceRoot: string): string => {
+    const candidates = [
+      path.join(workspaceRoot, "SKILL.md"),
+      path.join(NEBULA_PROJECT_ROOT, "SKILL.md"),
+      path.join(REPO_ROOT, "SKILL.md"),
+    ];
+    for (const skillPath of candidates) {
+      if (!fs.existsSync(skillPath)) continue;
+      try {
+        let raw = fs.readFileSync(skillPath, "utf8").replace(/^---[\s\S]*?---\s*/m, "").trim();
+        if (raw.length > 14000) raw = `${raw.slice(0, 14000)}\n…`;
+        return raw;
+      } catch {
+        /* try next */
+      }
     }
+    return "";
   };
 
-  const ensureNebulaUiStudioFile = () => {
+  const ensureNebulaUiStudioFileAt = (nebulaUiStudioPath: string) => {
     if (!fs.existsSync(nebulaUiStudioPath)) {
+      fs.mkdirSync(path.dirname(nebulaUiStudioPath), { recursive: true });
       fs.writeFileSync(
         nebulaUiStudioPath,
         `<!--
@@ -229,10 +235,9 @@ No approved UI code yet.
     return `${section}\n\n${content}`;
   };
 
-  ensureNebulaUiStudioFile();
-
   app.get("/api/master-plan/read", (req, res) => {
     try {
+      const { masterPlanPath } = projectPathsFor(req);
       if (!fs.existsSync(masterPlanPath)) {
         return res.status(404).json({ error: "Master plan data not found" });
       }
@@ -265,6 +270,7 @@ No approved UI code yet.
     }
 
     try {
+      const { masterPlanPath } = projectPathsFor(req);
       let plan = {};
       if (fs.existsSync(masterPlanPath)) {
         plan = JSON.parse(fs.readFileSync(masterPlanPath, "utf8"));
@@ -284,7 +290,8 @@ No approved UI code yet.
   // Silent Writer Endpoint
   app.post("/api/write-spec", (req, res) => {
     const { content } = req.body;
-    const specPath = path.join(NEBULA_PROJECT_ROOT, "Nebula Architecture Spec.md");
+    const { workspaceRoot } = projectPathsFor(req);
+    const specPath = path.join(workspaceRoot, "Nebula Architecture Spec.md");
     try {
       fs.writeFileSync(specPath, content, "utf8");
       res.json({ success: true });
@@ -297,8 +304,7 @@ No approved UI code yet.
   // Example backend function: read file system
   app.get("/api/fs/list", (req, res) => {
     try {
-      const workspaceRoot = getActiveWorkspaceRoot();
-      if (!workspaceRoot) return res.status(409).json({ error: "No active workspace selected" });
+      const { workspaceRoot } = projectPathsFor(req);
       const pathParam = req.query.path as string || ".";
       const targetDir = resolveWorkspaceRelative(workspaceRoot, pathParam);
       
@@ -341,8 +347,7 @@ No approved UI code yet.
 
   app.get("/api/files/content", (req, res) => {
     try {
-      const workspaceRoot = getActiveWorkspaceRoot();
-      if (!workspaceRoot) return res.status(409).json({ error: "No active workspace selected" });
+      const { workspaceRoot } = projectPathsFor(req);
       const filePath = req.query.path as string;
       if (!filePath) return res.status(400).json({ error: "Path is required" });
 
@@ -361,8 +366,7 @@ No approved UI code yet.
 
   app.post("/api/files/apply-generated", (req, res) => {
     try {
-      const workspaceRoot = getActiveWorkspaceRoot();
-      if (!workspaceRoot) return res.status(409).json({ error: "No active workspace selected" });
+      const { workspaceRoot } = projectPathsFor(req);
       const raw = typeof req.body?.content === "string" ? req.body.content : "";
       if (!raw.trim()) return res.status(400).json({ error: "content is required" });
 
@@ -520,15 +524,13 @@ No approved UI code yet.
     return entries;
   }
 
-  /** Git status + workspace tree for user-selected local folder. */
-  app.get("/api/source-control/overview", async (_req, res) => {
+  /** Git status + workspace tree for the active cloud project. */
+  app.get("/api/source-control/overview", async (req, res) => {
     try {
-      const workspaceRoot = getActiveWorkspaceRoot();
-      if (!workspaceRoot) {
-        return res.status(409).json({ error: "No active workspace selected" });
-      }
+      const pp = projectPathsFor(req);
+      const workspaceRoot = pp.workspaceRoot;
       const nebulaFiles = collectWorkspaceFiles(workspaceRoot);
-      const nebulaProjectRelative = workspaceRoot;
+      const nebulaProjectRelative = `cloud:${pp.projectKey}`;
 
       let git: {
         branch: string;
@@ -578,10 +580,7 @@ No approved UI code yet.
     if (!command) {
       return res.status(400).json({ output: "No command provided" });
     }
-    const workspaceRoot = getActiveWorkspaceRoot();
-    if (!workspaceRoot) {
-      return res.status(409).json({ output: "No active workspace selected. Set a local folder first." });
-    }
+    const { workspaceRoot } = projectPathsFor(req);
     
     // Execute the command in the current working directory
     exec(command, { cwd: workspaceRoot, timeout: 30000 }, (error, stdout, stderr) => {
@@ -744,7 +743,8 @@ No approved UI code yet.
       return res.status(400).json({ error: "prompt is required" });
     }
     try {
-      ensureNebulaUiStudioFile();
+      const { nebulaUiStudioPath } = projectPathsFor(req);
+      ensureNebulaUiStudioFileAt(nebulaUiStudioPath);
       const existing = fs.readFileSync(nebulaUiStudioPath, "utf8");
       const withPrompt = upsertNebulaCommentSection(existing, "NEBULA_UI_STUDIO_PROMPT", prompt);
       const existingCode = extractNebulaCommentSection(withPrompt, "NEBULA_UI_STUDIO_CODE");
@@ -764,10 +764,11 @@ No approved UI code yet.
     const variationIndex = typeof req.body?.variationIndex === "number" ? req.body.variationIndex : 0;
 
     try {
-      ensureNebulaUiStudioFile();
+      const { nebulaUiStudioPath, workspaceRoot } = projectPathsFor(req);
+      ensureNebulaUiStudioFileAt(nebulaUiStudioPath);
       const uiStudioFile = fs.readFileSync(nebulaUiStudioPath, "utf8");
       const storedPrompt = extractNebulaCommentSection(uiStudioFile, "NEBULA_UI_STUDIO_PROMPT");
-      const skillExcerpt = readSkillDesignSystemExcerpt();
+      const skillExcerpt = readSkillDesignSystemExcerpt(workspaceRoot);
 
       const body = buildNebulaUiStudioPromptBody({
         storedPrompt,
@@ -887,7 +888,8 @@ No approved UI code yet.
       return res.status(400).json({ error: "code is required" });
     }
     try {
-      ensureNebulaUiStudioFile();
+      const { nebulaUiStudioPath, nebulaUiStudioOutputDir } = projectPathsFor(req);
+      ensureNebulaUiStudioFileAt(nebulaUiStudioPath);
       const existing = fs.readFileSync(nebulaUiStudioPath, "utf8");
       const promptText = extractNebulaCommentSection(existing, "NEBULA_UI_STUDIO_PROMPT") || "No prompt generated yet.";
       const withPrompt = upsertNebulaCommentSection(existing, "NEBULA_UI_STUDIO_PROMPT", promptText);
@@ -902,9 +904,10 @@ No approved UI code yet.
     }
   });
 
-  app.get("/api/nebula-ui-studio/code", (_req, res) => {
+  app.get("/api/nebula-ui-studio/code", (req, res) => {
     try {
-      ensureNebulaUiStudioFile();
+      const { nebulaUiStudioPath } = projectPathsFor(req);
+      ensureNebulaUiStudioFileAt(nebulaUiStudioPath);
       const existing = fs.readFileSync(nebulaUiStudioPath, "utf8");
       const code = extractNebulaCommentSection(existing, "NEBULA_UI_STUDIO_CODE");
       res.json({ code: code || "" });
@@ -914,9 +917,9 @@ No approved UI code yet.
     }
   });
 
-  const readWorkflowFileSafe = (relPath: string): string => {
+  const readWorkflowFileSafe = (docsRoot: string, relPath: string): string => {
     try {
-      const fp = path.join(NEBULA_PROJECT_ROOT, relPath);
+      const fp = path.join(docsRoot, relPath);
       if (!fs.existsSync(fp)) return `[missing] ${relPath}`;
       const raw = fs.readFileSync(fp, "utf8");
       return raw.length > 20000 ? `${raw.slice(0, 20000)}\n...[truncated]` : raw;
@@ -925,14 +928,15 @@ No approved UI code yet.
     }
   };
 
-  const buildProjectWorkflowExecutionContext = (): string => {
+  const buildProjectWorkflowExecutionContext = (req: express.Request): string => {
+    const { workspaceRoot } = projectPathsFor(req);
     const order = [
       "project-execution-rules.md",
       "master-plan.json",
       "environment-setup.md",
       "nebula-sysh-ui-sysh-studio.md",
     ];
-    return order.map((p) => `\n=== ${p} ===\n${readWorkflowFileSafe(p)}`).join("\n");
+    return order.map((p) => `\n=== ${p} ===\n${readWorkflowFileSafe(workspaceRoot, p)}`).join("\n");
   };
 
   app.post("/api/grok/execute-project-rules", async (req, res) => {
@@ -965,7 +969,7 @@ No approved UI code yet.
       typeof projectName === "string" && projectName.trim() ? projectName.trim() : "Untitled Project";
 
     try {
-      const workflowContext = buildProjectWorkflowExecutionContext();
+      const workflowContext = buildProjectWorkflowExecutionContext(req);
       const memory = buildMemorySystemContent(convUserId, convProject);
       const incomingMessages: { role: string; content?: string }[] = Array.isArray(messages) ? messages : [];
       const baseMessages = injectMemoryIntoMessages(incomingMessages, memory);
@@ -1044,6 +1048,7 @@ Rules:
       typeof userNote === "string" && userNote.trim() ? userNote.trim().slice(0, 4000) : "";
 
     try {
+      const { masterPlanPath } = projectPathsFor(req);
       let planSnapshot: Record<string, string> = {};
       try {
         if (fs.existsSync(masterPlanPath)) {
@@ -1130,7 +1135,7 @@ Strict rules:
       fs.writeFileSync(masterPlanPath, JSON.stringify(plan, null, 2), "utf8");
       console.log(`[go-code] Wrote ${PRE_CODING_SUMMARY_KEY} (${summary.length} chars)`);
 
-      const workflowContext = buildProjectWorkflowExecutionContext();
+      const workflowContext = buildProjectWorkflowExecutionContext(req);
       const codeModel = process.env.GROK_CODE_MODEL?.trim() || "grok-code-fast-1";
       const codeSystemPrompt = `You are Grok Code (coding phase). The user pressed **Go** in Nebula Partner.
 
@@ -1255,7 +1260,7 @@ ${workflowContext}`;
       if (!answer) {
         return res.status(400).json({ error: "User answer required for onboarding autopilot" });
       }
-      const wf = buildProjectWorkflowExecutionContext();
+      const wf = buildProjectWorkflowExecutionContext(req);
       const autopilotSystem = `ONBOARDING_AUTOPILOT — single model turn. No conversational filler. No permission questions. Do not ask follow-ups.
 
 The user answered ONLY the first discovery question (core feature of their app). Infer reasonable defaults for audience, stack, pages, integrations, and environment (aligned with project-execution-rules.md) without asking the user.
@@ -1327,7 +1332,7 @@ ${answer.slice(0, 8000)}`;
       let grok4PlanningCapture = responseText;
 
       if (/\bSTART_CODING\b/i.test(responseText)) {
-        const workflowContext = buildProjectWorkflowExecutionContext();
+        const workflowContext = buildProjectWorkflowExecutionContext(req);
         const codeModel = process.env.GROK_CODE_MODEL?.trim() || "grok-code-fast-1";
         const codeSystemPrompt = `You are now in strict coding mode.
 Follow project-execution-rules.md exactly (single orchestration file).
@@ -1413,7 +1418,7 @@ CRITICAL OUTPUT CONTRACT (no deviation):
       console.log(
         `[GROK B] Trigger: ANSWER_Q tabs=${summaryEntries.map((x) => x.tabIndex).join(",")}`
       );
-      runGrokB(masterPlanPath, summaryEntries).catch((err) => {
+      runGrokB(projectPathsFor(req).masterPlanPath, summaryEntries).catch((err) => {
         console.error("[GROK B] Failed to update Master Plan:", err);
       });
     }

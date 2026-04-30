@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, FileCode, FolderGit2, FolderOpen, RefreshCw } from 'lucide-react';
 import { readResponseJson } from '../lib/apiFetch';
+import { withProjectQuery } from '../lib/nebulaProjectApi';
 
 type Overview = {
   nebulaProjectRoot: string;
@@ -70,7 +71,13 @@ function buildTree(paths: string[]): TreeNode[] {
   return root.children;
 }
 
-export function SourceControlPanel() {
+export function SourceControlPanel({
+  projectKey = 'default',
+  projectName = '',
+}: {
+  projectKey?: string;
+  projectName?: string;
+}) {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -85,7 +92,7 @@ export function SourceControlPanel() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch('/api/source-control/overview');
+      const res = await fetch(withProjectQuery('/api/source-control/overview'));
       const j = await readResponseJson<Overview & { error?: string }>(res);
       if (!res.ok) {
         throw new Error(typeof j.error === 'string' ? j.error : `HTTP ${res.status}`);
@@ -97,7 +104,7 @@ export function SourceControlPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [projectKey, projectName]);
 
   useEffect(() => {
     void load();
@@ -144,7 +151,9 @@ export function SourceControlPanel() {
     setPreviewLoading(true);
     setPreview(null);
     try {
-      const res = await fetch(`/api/files/content?path=${encodeURIComponent(relativePath)}`);
+      const res = await fetch(
+        withProjectQuery(`/api/files/content?path=${encodeURIComponent(relativePath)}`),
+      );
       const j = await readResponseJson<{ content?: string; error?: string }>(res);
       if (!res.ok) {
         throw new Error(typeof j.error === 'string' ? j.error : 'Read failed');
@@ -239,7 +248,7 @@ export function SourceControlPanel() {
           <div>
             <h2 className="text-sm font-headline tracking-wide">Source control</h2>
             <p className="text-[10px] text-slate-500 font-mono">
-              Local workspace: <span className="text-cyan-500/80">{data?.nebulaProjectRoot ?? 'not set'}</span>
+              Cloud workspace: <span className="text-cyan-500/80">{data?.nebulaProjectRoot ?? 'not set'}</span>
             </p>
           </div>
         </div>

@@ -15,6 +15,7 @@ import { VoiceLinesIcon } from './VoiceLinesIcon';
 import { Logo } from './Logo';
 import { fetchJson, readResponseJson } from '../lib/apiFetch';
 import { getStoredGrokApiKey } from '../lib/grokKey';
+import { withProjectBody, withProjectQuery } from '../lib/nebulaProjectApi';
 
 const MASTER_PLAN_TITLES = [
   '1. Goal of the app',
@@ -122,12 +123,15 @@ export function AssistantSidebar({
   width = 320,
   userId = 'anonymous',
   projectName = 'Untitled Project',
+  activeProjectKey = 'default',
   codeMode = false,
   onExitCodeMode,
 }: {
   width?: number;
   userId?: string;
   projectName?: string;
+  /** Server cloud workspace id (matches App active project). */
+  activeProjectKey?: string;
   /** When true, Nebula Partner does not send chat; orchestration is code-only per project-execution-rules.md */
   codeMode?: boolean;
   onExitCodeMode?: () => void;
@@ -152,16 +156,16 @@ export function AssistantSidebar({
   const [serverHasGrokKey, setServerHasGrokKey] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetch('/api/config')
+    fetch(withProjectQuery('/api/config'))
       .then(async (r) => readResponseJson(r))
       .then((cfg: { hasGrokApiKey?: boolean }) =>
         setServerHasGrokKey(Boolean(cfg.hasGrokApiKey))
       )
       .catch(() => setServerHasGrokKey(false));
-  }, []);
+  }, [activeProjectKey]);
 
   useEffect(() => {
-    fetch('/api/master-plan/read')
+    fetch(withProjectQuery('/api/master-plan/read'))
       .then(async (res) => {
         try {
           const data = await readResponseJson(res);
@@ -171,7 +175,7 @@ export function AssistantSidebar({
         }
       })
       .catch(console.error);
-  }, []);
+  }, [activeProjectKey]);
   const [inputText, setInputText] = useState('');
   const [buildQueue, setBuildQueue] = useState<string[]>([]);
   
@@ -315,7 +319,7 @@ export function AssistantSidebar({
       let hasServerKey = serverHasGrokKey;
       if (hasServerKey === null) {
         try {
-          const r = await fetch('/api/config');
+          const r = await fetch(withProjectQuery('/api/config'));
           const cfg = (await readResponseJson(r)) as { hasGrokApiKey?: boolean };
           hasServerKey = Boolean(cfg.hasGrokApiKey);
           setServerHasGrokKey(hasServerKey);
@@ -345,7 +349,7 @@ export function AssistantSidebar({
         const [mpWrap, uiWrap] = await Promise.all([
           (async () => {
             try {
-              const mpRes = await fetch('/api/master-plan/read');
+              const mpRes = await fetch(withProjectQuery('/api/master-plan/read'));
               const data = await readResponseJson(mpRes);
               if (mpRes.ok) return data as Record<string, unknown>;
             } catch (e) {
@@ -355,7 +359,7 @@ export function AssistantSidebar({
           })(),
           (async () => {
             try {
-              const uiRes = await fetch('/api/nebula-ui-studio/code');
+              const uiRes = await fetch(withProjectQuery('/api/nebula-ui-studio/code'));
               if (uiRes.ok) {
                 const uiData = await readResponseJson<{ code?: string }>(uiRes);
                 return uiData.code?.trim() || '';
@@ -723,25 +727,27 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
       const data = await fetchJson<{
         choices?: { message?: { content?: string; planningPhase?: string } }[];
-      }>('/api/grok/chat', {
+      }>(withProjectQuery('/api/grok/chat'), {
         method: 'POST',
         headers: grokHeaders,
         signal: chatAbort.signal,
-        body: JSON.stringify({
-          userId,
-          projectName,
-          onboardingAutopilot: Boolean(opts?.onboardingAutopilot),
-          messages: opts?.onboardingAutopilot
-            ? [{ role: 'user', content: textToSend }]
-            : [
-                { role: 'system', content: systemPrompt },
-                ...messages.slice(-10).map((m) => ({
-                  role: m.role === 'model' ? 'assistant' : m.role,
-                  content: m.text,
-                })),
-                { role: 'user', content: textToSend },
-              ],
-        }),
+        body: JSON.stringify(
+          withProjectBody({
+            userId,
+            projectName,
+            onboardingAutopilot: Boolean(opts?.onboardingAutopilot),
+            messages: opts?.onboardingAutopilot
+              ? [{ role: 'user', content: textToSend }]
+              : [
+                  { role: 'system', content: systemPrompt },
+                  ...messages.slice(-10).map((m) => ({
+                    role: m.role === 'model' ? 'assistant' : m.role,
+                    content: m.text,
+                  })),
+                  { role: 'user', content: textToSend },
+                ],
+          }),
+        ),
       });
       if (grokChatAbortRef.current === chatAbort) {
         grokChatAbortRef.current = null;
@@ -800,7 +806,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
 
       const runGoCodePipeline = async (codingSource: string, note?: string) => {
         if ((window as any).openCodingMode) {
-          (window as any).openCodingMode('nebula-project/project-execution-rules.md');
+          (window as any).openCodingMode('project-execution-rules.md');
         }
         startRealtimeCodingStatus('Grok Code starting implementation');
         setMessages((prev) => [...prev, { role: 'system', text: 'Grok Code started. Building implementation now…' }]);
@@ -819,15 +825,17 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             choices?: { message?: { content?: string } }[];
             codeError?: string;
             error?: string;
-          }>('/api/grok/go-code', {
+          }>(withProjectQuery('/api/grok/go-code'), {
             method: 'POST',
             headers: goHeaders,
-            body: JSON.stringify({
-              userId,
-              projectName,
-              messages: goPayloadMessages,
-              userNote: note || undefined,
-            }),
+            body: JSON.stringify(
+              withProjectBody({
+                userId,
+                projectName,
+                messages: goPayloadMessages,
+                userNote: note || undefined,
+              }),
+            ),
           });
           const goText = goData.choices?.[0]?.message?.content?.trim() || '';
           if (goData.error || goData.codeError) {
@@ -847,10 +855,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
                 parsedBlocks?: number;
                 usedFallbackPath?: string;
                 error?: string;
-              }>('/api/files/apply-generated', {
+              }>(withProjectQuery('/api/files/apply-generated'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: goText }),
+                body: JSON.stringify(withProjectBody({ content: goText })),
               });
               if (apply.error) {
                 stopRealtimeCodingStatus();
@@ -916,20 +924,22 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         try {
           const executeData = await fetchJson<{
             choices?: { message?: { content?: string } }[];
-          }>('/api/grok/execute-project-rules', {
+          }>(withProjectQuery('/api/grok/execute-project-rules'), {
             method: 'POST',
             headers: grokHeaders,
-            body: JSON.stringify({
-              userId,
-              projectName,
-              messages: [
-                ...messages.slice(-8).map((m) => ({
-                  role: m.role === 'model' ? 'assistant' : m.role,
-                  content: m.text,
-                })),
-                { role: 'assistant', content: masterPlanSource },
-              ],
-            }),
+            body: JSON.stringify(
+              withProjectBody({
+                userId,
+                projectName,
+                messages: [
+                  ...messages.slice(-8).map((m) => ({
+                    role: m.role === 'model' ? 'assistant' : m.role,
+                    content: m.text,
+                  })),
+                  { role: 'assistant', content: masterPlanSource },
+                ],
+              }),
+            ),
           });
           const autoResponse = executeData.choices?.[0]?.message?.content || '';
           const autoClean = autoResponse
@@ -971,10 +981,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       if (uiStudioPromptMatch) {
         const prompt = uiStudioPromptMatch[1].trim();
         if (prompt) {
-          await fetch('/api/nebula-ui-studio/prompt', {
+          await fetch(withProjectQuery('/api/nebula-ui-studio/prompt'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt }),
+            body: JSON.stringify(withProjectBody({ prompt })),
           }).catch((err) => console.error('Failed to save Nebula UI Studio prompt:', err));
         }
       }
@@ -1203,7 +1213,7 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
     let hasServerKey = serverHasGrokKey;
     if (hasServerKey === null) {
       try {
-        const r = await fetch('/api/config');
+        const r = await fetch(withProjectQuery('/api/config'));
         const cfg = (await readResponseJson(r)) as { hasGrokApiKey?: boolean };
         hasServerKey = Boolean(cfg.hasGrokApiKey);
         setServerHasGrokKey(hasServerKey);
@@ -1257,15 +1267,17 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
         codeError?: string;
         choices?: { message?: { content?: string } }[];
         error?: string;
-      }>('/api/grok/go-code', {
+      }>(withProjectQuery('/api/grok/go-code'), {
         method: 'POST',
         headers: grokHeaders,
-        body: JSON.stringify({
-          userId,
-          projectName,
-          userNote: userNote || undefined,
-          messages: payloadMessages,
-        }),
+        body: JSON.stringify(
+          withProjectBody({
+            userId,
+            projectName,
+            userNote: userNote || undefined,
+            messages: payloadMessages,
+          }),
+        ),
       });
 
       if (data.error && !data.summarySaved) {
@@ -1307,10 +1319,10 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
             parsedBlocks?: number;
             usedFallbackPath?: string;
             error?: string;
-          }>('/api/files/apply-generated', {
+          }>(withProjectQuery('/api/files/apply-generated'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: cleanCode }),
+            body: JSON.stringify(withProjectBody({ content: cleanCode })),
           });
           if (apply.error) {
             setMessages((prev) => [
@@ -1349,11 +1361,11 @@ ${uiStudioApprovedCode || 'No approved UI code yet.'}`;
       }
 
       if ((window as any).openCodingMode) {
-        (window as any).openCodingMode('nebula-project/project-execution-rules.md');
+        (window as any).openCodingMode('project-execution-rules.md');
       }
 
       try {
-        const mpRes = await fetch('/api/master-plan/read');
+        const mpRes = await fetch(withProjectQuery('/api/master-plan/read'));
         const mpData = await readResponseJson(mpRes);
         if (mpRes.ok) setMasterPlan(mpData);
       } catch {

@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { getStoredGrokApiKey } from '../lib/grokKey';
+import { withProjectBody, withProjectQuery } from '../lib/nebulaProjectApi';
 
 type Step = 'branding' | 'generating' | 'review' | 'pencil' | 'final';
 
@@ -98,15 +99,17 @@ export function PencilStudio({
 
   const generateMockup = async (variationIndex: number): Promise<GenerationSlot> => {
     setError('');
-    const response = await fetch('/api/nebula-ui-studio/generate', {
+    const response = await fetch(withProjectQuery('/api/nebula-ui-studio/generate'), {
       method: 'POST',
       headers: persistHeaders(),
-      body: JSON.stringify({
-        pagesText,
-        branding,
-        variationIndex,
-        grokApiKey: getStoredGrokApiKey(),
-      }),
+      body: JSON.stringify(
+        withProjectBody({
+          pagesText,
+          branding,
+          variationIndex,
+          grokApiKey: getStoredGrokApiKey(),
+        }),
+      ),
     });
 
     if (!response.ok) {
@@ -180,10 +183,10 @@ export function PencilStudio({
       return;
     }
     setError('');
-    fetch('/api/nebula-ui-studio/approve', {
+    fetch(withProjectQuery('/api/nebula-ui-studio/approve'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: codeSaved || generatedCode }),
+      body: JSON.stringify(withProjectBody({ code: codeSaved || generatedCode })),
     })
       .then(async (res) => {
         if (!res.ok) {
@@ -219,14 +222,16 @@ export function PencilStudio({
     if (!dirty) return;
     setSaveModal({ warnings: [], summary: '', analyzing: true });
     try {
-      const res = await fetch('/api/nebula-ui-studio/analyze-edit', {
+      const res = await fetch(withProjectQuery('/api/nebula-ui-studio/analyze-edit'), {
         method: 'POST',
         headers: persistHeaders(),
-        body: JSON.stringify({
-          originalCode: codeSaved,
-          editedCode: codeDraft,
-          grokApiKey: getStoredGrokApiKey(),
-        }),
+        body: JSON.stringify(
+          withProjectBody({
+            originalCode: codeSaved,
+            editedCode: codeDraft,
+            grokApiKey: getStoredGrokApiKey(),
+          }),
+        ),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Analysis failed');
@@ -268,14 +273,16 @@ export function PencilStudio({
     setApplyBusy(true);
     try {
       const warnText = saveModal ? [...saveModal.warnings, saveModal.summary].filter(Boolean).join('\n') : '';
-      const res = await fetch('/api/nebula-ui-studio/adapt-edit', {
+      const res = await fetch(withProjectQuery('/api/nebula-ui-studio/adapt-edit'), {
         method: 'POST',
         headers: persistHeaders(),
-        body: JSON.stringify({
-          editedCode: codeDraft,
-          warningsSummary: warnText,
-          grokApiKey: getStoredGrokApiKey(),
-        }),
+        body: JSON.stringify(
+          withProjectBody({
+            editedCode: codeDraft,
+            warningsSummary: warnText,
+            grokApiKey: getStoredGrokApiKey(),
+          }),
+        ),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Adapt failed');

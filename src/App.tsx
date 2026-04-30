@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import {
   BookOpen,
@@ -9,6 +9,7 @@ import {
   GripVertical,
   Key,
   LayoutGrid,
+  LogOut,
   Network,
   Palette,
   Save,
@@ -16,6 +17,7 @@ import {
   Terminal,
 } from 'lucide-react';
 import { LandingPage } from './components/LandingPage.tsx';
+import { LoginScreen } from './components/LoginScreen';
 import { MasterPlan } from './components/MasterPlan';
 import { MindMap } from './components/MindMap';
 import { PencilStudio } from './components/PencilStudio';
@@ -25,6 +27,8 @@ import { ExecutionRulesViewer } from './components/ExecutionRulesViewer';
 import { Logo } from './components/Logo';
 import { SourceControlPanel } from './components/SourceControlPanel';
 import { readResponseJson } from './lib/apiFetch';
+import { fetchSessionUser, listCloudProjects, logoutNebula, type CloudProjectRow, type NebulaSessionUser } from './lib/nebulaCloud';
+import { setBrowserProjectKey, setBrowserProjectName, withProjectQuery, withProjectBody } from './lib/nebulaProjectApi';
 
 type MainPanel =
   | 'nebula-ui-studio'
@@ -90,8 +94,44 @@ const seedEdges: Edge[] = [
   { id: 'e2-3', source: '2', target: '3', animated: true, style: { stroke: '#00ffff' } },
 ];
 
+function cloudDiskKeyFromRow(r: CloudProjectRow): string {
+  const w = r.workspace_id != null ? String(r.workspace_id).trim() : '';
+  if (!w) return 'default';
+  const cleaned = w.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  return cleaned || 'default';
+}
+
+function cloneGraphPages(raw: unknown): Node[] {
+  if (Array.isArray(raw)) return JSON.parse(JSON.stringify(raw)) as Node[];
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw) as unknown;
+      if (Array.isArray(p)) return JSON.parse(JSON.stringify(p)) as Node[];
+    } catch {
+      /* ignore */
+    }
+  }
+  return JSON.parse(JSON.stringify(seedPages)) as Node[];
+}
+
+function cloneGraphEdges(raw: unknown): Edge[] {
+  if (Array.isArray(raw)) return JSON.parse(JSON.stringify(raw)) as Edge[];
+  if (typeof raw === 'string') {
+    try {
+      const e = JSON.parse(raw) as unknown;
+      if (Array.isArray(e)) return JSON.parse(JSON.stringify(e)) as Edge[];
+    } catch {
+      /* ignore */
+    }
+  }
+  return JSON.parse(JSON.stringify(seedEdges)) as Edge[];
+}
+
+type AppStage = 'landing' | 'sign-in' | 'studio';
+
 function App() {
-  const [enteredApp, setEnteredApp] = useState(false);
+  const [appStage, setAppStage] = useState<AppStage>('landing');
+  const [sessionUser, setSessionUser] = useState<NebulaSessionUser | null>(null);
   const [mainPanel, setMainPanel] = useState<MainPanel>('master-plan');
 
   const [pages, setPages] = useState<Node[]>(() => JSON.parse(JSON.stringify(seedPages)) as Node[]);
@@ -108,26 +148,13 @@ function App() {
   }>({});
 
   const [codeMode, setCodeMode] = useState(false);
-  const [executionRulesPath, setExecutionRulesPath] = useState('nebula-project/project-execution-rules.md');
+  const [executionRulesPath, setExecutionRulesPath] = useState('project-execution-rules.md');
   const [terminalOutput, setTerminalOutput] = useState<string[]>([
     '$ npm run dev',
     'Ready — use the left sidebar to switch views.',
   ]);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalBusy, setTerminalBusy] = useState(false);
-  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
-  const [workspaceInput, setWorkspaceInput] = useState('');
-  const [workspaceBusy, setWorkspaceBusy] = useState(false);
-  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
-  const [workspaceChecked, setWorkspaceChecked] = useState(false);
-  const folderFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
-  const isHostedMode =
-    typeof window !== 'undefined' &&
-    !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname) &&
-    !window.location.hostname.endsWith('.local');
-
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [assistantWidth, setAssistantWidth] = useState(() => {
     try {
@@ -161,7 +188,7 @@ function App() {
       if (relPath && typeof relPath === 'string' && relPath.trim()) {
         setExecutionRulesPath(relPath.trim());
       } else {
-        setExecutionRulesPath('nebula-project/project-execution-rules.md');
+        setExecutionRulesPath('project-execution-rules.md');
       }
       setMainPanel('project-rules');
     };
@@ -178,137 +205,58 @@ function App() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/config')
+    fetch(withProjectQuery('/api/config'))
       .then((r) => r.json())
       .then((d) => setApiConfig(d))
       .catch(() => setApiConfig({}));
-  }, []);
+  }, [activeProjectKey, projectName]);
 
   useEffect(() => {
-    if (!enteredApp) return;
+    if (appStage !== 'studio') return;
     let cancelled = false;
-    const loadActiveWorkspace = async () => {
-      setWorkspaceBusy(true);
-      setWorkspaceError(null);
-      try {
-        const res = await fetch('/api/workspace/active');
-        const data = await readResponseJson<{ activePath?: string | null; configuredPath?: string | null; error?: string }>(res);
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        if (cancelled) return;
-        const active = typeof data.activePath === 'string' && data.activePath.trim() ? data.activePath.trim() : null;
-        setWorkspacePath(active);
-        setWorkspaceInput(active || (typeof data.configuredPath === 'string' ? data.configuredPath : ''));
-      } catch (e) {
-        if (!cancelled) {
-          setWorkspaceError(e instanceof Error ? e.message : 'Failed to load active workspace');
-          setWorkspacePath(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setWorkspaceBusy(false);
-          setWorkspaceChecked(true);
-        }
+    void (async () => {
+      const user = await fetchSessionUser();
+      if (cancelled) return;
+      setSessionUser(user);
+      if (!user) {
+        setAppStage('sign-in');
+        return;
       }
-    };
-    void loadActiveWorkspace();
+      const rows = await listCloudProjects();
+      if (cancelled || rows.length === 0) return;
+      const mapped = rows.map((r) => ({
+        key: cloudDiskKeyFromRow(r),
+        name: r.name,
+        updatedAt: r.updated_at,
+      }));
+      setProjects(mapped);
+      const primary = rows[0];
+      setActiveProjectKey(cloudDiskKeyFromRow(primary));
+      setProjectName(primary.name);
+      setPages(cloneGraphPages(primary.pages));
+      setEdges(cloneGraphEdges(primary.edges));
+    })();
     return () => {
       cancelled = true;
     };
-  }, [enteredApp]);
+  }, [appStage]);
 
-  const applyWorkspacePath = useCallback(async () => {
-    if (isHostedMode) {
-      setWorkspaceError('Local absolute folder paths are only available in local mode (localhost).');
-      return false;
-    }
-    const pathToSet = workspaceInput.trim();
-    if (!pathToSet || workspaceBusy) return false;
-    setWorkspaceBusy(true);
-    setWorkspaceError(null);
-    setWorkspaceNotice(null);
-    try {
-      const res = await fetch('/api/workspace/active', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: pathToSet }),
-      });
-      const data = await readResponseJson<{ activePath?: string; error?: string }>(res);
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      const active = typeof data.activePath === 'string' ? data.activePath : pathToSet;
-      setWorkspacePath(active);
-      setWorkspaceInput(active);
-      setTerminalOutput((prev) => [...prev, `[workspace] active folder set to ${active}`]);
-      window.dispatchEvent(new CustomEvent('nebula-master-plan-updated'));
-      return true;
-    } catch (e) {
-      setWorkspaceError(e instanceof Error ? e.message : 'Could not set workspace path');
-      setWorkspacePath(null);
-      return false;
-    } finally {
-      setWorkspaceBusy(false);
-      setWorkspaceChecked(true);
-    }
-  }, [isHostedMode, workspaceBusy, workspaceInput]);
-
-  const pickWorkspaceFolder = useCallback(async () => {
-    if (workspaceBusy) return;
-    if (isHostedMode) {
-      setWorkspaceError('Folder picking cannot map to your computer path in hosted mode. Use localhost for local file writes.');
-      return;
-    }
-    const picker = (window as Window & { showDirectoryPicker?: () => Promise<{ name?: string }> }).showDirectoryPicker;
-    if (picker) {
-      try {
-        setWorkspaceError(null);
-        const handle = await picker();
-        const selectedName = typeof handle?.name === 'string' && handle.name.trim() ? handle.name.trim() : 'selected folder';
-        setWorkspaceNotice(
-          `Folder "${selectedName}" selected. Browser security does not expose the full local path here, so paste the absolute path (example: /Users/yourname/Documents/${selectedName}) then click "Set active folder".`,
-        );
-        return;
-      } catch (e) {
-        const err = e as DOMException;
-        if (err?.name === 'AbortError') return;
-      }
-    }
-    setWorkspaceError(null);
-    setWorkspaceNotice(
-      'Using browser fallback picker. After choosing a folder, paste its absolute path into the input and click "Set active folder".',
-    );
-    folderFileInputRef.current?.click();
-  }, [isHostedMode, workspaceBusy]);
-
-  const onFolderInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const firstFile = files[0];
-    const relPath =
-      typeof (firstFile as File & { webkitRelativePath?: string }).webkitRelativePath === 'string'
-        ? (firstFile as File & { webkitRelativePath?: string }).webkitRelativePath || ''
-        : '';
-    const selectedName = relPath.split('/')[0] || firstFile.name || 'selected folder';
-    setWorkspaceNotice(
-      `Folder "${selectedName}" selected. Browser security does not expose the full absolute path. Paste the local absolute path, then click "Set active folder".`,
-    );
-    e.target.value = '';
+  const handleAuthenticated = useCallback(() => {
+    setAppStage('studio');
   }, []);
 
-  const requestWorkspaceAccess = useCallback(
-    (next?: () => void) => {
-      if (isHostedMode) {
-        setWorkspaceNotice('Hosted mode detected. Local folder binding is disabled here; use localhost for local save/commit.');
-        next?.();
-        return;
-      }
-      if (workspacePath) {
-        next?.();
-        return;
-      }
-      setWorkspaceNotice('Set your local folder first to save, commit, or leave this page.');
-      setShowWorkspaceModal(true);
-    },
-    [isHostedMode, workspacePath],
-  );
+  const handleSignOut = useCallback(() => {
+    void (async () => {
+      await logoutNebula();
+      setSessionUser(null);
+      setAppStage('sign-in');
+    })();
+  }, []);
+
+  useLayoutEffect(() => {
+    setBrowserProjectKey(activeProjectKey);
+    setBrowserProjectName(projectName);
+  }, [activeProjectKey, projectName]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -353,14 +301,14 @@ function App() {
   const runTerminalCommand = useCallback(
     async (command: string) => {
       const cmd = command.trim();
-      if (!cmd || terminalBusy || !workspacePath) return;
+      if (!cmd || terminalBusy) return;
       setTerminalBusy(true);
       setTerminalOutput((prev) => [...prev, `$ ${cmd}`]);
       try {
         const res = await fetch('/api/terminal/exec', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: cmd }),
+          body: JSON.stringify(withProjectBody({ command: cmd })),
         });
         const data = await readResponseJson<{ output?: string; error?: string }>(res);
         if (!res.ok) {
@@ -375,7 +323,7 @@ function App() {
         setTerminalBusy(false);
       }
     },
-    [terminalBusy, workspacePath],
+    [terminalBusy, activeProjectKey, projectName],
   );
 
   const handleSaveToMasterPlan = useCallback(() => {
@@ -473,7 +421,11 @@ function App() {
       case 'master-plan':
         return (
           <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
-            <MasterPlan onClose={() => setMainPanel('mind-map')} pagesText={pagesText} />
+            <MasterPlan
+              onClose={() => setMainPanel('mind-map')}
+              pagesText={pagesText}
+              projectKey={activeProjectKey}
+            />
           </div>
         );
       case 'project-rules':
@@ -481,6 +433,8 @@ function App() {
           <div className="flex-1 min-h-0 h-full p-4 overflow-hidden flex flex-col">
             <ExecutionRulesViewer
               filePath={executionRulesPath}
+              projectKey={activeProjectKey}
+              projectName={projectName}
               onExitCodeMode={() => {
                 setCodeMode(false);
                 setMainPanel('master-plan');
@@ -491,7 +445,7 @@ function App() {
       case 'source-control':
         return (
           <div className="flex-1 min-h-0 h-full p-4 overflow-hidden flex flex-col">
-            <SourceControlPanel />
+            <SourceControlPanel projectKey={activeProjectKey} projectName={projectName} />
           </div>
         );
       case 'my-projects':
@@ -541,8 +495,12 @@ function App() {
     </button>
   );
 
-  if (!enteredApp) {
-    return <LandingPage onEnter={() => setEnteredApp(true)} />;
+  if (appStage === 'landing') {
+    return <LandingPage onEnter={() => setAppStage('sign-in')} />;
+  }
+
+  if (appStage === 'sign-in') {
+    return <LoginScreen onAuthenticated={handleAuthenticated} onBack={() => setAppStage('landing')} />;
   }
 
   return (
@@ -555,13 +513,39 @@ function App() {
             <p className="text-slate-400 text-xs leading-tight">IDE Workspace</p>
           </div>
         </div>
-        <button
-          type="button"
-            onClick={() => requestWorkspaceAccess(() => setEnteredApp(false))}
-          className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30"
-        >
-          Back to Landing
-        </button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {sessionUser ? (
+            <span
+              className="text-xs text-slate-500 max-w-[200px] truncate hidden sm:inline"
+              title={sessionUser.email || sessionUser.displayName || undefined}
+            >
+              {sessionUser.email || sessionUser.displayName || 'Signed in'}
+            </span>
+          ) : null}
+          <a
+            href={withProjectQuery('/api/cloud-project/download')}
+            className="text-xs px-3 py-1.5 rounded-md border border-cyan-500/30 text-cyan-200 hover:bg-cyan-500/10"
+            download
+          >
+            Download project
+          </a>
+          <button
+            type="button"
+            onClick={() => void handleSignOut()}
+            className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30 inline-flex items-center gap-1.5"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" aria-hidden />
+            Sign out
+          </button>
+          <button
+            type="button"
+            onClick={() => setAppStage('landing')}
+            className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30"
+          >
+            Home
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 min-h-0 flex overflow-hidden">
@@ -588,7 +572,7 @@ function App() {
                 type="button"
                 title="Save / Commit"
                 aria-label="Save / Commit"
-                onClick={() => requestWorkspaceAccess(() => setMainPanel('source-control'))}
+                onClick={() => setMainPanel('source-control')}
                 className={`p-2 rounded-lg transition-colors ${
                   mainPanel === 'source-control' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-500 hover:text-cyan-300'
                 }`}
@@ -665,8 +649,8 @@ function App() {
               <input
                 value={terminalInput}
                 onChange={(e) => setTerminalInput(e.target.value)}
-                disabled={terminalBusy || !workspacePath}
-                placeholder={terminalBusy ? 'Running…' : workspacePath ? 'Type a command and press Enter' : 'Select workspace first'}
+                disabled={terminalBusy}
+                placeholder={terminalBusy ? 'Running…' : 'Type a command and press Enter (cloud workspace)'}
                 className="w-full bg-transparent text-xs text-slate-200 outline-none placeholder:text-slate-600"
               />
               <button
@@ -685,7 +669,7 @@ function App() {
               </button>
             </form>
             <div className="h-6 border-t border-white/5 px-3 flex items-center text-[10px] text-slate-500">
-              cwd: {workspacePath || 'not set'}
+              cloud workspace: {activeProjectKey}
             </div>
           </div>
         </section>
@@ -707,8 +691,9 @@ function App() {
 
         <AssistantSidebar
           width={assistantWidth}
-          userId="anonymous"
+          userId={sessionUser?.uid ?? 'anonymous'}
           projectName={projectName}
+          activeProjectKey={activeProjectKey}
           codeMode={codeMode}
           onExitCodeMode={() => {
             setCodeMode(false);
@@ -716,74 +701,6 @@ function App() {
           }}
         />
       </main>
-      {showWorkspaceModal ? (
-        <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <section className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#040f1a] p-6 md:p-8 space-y-5">
-            <div className="flex items-center justify-between gap-4">
-              <h1 className="text-xl text-cyan-200 font-headline">Open your local product folder</h1>
-              <button
-                type="button"
-                onClick={() => setShowWorkspaceModal(false)}
-                className="text-xs px-3 py-1.5 rounded-md border border-white/15 text-slate-300 hover:text-white hover:border-white/30"
-              >
-                Close
-              </button>
-            </div>
-            <p className="text-sm text-slate-300">
-              Before generating app code, saving locally, committing, or leaving this page, choose a local folder on your computer.
-              Nebulla will create frontend, backend, and database files only inside that folder.
-            </p>
-            {isHostedMode ? (
-              <p className="text-sm text-amber-200/90 border border-amber-500/25 bg-amber-500/10 rounded-lg px-3 py-2">
-                Hosted mode detected ({typeof window !== 'undefined' ? window.location.hostname : 'remote host'}). Local absolute paths
-                from your computer cannot be resolved by this server. Use localhost for local folder save/commit flows.
-              </p>
-            ) : null}
-            <label className="block space-y-2">
-              <span className="text-xs uppercase tracking-wider text-slate-500">Local folder absolute path</span>
-              <input
-                value={workspaceInput}
-                onChange={(e) => setWorkspaceInput(e.target.value)}
-                placeholder="/Users/you/Projects/Accountant"
-                className="w-full rounded-lg border border-white/15 bg-[#081425] px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-500/60"
-                disabled={workspaceBusy || isHostedMode}
-              />
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                ref={folderFileInputRef}
-                type="file"
-                className="hidden"
-                onChange={onFolderInputChange}
-                {...{ webkitdirectory: '', directory: '', multiple: true }}
-              />
-              <button
-                type="button"
-                onClick={() => void pickWorkspaceFolder()}
-                disabled={workspaceBusy || isHostedMode}
-                className="px-4 py-2 rounded-lg border border-white/20 bg-white/5 text-slate-200 text-sm disabled:opacity-40"
-              >
-                Choose folder
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void applyWorkspacePath().then((ok) => {
-                    if (ok) setShowWorkspaceModal(false);
-                  });
-                }}
-                disabled={workspaceBusy || !workspaceInput.trim() || isHostedMode}
-                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-500/15 text-cyan-100 text-sm disabled:opacity-40"
-              >
-                {workspaceBusy ? 'Setting folder…' : 'Set active folder'}
-              </button>
-              {workspaceChecked && workspaceBusy ? <span className="text-xs text-slate-500">Validating folder…</span> : null}
-            </div>
-            {workspaceNotice ? <p className="text-sm text-amber-200/90">{workspaceNotice}</p> : null}
-            {workspaceError ? <p className="text-sm text-red-300/90">{workspaceError}</p> : null}
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }

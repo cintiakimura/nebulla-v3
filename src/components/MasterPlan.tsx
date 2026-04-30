@@ -2,8 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Lock, Save, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { readResponseJson } from '../lib/apiFetch';
+import { withProjectBody, withProjectQuery } from '../lib/nebulaProjectApi';
 
-export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesText: string }) {
+export function MasterPlan({
+  onClose,
+  pagesText,
+  projectKey = 'default',
+}: {
+  onClose: () => void;
+  pagesText: string;
+  projectKey?: string;
+}) {
   const [planData, setPlanData] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [titles, setTitles] = useState<string[]>([
@@ -14,24 +23,10 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     '5. UI/UX design',
     '6. Environment Setup'
   ]);
-  const tabDescriptions: Record<string, string> = {
-    '1. Goal of the app':
-      'Nebula Partner asks one question at a time (see project-execution-rules.md §4). First question: the single core feature your app must deliver. Then who it is for, roles, security, scale, competitors, integrations—each in its own turn. When ready, Nebula asks if there is anything else to add; after your answer, chat stops, the Master Plan is filled, and Code Mode opens project-execution-rules.md.',
-    '2. Tech Research':
-      "I'll show you similar tools that already exist, what features they use, and features that are validated and backed by science, real studies or data. This helps us choose the smartest features for your app strategically.",
-    '3. Features and KPIs':
-      "From the research, we'll pick the best features and for each feature, we'll define clear success criteria (KPIs), so we can test the MVP per phase before moving to the next development phase.",
-    '4. Pages and navigation':
-      "This page defines roles, divides features per role, and captures your expectations from landing page to checkout. We'll map everything in the Mind Map so every page has its own interactive node and clearly shows which user type uses each page.",
-    '5. UI/UX design':
-      "After pages are approved, Nebula UI Studio (Pencil) generates a complete design from previous tabs. You can edit it, regenerate it, and approve the final UI/UX before moving on.",
-    '6. Environment Setup':
-      'Internal tab (Environment Setup): Render architecture, secrets sync, and delivery phases. When someone creates a project in Nebula, the control plane provisions a dedicated Render workspace under nebulla.dev.ai@gmail.com; the returned workspace_id is the permanent internal client ID—server-side only. Web services, Postgres, workers, and env vars all live in that workspace. Dashboard Secrets and Integrations must mirror to Render for the active project. This tab never shows workspace or client IDs; you only see project-facing context.',
-  };
 
   const fetchPlan = useCallback(async () => {
     try {
-      const res = await fetch('/api/master-plan/read');
+      const res = await fetch(withProjectQuery('/api/master-plan/read'));
       if (res.ok) {
         const data = await readResponseJson<Record<string, string>>(res);
         setPlanData(data);
@@ -43,7 +38,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
       console.error("Error fetching master plan:", err);
       setLoading(false);
     }
-  }, []);
+  }, [projectKey]);
 
   useEffect(() => {
     void fetchPlan();
@@ -66,10 +61,10 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
 
       // Persist to backend
       try {
-        const res = await fetch('/api/master-plan/update', {
+        const res = await fetch(withProjectQuery('/api/master-plan/update'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tabIndex: tabNumber, content: newText })
+          body: JSON.stringify(withProjectBody({ tabIndex: tabNumber, content: newText })),
         });
         return await res.json();
       } catch (err) {
@@ -81,7 +76,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
     return () => {
       delete (window as any).updateMasterPlanSection;
     };
-  }, [titles]);
+  }, [titles, projectKey]);
 
   const PLAN_SECTIONS = titles.map((title, index) => {
     const id = title.toLowerCase().replace(/[^a-z0-9]/g, '-');
@@ -92,7 +87,7 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
       content = pagesText;
     }
 
-    return { id, title, content, helpText: tabDescriptions[title] || '' };
+    return { id, title, content };
   });
   const visibleSections = PLAN_SECTIONS.slice(0, 5);
 
@@ -186,11 +181,6 @@ export function MasterPlan({ onClose, pagesText }: { onClose: () => void, pagesT
         {/* Content Area (Read-only Doc) */}
         <div className="flex-1 bg-[#020810] p-8 overflow-y-auto">
           <div className="max-w-3xl mx-auto bg-white/[0.02] border border-white/5 rounded-xl p-8 min-h-full shadow-lg prose prose-invert prose-sm max-w-none prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 prose-pre:p-2 prose-pre:rounded-md prose-table:border prose-table:border-white/10 prose-th:bg-white/5 prose-th:p-2 prose-td:p-2 prose-td:border-t prose-td:border-white/10">
-            {activeSection?.helpText ? (
-              <p style={{ color: '#00c600' }} className="text-sm leading-relaxed mb-4">
-                {activeSection.helpText}
-              </p>
-            ) : null}
             <ReactMarkdown>
               {activeContent || ''}
             </ReactMarkdown>
