@@ -136,6 +136,8 @@ export function getRenderPublicConfig() {
     githubOAuthReady: Boolean(
       process.env.GITHUB_CLIENT_ID?.trim() && process.env.GITHUB_CLIENT_SECRET?.trim()
     ),
+    /** When false, new projects get a synthetic `local-…` disk id (no Render Control Plane workspace). */
+    renderWorkspaceApiReady: Boolean(process.env.RENDER_API_KEY?.trim()),
   };
 }
 

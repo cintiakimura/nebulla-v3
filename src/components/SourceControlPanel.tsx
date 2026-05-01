@@ -80,6 +80,7 @@ export function SourceControlPanel({
 }) {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [renderWorkspaceApiReady, setRenderWorkspaceApiReady] = useState<boolean | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -92,12 +93,21 @@ export function SourceControlPanel({
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch(withProjectQuery('/api/source-control/overview'));
-      const j = await readResponseJson<Overview & { error?: string }>(res);
-      if (!res.ok) {
-        throw new Error(typeof j.error === 'string' ? j.error : `HTTP ${res.status}`);
+      const [overviewRes, cfgRes] = await Promise.all([
+        fetch(withProjectQuery('/api/source-control/overview')),
+        fetch('/api/config'),
+      ]);
+      const j = await readResponseJson<Overview & { error?: string }>(overviewRes);
+      if (!overviewRes.ok) {
+        throw new Error(typeof j.error === 'string' ? j.error : `HTTP ${overviewRes.status}`);
       }
       setData(j);
+      if (cfgRes.ok) {
+        const cfg = (await cfgRes.json()) as { renderWorkspaceApiReady?: boolean };
+        setRenderWorkspaceApiReady(Boolean(cfg.renderWorkspaceApiReady));
+      } else {
+        setRenderWorkspaceApiReady(null);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed to load source control');
       setData(null);
@@ -265,6 +275,23 @@ export function SourceControlPanel({
 
       {err ? (
         <div className="p-4 text-sm text-red-300/90 border-b border-red-500/20 bg-red-950/20">{err}</div>
+      ) : null}
+
+      {projectKey.startsWith('local-') ? (
+        <div className="shrink-0 px-4 py-2.5 text-xs text-amber-200/95 border-b border-amber-500/25 bg-amber-950/25 leading-relaxed">
+          This project’s ID starts with <code className="text-amber-100/90">local-</code> — the server could not create
+          a <strong>Render</strong> workspace via the API, so files live in an isolated on-disk sandbox instead.
+          {renderWorkspaceApiReady === false ? (
+            <>
+              {' '}
+              Add <code className="text-slate-300">RENDER_API_KEY</code> to your Web Service environment on Render (API
+              key from Dashboard → Account → API Keys), redeploy, then create a new account or project to get a real
+              Render workspace ID.
+            </>
+          ) : renderWorkspaceApiReady === true ? (
+            <> Check server logs for <code className="text-slate-300">Render workspace creation failed</code> — the key is set but the API call failed.</>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
