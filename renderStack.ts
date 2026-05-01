@@ -136,8 +136,11 @@ export function getRenderPublicConfig() {
     githubOAuthReady: Boolean(
       process.env.GITHUB_CLIENT_ID?.trim() && process.env.GITHUB_CLIENT_SECRET?.trim()
     ),
-    /** When false, new projects get a synthetic `local-…` disk id (no Render Control Plane workspace). */
-    renderWorkspaceApiReady: Boolean(process.env.RENDER_API_KEY?.trim()),
+    /** When false, new projects get a synthetic `local-…` id (Render project API not configured). */
+    renderWorkspaceApiReady: Boolean(
+      process.env.RENDER_API_KEY?.trim() &&
+        (process.env.RENDER_OWNER_ID?.trim() || process.env.RENDER_WORKSPACE_ID?.trim())
+    ),
   };
 }
 
@@ -272,32 +275,45 @@ function setSessionCookie(res: Response, token: string, remember: boolean) {
   res.cookie(SESSION_COOKIE, token, cookieOptions);
 }
 
-async function createRenderWorkspace(workspaceName: string): Promise<{ id: string; name: string; raw: unknown }> {
+/**
+ * Creates a Render **Project** under your account/team owner.
+ * Render’s public API does not expose `POST /v1/workspaces` (404); projects are the supported unit for new isolation groups.
+ * Set `RENDER_OWNER_ID` (or alias `RENDER_WORKSPACE_ID`) to your owner id from Dashboard → Workspace Settings (e.g. `tea-…` / `usr-…`).
+ */
+async function createRenderProjectForNebula(displayName: string): Promise<{ id: string; name: string; raw: unknown }> {
   const renderApiKey = process.env.RENDER_API_KEY?.trim();
+  const ownerId =
+    process.env.RENDER_OWNER_ID?.trim() || process.env.RENDER_WORKSPACE_ID?.trim() || "";
   if (!renderApiKey) {
     throw new Error("RENDER_API_KEY is not configured.");
   }
+  if (!ownerId) {
+    throw new Error("RENDER_OWNER_ID (or RENDER_WORKSPACE_ID) is not configured.");
+  }
   const baseUrl = (process.env.RENDER_API_BASE_URL || "https://api.render.com/v1").replace(/\/$/, "");
-  const renderRes = await fetch(`${baseUrl}/workspaces`, {
+  const renderRes = await fetch(`${baseUrl}/projects`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${renderApiKey}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ name: workspaceName }),
+    body: JSON.stringify({
+      name: displayName,
+      ownerId,
+      environments: [{ name: "production" }],
+    }),
   });
   if (!renderRes.ok) {
     const errorText = await renderRes.text();
-    throw new Error(`Render workspace creation failed: ${errorText.slice(0, 300)}`);
+    throw new Error(`Render project creation failed (${renderRes.status}): ${errorText.slice(0, 400)}`);
   }
   const payload: any = await renderRes.json();
-  const workspaceId =
-    payload?.id || payload?.workspace?.id || payload?.workspaceId || payload?.workspace_id || null;
-  if (!workspaceId) throw new Error("Render response did not include a workspace ID.");
+  const projectId = payload?.id || payload?.project?.id || payload?.projectId || null;
+  if (!projectId) throw new Error("Render response did not include a project ID.");
   return {
-    id: String(workspaceId),
-    name: payload?.name || payload?.workspace?.name || workspaceName,
+    id: String(projectId),
+    name: payload?.name || payload?.project?.name || displayName,
     raw: payload,
   };
 }
@@ -317,12 +333,12 @@ async function provisionRenderWorkspaceForNewProject(
       .slice(0, 32) || "project";
   const workspaceName = `nebulla-${safe}-${shortId}`.slice(0, 63);
   try {
-    const created = await createRenderWorkspace(workspaceName);
+    const created = await createRenderProjectForNebula(workspaceName);
     return { id: created.id, name: created.name };
   } catch (e) {
     const id = `local-${crypto.randomBytes(16).toString("hex")}`;
     console.warn(
-      "[nebula] Render workspace creation failed; using synthetic id for disk isolation.",
+      "[nebula] Render project provisioning failed; using synthetic id for on-disk isolation.",
       e instanceof Error ? e.message : e
     );
     return { id, name: workspaceName };

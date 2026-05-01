@@ -280,16 +280,22 @@ export function SourceControlPanel({
       {projectKey.startsWith('local-') ? (
         <div className="shrink-0 px-4 py-2.5 text-xs text-amber-200/95 border-b border-amber-500/25 bg-amber-950/25 leading-relaxed">
           This project’s ID starts with <code className="text-amber-100/90">local-</code> — the server could not create
-          a <strong>Render</strong> workspace via the API, so files live in an isolated on-disk sandbox instead.
+          a <strong>Render project</strong> via the API, so files live in an isolated on-disk sandbox instead.
           {renderWorkspaceApiReady === false ? (
             <>
               {' '}
-              Add <code className="text-slate-300">RENDER_API_KEY</code> to your Web Service environment on Render (API
-              key from Dashboard → Account → API Keys), redeploy, then create a new account or project to get a real
-              Render workspace ID.
+              On Render, set <code className="text-slate-300">RENDER_API_KEY</code> (Account → API Keys) and{' '}
+              <code className="text-slate-300">RENDER_OWNER_ID</code> (Workspace Settings → id like{' '}
+              <code className="text-slate-400">tea-…</code> or <code className="text-slate-400">usr-…</code>), redeploy,
+              then sign up again or add a new project. Alias: <code className="text-slate-300">RENDER_WORKSPACE_ID</code>{' '}
+              is accepted instead of <code className="text-slate-300">RENDER_OWNER_ID</code>.
             </>
           ) : renderWorkspaceApiReady === true ? (
-            <> Check server logs for <code className="text-slate-300">Render workspace creation failed</code> — the key is set but the API call failed.</>
+            <>
+              {' '}
+              Check server logs for <code className="text-slate-300">Render project provisioning failed</code> — env is
+              set but the Render API rejected the request (see status and body in logs).
+            </>
           ) : null}
         </div>
       ) : null}
